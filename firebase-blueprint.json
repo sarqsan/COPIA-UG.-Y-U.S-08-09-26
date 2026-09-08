@@ -1,0 +1,221 @@
+{
+  "entities": {
+    "Persona": {
+      "title": "Persona",
+      "description": "Ficha de personal militar (ROL 1 / ROL 2)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nombre": { "type": "string", "maxLength": 150 },
+        "empleo": { "type": "string", "enum": ["ROL 1", "ROL 2"] },
+        "grupo": { "type": "string", "enum": ["U.G.", "US_SEGURIDAD"] },
+        "dni": { "type": "string", "maxLength": 20 },
+        "telefono": { "type": "string", "maxLength": 30 },
+        "activo": { "type": "boolean" },
+        "cicloId": { "type": "string", "maxLength": 100 },
+        "notas": { "type": "string", "maxLength": 1000 },
+        "fechaCreacion": { "type": "string" },
+        "fechaActualizacion": { "type": "string" }
+      },
+      "required": ["id", "nombre", "empleo", "grupo", "activo", "fechaCreacion", "fechaActualizacion"]
+    },
+    "Cuenta": {
+      "title": "Cuenta",
+      "description": "Cuenta de acceso al sistema (desacoplada de Persona)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "uid": { "type": "string" },
+        "personaId": { "type": "string" },
+        "email": { "type": "string", "maxLength": 150 },
+        "nombre": { "type": "string", "maxLength": 150 },
+        "rol": { "type": "string", "enum": ["ADMIN", "USUARIO"] },
+        "activo": { "type": "boolean" },
+        "fechaCreacion": { "type": "string" },
+        "ultimoAcceso": { "type": "string" }
+      },
+      "required": ["id", "uid", "email", "nombre", "rol", "activo", "fechaCreacion"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Registro inmutable de auditoría para trazabilidad de acciones",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "adminUid": { "type": "string" },
+        "adminNombre": { "type": "string" },
+        "accion": { "type": "string" },
+        "cuadranteId": { "type": "string" },
+        "fechaAfectada": { "type": "string" },
+        "personaId": { "type": "string" },
+        "personaNombre": { "type": "string" },
+        "personaIdOriginal": { "type": "string" },
+        "personaIdReal": { "type": "string" },
+        "motivo": { "type": "string" },
+        "detalles": { "type": "string" }
+      },
+      "required": ["id", "timestamp", "adminUid", "adminNombre", "accion", "detalles"]
+    },
+    "CuadranteMaestro": {
+      "title": "CuadranteMaestro",
+      "description": "Cabecera y metadatos del cuadrante de guardias y rotaciones",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "cicloId": { "type": "string" },
+        "nombre": { "type": "string", "maxLength": 150 },
+        "fechaInicio": { "type": "string" },
+        "fechaFin": { "type": "string" },
+        "totalDias": { "type": "number" },
+        "totalPersonas": { "type": "number" },
+        "totalRol1": { "type": "number" },
+        "totalRol2": { "type": "number" },
+        "estado": { "type": "string", "enum": ["SIMULACION", "CONFIRMADO", "HISTORICO", "ARCHIVADO"] },
+        "fechaCreacion": { "type": "string" },
+        "creadoPorUid": { "type": "string" }
+      },
+      "required": ["id", "nombre", "fechaInicio", "fechaFin", "totalDias", "estado", "fechaCreacion", "creadoPorUid"]
+    },
+    "ServicioDia": {
+      "title": "ServicioDia",
+      "description": "Detalle de asignaciones diarias de guardias e imaginarias",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "cuadranteId": { "type": "string" },
+        "fecha": { "type": "string" },
+        "diaSemana": { "type": "number" },
+        "esFinDeSemana": { "type": "boolean" },
+        "tieneModificacionesManuales": { "type": "boolean" },
+        "ultimaActualizacion": { "type": "string" }
+      },
+      "required": ["id", "cuadranteId", "fecha", "diaSemana", "esFinDeSemana"]
+    },
+    "SolicitudCambio": {
+      "title": "SolicitudCambio",
+      "description": "Solicitud de cambio de servicio entre dos compañeros con aprobación administrativa",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "cuadranteId": { "type": "string" },
+        "servicioId": { "type": "string" },
+        "fechaServicio": { "type": "string" },
+        "puesto": { "type": "string", "enum": ["ROL 1", "ROL 2"] },
+        "solicitantePersonaId": { "type": "string" },
+        "solicitanteNombre": { "type": "string", "maxLength": 150 },
+        "destinatarioPersonaId": { "type": "string" },
+        "destinatarioNombre": { "type": "string", "maxLength": 150 },
+        "estado": { "type": "string", "enum": ["PENDIENTE_COMPAÑERO", "ACEPTADA_COMPAÑERO", "RECHAZADA_COMPAÑERO", "PENDIENTE_ADMIN", "APROBADA_ADMIN", "RECHAZADA_ADMIN", "CANCELADA"] },
+        "fechaSolicitud": { "type": "string" }
+      },
+      "required": ["id", "cuadranteId", "servicioId", "fechaServicio", "puesto", "solicitantePersonaId", "destinatarioPersonaId", "estado", "fechaSolicitud"]
+    },
+    "IncidenciaAusencia": {
+      "title": "IncidenciaAusencia",
+      "description": "Comunicación de baja o indisposición con alerta a imaginarias",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "cuadranteId": { "type": "string" },
+        "servicioId": { "type": "string" },
+        "fechaServicio": { "type": "string" },
+        "puesto": { "type": "string", "enum": ["ROL 1", "ROL 2"] },
+        "titularPersonaId": { "type": "string" },
+        "titularNombre": { "type": "string", "maxLength": 150 },
+        "tipoAusencia": { "type": "string", "enum": ["ENFERMEDAD", "INDISPOSICION", "OTRA_AUSENCIA"] },
+        "imaginariaRol1PersonaId": { "type": "string" },
+        "imaginariaRol2PersonaId": { "type": "string" },
+        "estado": { "type": "string", "enum": ["COMUNICADA_PENDIENTE_COBERTURA", "COBERTURA_ACEPTADA_PENDIENTE_ADMIN", "RESUELTA_APROBADA", "RECHAZADA_ADMIN", "CANCELADA"] },
+        "fechaComunicacion": { "type": "string" }
+      },
+      "required": ["id", "cuadranteId", "servicioId", "fechaServicio", "puesto", "titularPersonaId", "tipoAusencia", "estado", "fechaComunicacion"]
+    },
+    "Notificacion": {
+      "title": "Notificacion",
+      "description": "Avisos del sistema y alertas operativas",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "tipo": { "type": "string" },
+        "titulo": { "type": "string", "maxLength": 150 },
+        "mensaje": { "type": "string", "maxLength": 500 },
+        "fechaCreacion": { "type": "string" },
+        "leida": { "type": "boolean" }
+      },
+      "required": ["id", "tipo", "titulo", "mensaje", "fechaCreacion", "leida"]
+    },
+    "MensajeChat": {
+      "title": "MensajeChat",
+      "description": "Mensajes del canal general, privados o directivas administrativas",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "tipo": { "type": "string", "enum": ["PRIVADO", "GRUPO", "ADMINISTRATIVO"] },
+        "autorUid": { "type": "string" },
+        "autorNombre": { "type": "string", "maxLength": 150 },
+        "contenido": { "type": "string", "maxLength": 2000 },
+        "fechaHora": { "type": "string" }
+      },
+      "required": ["id", "tipo", "autorUid", "autorNombre", "contenido", "fechaHora"]
+    },
+    "FCMToken": {
+      "title": "FCMToken",
+      "description": "Tokens de dispositivo para notificaciones push móviles y web (FCM)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "uid": { "type": "string" },
+        "token": { "type": "string" },
+        "plataforma": { "type": "string", "enum": ["android", "ios", "mobile_web", "desktop_web"] },
+        "dispositivo": { "type": "string" },
+        "fechaRegistro": { "type": "string" },
+        "ultimaActividad": { "type": "string" },
+        "estado": { "type": "string", "enum": ["ACTIVO", "REVOCADO", "EXPIRADO"] }
+      },
+      "required": ["id", "uid", "token", "plataforma", "fechaRegistro", "ultimaActividad", "estado"]
+    }
+  },
+  "firestore": {
+    "/personas/{personaId}": {
+      "schema": "Persona",
+      "description": "Colección de fichas de personal"
+    },
+    "/cuentas/{cuentaId}": {
+      "schema": "Cuenta",
+      "description": "Colección de cuentas de acceso"
+    },
+    "/cuentas/{cuentaId}/fcmTokens/{tokenId}": {
+      "schema": "FCMToken",
+      "description": "Subcolección de tokens FCM de los dispositivos del usuario"
+    },
+    "/auditLogs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Colección inmutable de registros de auditoría"
+    },
+    "/cuadrantes/{cuadranteId}": {
+      "schema": "CuadranteMaestro",
+      "description": "Colección principal de cuadrantes"
+    },
+    "/cuadrantes/{cuadranteId}/servicios/{servicioId}": {
+      "schema": "ServicioDia",
+      "description": "Subcolección de servicios diarios por cuadrante"
+    },
+    "/solicitudes_cambio/{solicitudId}": {
+      "schema": "SolicitudCambio",
+      "description": "Colección de solicitudes de cambio de guardia entre compañeros"
+    },
+    "/incidencias_ausencia/{incidenciaId}": {
+      "schema": "IncidenciaAusencia",
+      "description": "Colección de incidencias por ausencia y cobertura por imaginaria"
+    },
+    "/notificaciones/{notificacionId}": {
+      "schema": "Notificacion",
+      "description": "Colección de notificaciones operativas"
+    },
+    "/mensajes_chat/{mensajeId}": {
+      "schema": "MensajeChat",
+      "description": "Colección de mensajería interna, canal de grupo y avisos de mando"
+    }
+  }
+}

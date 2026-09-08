@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 5mm 6mm 5mm 6mm;
+  }
+
+  *, *::before, *::after {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Ocultar elementos irrelevantes en la impresión */
+  .no-print,
+  nav,
+  aside,
+  header,
+  footer,
+  #sidebar,
+  .sidebar,
+  #app-header,
+  .print-hidden,
+  button:not(.allow-print-btn) {
+    display: none !important;
+  }
+
+  /* Elementos específicos para impresión */
+  .print-only {
+    display: block !important;
+  }
+
+  .print-container {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .print-page-break {
+    page-break-before: always;
+    break-before: page;
+  }
+
+  .print-avoid-break {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "copia para arena Remix Versión 23 pax Gestión de Personal y Cuadrante",
+  "description": "Sistema modular de gestión de personal, ciclos, cuentas, permisos y auditoría para grupos operativos.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
