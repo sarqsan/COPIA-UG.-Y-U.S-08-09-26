@@ -64,7 +64,250 @@ const equilibrarServiciosEspeciales = (
   diasServicioPorPersona: Map<string, Set<string>>
 ) => {
   equilibrarRolEspecial(servicios, rol1, 'rol1', diasServicioPorPersona);
-  equilibrarRolEspecial(servicios, rol2, 'rol2', diasServicioPorPersona);
+  equilibrarRol2Especial(servicios, rol2, diasServicioPorPersona);
+};
+
+/**
+ * EQUILIBRIO EQUITATIVO ESPECÍFICO PARA ROL 2:
+ *
+ * El ROL 2 requiere un equilibrado específico en dos fases para resolver la simetría par (N=12)
+ * y asegurar que:
+ * 1. Los días de máxima consideración (3 puntos: Nochebuena, Navidad, Nochevieja, Año Nuevo, Reyes)
+ *    se distribuyan equitativamente sin que ningún efectivo acumule 2 días mientras otro tiene 0.
+ * 2. Los días especiales menores (2 puntos y 1 punto) se ajusten de forma fina mediante intercambios
+ *    ordinarios con regla anti-oscilación, sin perturbar el equilibrio de los días de 3 puntos.
+ * 3. Se respete estrictamente el descanso de 48h (D-1 y D+1) y el balance global de servicios.
+ */
+const equilibrarRol2Especial = (
+  servicios: Partial<ServicioDia>[],
+  personasRol: Persona[],
+  diasServicioPorPersona: Map<string, Set<string>>
+) => {
+  if (personasRol.length <= 1) return;
+
+  const campoRol = 'rol2';
+
+  const calcularPuntosPersonas = (): Map<string, number> => {
+    const puntos = new Map<string, number>();
+    personasRol.forEach((p) => puntos.set(p.id, 0));
+
+    servicios.forEach((srv) => {
+      const pts = srv.esDiaEspecial ? (srv.puntosEspeciales ?? 0) : 0;
+      if (pts > 0 && srv.titulares && srv.titulares[campoRol]) {
+        srv.titulares[campoRol]!.forEach((asig) => {
+          const id = asig.personaIdReal;
+          if (puntos.has(id)) {
+            puntos.set(id, (puntos.get(id) ?? 0) + pts);
+          }
+        });
+      }
+    });
+
+    return puntos;
+  };
+
+  const calcularConteo3Pts = (): Map<string, number> => {
+    const conteo = new Map<string, number>();
+    personasRol.forEach((p) => conteo.set(p.id, 0));
+
+    servicios.forEach((srv) => {
+      if (srv.esDiaEspecial && (srv.puntosEspeciales ?? 0) >= 3 && srv.titulares && srv.titulares[campoRol]) {
+        srv.titulares[campoRol]!.forEach((asig) => {
+          const id = asig.personaIdReal;
+          if (conteo.has(id)) {
+            conteo.set(id, (conteo.get(id) ?? 0) + 1);
+          }
+        });
+      }
+    });
+
+    return conteo;
+  };
+
+  // -------------------------------------------------------------
+  // FASE 1: Reparto equitativo y prioritario de días de 3 puntos
+  // (Nochebuena, Navidad, Nochevieja, Año Nuevo, Reyes)
+  // -------------------------------------------------------------
+  const srv3Pts = servicios.filter(
+    (s) => s.esDiaEspecial && (s.puntosEspeciales ?? 0) >= 3
+  );
+
+  for (let iter = 0; iter < 40; iter++) {
+    const conteo3 = calcularConteo3Pts();
+    const max3 = Math.max(...personasRol.map((p) => conteo3.get(p.id) ?? 0));
+    const min3 = Math.min(...personasRol.map((p) => conteo3.get(p.id) ?? 0));
+
+    if (max3 - min3 <= 1) {
+      break;
+    }
+
+    const ordenados3 = [...personasRol].sort(
+      (a, b) => (conteo3.get(b.id) ?? 0) - (conteo3.get(a.id) ?? 0)
+    );
+    let swapFase1 = false;
+
+    for (const personaExceso of ordenados3) {
+      const countExceso = conteo3.get(personaExceso.id) ?? 0;
+      if (countExceso <= min3 + 1) continue;
+
+      for (const srvEsp of srv3Pts) {
+        const titEsp = srvEsp.titulares![campoRol]!;
+        const idxAsig = titEsp.findIndex((a) => a.personaIdReal === personaExceso.id);
+        if (idxAsig === -1) continue;
+
+        const fechaEsp = srvEsp.fecha!;
+        const candidatos = ordenados3
+          .filter((c) => (conteo3.get(c.id) ?? 0) < countExceso - 1)
+          .sort((a, b) => (conteo3.get(a.id) ?? 0) - (conteo3.get(b.id) ?? 0));
+
+        for (const cand of candidatos) {
+          if (!puedeHacerServicioTitularEn(cand.id, fechaEsp, diasServicioPorPersona)) continue;
+
+          const srvCand = servicios
+            .filter(
+              (s) =>
+                s.fecha !== fechaEsp &&
+                s.titulares &&
+                s.titulares[campoRol] &&
+                s.titulares[campoRol]!.some((a) => a.personaIdReal === cand.id) &&
+                (!s.esDiaEspecial || (s.puntosEspeciales ?? 0) < 3)
+            )
+            .sort((a, b) => {
+              const diffA = Math.abs(new Date(a.fecha!).getTime() - new Date(fechaEsp).getTime());
+              const diffB = Math.abs(new Date(b.fecha!).getTime() - new Date(fechaEsp).getTime());
+              return diffA - diffB;
+            });
+
+          for (const srvOrd of srvCand) {
+            const fechaOrd = srvOrd.fecha!;
+            if (puedeHacerServicioTitularEn(personaExceso.id, fechaOrd, diasServicioPorPersona, fechaEsp)) {
+              titEsp[idxAsig].personaIdOriginal = cand.id;
+              titEsp[idxAsig].personaIdReal = cand.id;
+
+              const titOrd = srvOrd.titulares![campoRol]!;
+              const idxOrd = titOrd.findIndex((a) => a.personaIdReal === cand.id);
+              if (idxOrd !== -1) {
+                titOrd[idxOrd].personaIdOriginal = personaExceso.id;
+                titOrd[idxOrd].personaIdReal = personaExceso.id;
+              }
+
+              diasServicioPorPersona.get(personaExceso.id)?.delete(fechaEsp);
+              diasServicioPorPersona.get(personaExceso.id)?.add(fechaOrd);
+              diasServicioPorPersona.get(cand.id)?.delete(fechaOrd);
+              diasServicioPorPersona.get(cand.id)?.add(fechaEsp);
+
+              swapFase1 = true;
+              break;
+            }
+          }
+          if (swapFase1) break;
+        }
+        if (swapFase1) break;
+      }
+      if (swapFase1) break;
+    }
+    if (!swapFase1) break;
+  }
+
+  // -------------------------------------------------------------
+  // FASE 2: Equilibrio de puntos totales (días de 2 puntos y 1 punto)
+  // -------------------------------------------------------------
+  const srvMenores = servicios
+    .filter((s) => s.esDiaEspecial && (s.puntosEspeciales ?? 0) > 0 && (s.puntosEspeciales ?? 0) < 3)
+    .sort((a, b) => (b.puntosEspeciales ?? 0) - (a.puntosEspeciales ?? 0));
+
+  if (srvMenores.length === 0) return;
+
+  let totalPuntos = 0;
+  servicios.forEach((s) => {
+    if (s.esDiaEspecial) totalPuntos += (s.puntosEspeciales ?? 0) * 2;
+  });
+  const promedioObj = totalPuntos / personasRol.length;
+
+  for (let iter = 0; iter < 40; iter++) {
+    const puntosActuales = calcularPuntosPersonas();
+    const ordenadosPts = [...personasRol].sort(
+      (a, b) => (puntosActuales.get(b.id) ?? 0) - (puntosActuales.get(a.id) ?? 0)
+    );
+
+    const maxPuntos = puntosActuales.get(ordenadosPts[0].id) ?? 0;
+    const minPuntos = puntosActuales.get(ordenadosPts[ordenadosPts.length - 1].id) ?? 0;
+
+    if (maxPuntos - minPuntos <= 1) {
+      break;
+    }
+
+    let swapFase2 = false;
+
+    for (const personaExceso of ordenadosPts) {
+      const ptsExceso = puntosActuales.get(personaExceso.id) ?? 0;
+      if (ptsExceso <= promedioObj) continue;
+
+      for (const srvEsp of srvMenores) {
+        const titEsp = srvEsp.titulares![campoRol]!;
+        const idxAsig = titEsp.findIndex((a) => a.personaIdReal === personaExceso.id);
+        if (idxAsig === -1) continue;
+
+        const ptsSrv = srvEsp.puntosEspeciales ?? 0;
+        const fechaEsp = srvEsp.fecha!;
+
+        const candidatos = ordenadosPts
+          .filter((c) => (puntosActuales.get(c.id) ?? 0) < ptsExceso - 1)
+          .sort((a, b) => (puntosActuales.get(a.id) ?? 0) - (puntosActuales.get(b.id) ?? 0));
+
+        for (const cand of candidatos) {
+          const ptsCand = puntosActuales.get(cand.id) ?? 0;
+          if (Math.abs((ptsCand + ptsSrv) - (ptsExceso - ptsSrv)) >= Math.abs(ptsExceso - ptsCand)) {
+            continue;
+          }
+
+          if (!puedeHacerServicioTitularEn(cand.id, fechaEsp, diasServicioPorPersona)) continue;
+
+          const srvCand = servicios
+            .filter(
+              (s) =>
+                s.fecha !== fechaEsp &&
+                s.titulares &&
+                s.titulares[campoRol] &&
+                s.titulares[campoRol]!.some((a) => a.personaIdReal === cand.id) &&
+                !s.esDiaEspecial
+            )
+            .sort((a, b) => {
+              const diffA = Math.abs(new Date(a.fecha!).getTime() - new Date(fechaEsp).getTime());
+              const diffB = Math.abs(new Date(b.fecha!).getTime() - new Date(fechaEsp).getTime());
+              return diffA - diffB;
+            });
+
+          for (const srvOrd of srvCand) {
+            const fechaOrd = srvOrd.fecha!;
+            if (puedeHacerServicioTitularEn(personaExceso.id, fechaOrd, diasServicioPorPersona, fechaEsp)) {
+              titEsp[idxAsig].personaIdOriginal = cand.id;
+              titEsp[idxAsig].personaIdReal = cand.id;
+
+              const titOrd = srvOrd.titulares![campoRol]!;
+              const idxOrd = titOrd.findIndex((a) => a.personaIdReal === cand.id);
+              if (idxOrd !== -1) {
+                titOrd[idxOrd].personaIdOriginal = personaExceso.id;
+                titOrd[idxOrd].personaIdReal = personaExceso.id;
+              }
+
+              diasServicioPorPersona.get(personaExceso.id)?.delete(fechaEsp);
+              diasServicioPorPersona.get(personaExceso.id)?.add(fechaOrd);
+              diasServicioPorPersona.get(cand.id)?.delete(fechaOrd);
+              diasServicioPorPersona.get(cand.id)?.add(fechaEsp);
+
+              swapFase2 = true;
+              break;
+            }
+          }
+          if (swapFase2) break;
+        }
+        if (swapFase2) break;
+      }
+      if (swapFase2) break;
+    }
+    if (!swapFase2) break;
+  }
 };
 
 const equilibrarRolEspecial = (
