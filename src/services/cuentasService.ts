@@ -16,19 +16,27 @@ import { registrarAuditLog } from './auditService';
 import { generateInitialMockCuentas, generateInitialMockPersonas } from './seedService';
 import { normalizarApellidoParaLogin, getRolSuffixParaLogin } from '../utils/credencialesHelper';
 import { getApellidoUG } from '../utils/ugNomenclatura';
+import { hashPassword, verifyPassword } from '../utils/cryptoHelper';
 
 const CUENTAS_COLLECTION = 'cuentas';
+
+export const sanitizeCuentaForFirestore = (cuenta: Partial<Cuenta>): Record<string, any> => {
+  const c: Record<string, any> = { ...cuenta };
+  delete c.password; // NUNCA almacenar contraseña en texto plano en Firestore
+  return c;
+};
 
 export const ADMIN_1_DATA: Cuenta = {
   id: 'admin-1-uid',
   uid: 'admin-1-uid',
   personaId: null,
   username: 'admin1',
-  password: 'arquero1234',
   email: 'admin1@grupo.local',
   nombre: 'Administrador 1',
   rol: 'ADMIN',
   activo: true,
+  passwordHash: '4d6db663dffc2ed1e1ee82f2b2cf0e104c7a2056b92a7adabb439bace1d8e0c5',
+  passwordSalt: 'sal_admin_1_ug_2026',
   requiereCambioCredenciales: false,
   fechaCreacion: '2026-01-01T09:00:00.000Z',
   ultimoAcceso: new Date().toISOString(),
@@ -39,11 +47,12 @@ export const ADMIN_2_DATA: Cuenta = {
   uid: 'admin-2-uid',
   personaId: null,
   username: 'admin2',
-  password: 'ortega1234',
   email: 'admin2@grupo.local',
   nombre: 'Administrador 2',
   rol: 'ADMIN',
   activo: true,
+  passwordHash: 'e454b0dabc0a4116f10d04944b07073c9bf350b5e75e50d45eee9b84712f5e76',
+  passwordSalt: 'sal_admin_2_ug_2026',
   requiereCambioCredenciales: false,
   fechaCreacion: '2026-01-01T09:00:00.000Z',
   ultimoAcceso: new Date().toISOString(),
@@ -54,10 +63,12 @@ let memoryCuentasCache: Cuenta[] | null = null;
 
 const guardarCuentasMemoriaYLocal = (cuentas: Cuenta[]) => {
   memoryCuentasCache = cuentas;
-  try {
-    localStorage.setItem('app_cached_cuentas', JSON.stringify(cuentas));
-  } catch (e) {
-    console.warn('Error guardando cuentas en localStorage:', e);
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      localStorage.setItem('app_cached_cuentas', JSON.stringify(cuentas));
+    } catch (e) {
+      console.warn('Error guardando cuentas en localStorage:', e);
+    }
   }
 };
 
@@ -259,39 +270,15 @@ export const asegurarCuentasParaPersonas = async (
   let admin1 = cuentasActualizadas.find((c) => c.uid === 'admin-1-uid' || c.email === 'admin1@grupo.local');
   if (!admin1) {
     const adm1Doc: Cuenta = {
-      id: 'admin-1-uid',
-      uid: 'admin-1-uid',
-      personaId: null,
-      username: 'admin1',
-      password: 'arquero1234',
-      email: 'admin1@grupo.local',
-      nombre: 'Administrador 1',
-      rol: 'ADMIN',
-      activo: true,
-      requiereCambioCredenciales: false,
-      fechaCreacion: '2026-01-01T09:00:00.000Z',
+      ...ADMIN_1_DATA,
       ultimoAcceso: ahora,
     };
     cuentasActualizadas.unshift(adm1Doc);
     huboCambios = true;
     try {
-      await setDoc(doc(db, CUENTAS_COLLECTION, adm1Doc.uid), adm1Doc);
+      await setDoc(doc(db, CUENTAS_COLLECTION, adm1Doc.uid), sanitizeCuentaForFirestore(adm1Doc));
     } catch (e) {
       // Ignore
-    }
-  } else {
-    if (!admin1.username || !admin1.password) {
-      admin1.username = admin1.username || 'admin1';
-      admin1.password = admin1.password || 'arquero1234';
-      huboCambios = true;
-      try {
-        await setDoc(doc(db, CUENTAS_COLLECTION, admin1.uid), {
-          username: admin1.username,
-          password: admin1.password,
-        }, { merge: true });
-      } catch (e) {
-        // Ignore
-      }
     }
   }
 
@@ -299,39 +286,15 @@ export const asegurarCuentasParaPersonas = async (
   let admin2 = cuentasActualizadas.find((c) => c.uid === 'admin-2-uid' || c.email === 'admin2@grupo.local');
   if (!admin2) {
     const adm2Doc: Cuenta = {
-      id: 'admin-2-uid',
-      uid: 'admin-2-uid',
-      personaId: null,
-      username: 'admin2',
-      password: 'ortega1234',
-      email: 'admin2@grupo.local',
-      nombre: 'Administrador 2',
-      rol: 'ADMIN',
-      activo: true,
-      requiereCambioCredenciales: false,
-      fechaCreacion: '2026-01-01T09:00:00.000Z',
+      ...ADMIN_2_DATA,
       ultimoAcceso: ahora,
     };
     cuentasActualizadas.unshift(adm2Doc);
     huboCambios = true;
     try {
-      await setDoc(doc(db, CUENTAS_COLLECTION, adm2Doc.uid), adm2Doc);
+      await setDoc(doc(db, CUENTAS_COLLECTION, adm2Doc.uid), sanitizeCuentaForFirestore(adm2Doc));
     } catch (e) {
       // Ignore
-    }
-  } else {
-    if (!admin2.username || !admin2.password) {
-      admin2.username = admin2.username || 'admin2';
-      admin2.password = admin2.password || 'ortega1234';
-      huboCambios = true;
-      try {
-        await setDoc(doc(db, CUENTAS_COLLECTION, admin2.uid), {
-          username: admin2.username,
-          password: admin2.password,
-        }, { merge: true });
-      } catch (e) {
-        // Ignore
-      }
     }
   }
 
@@ -346,12 +309,14 @@ export const asegurarCuentasParaPersonas = async (
     const emailDefault = `${cleanApellido}.${rolSuffix}@portal.es`;
 
     if (!cuentaExistente) {
+      const { hash, salt } = await hashPassword(credencialDefault);
       const nuevaCuenta: Cuenta = {
         id: `user-${persona.id}`,
         uid: `user-${persona.id}`,
         personaId: persona.id,
         username: credencialDefault,
-        password: credencialDefault,
+        passwordHash: hash,
+        passwordSalt: salt,
         email: emailDefault,
         nombre: persona.nombre,
         rol: 'USUARIO',
@@ -367,7 +332,7 @@ export const asegurarCuentasParaPersonas = async (
 
       try {
         const docRef = doc(db, CUENTAS_COLLECTION, nuevaCuenta.uid);
-        await setDoc(docRef, nuevaCuenta);
+        await setDoc(docRef, sanitizeCuentaForFirestore(nuevaCuenta));
       } catch (e) {
         console.warn('Sync cuenta diferida:', e);
       }
@@ -377,8 +342,10 @@ export const asegurarCuentasParaPersonas = async (
         cuentaExistente.username = credencialDefault;
         necesitaUpdate = true;
       }
-      if (!cuentaExistente.password) {
-        cuentaExistente.password = credencialDefault;
+      if (!cuentaExistente.passwordHash) {
+        const { hash, salt } = await hashPassword(credencialDefault);
+        cuentaExistente.passwordHash = hash;
+        cuentaExistente.passwordSalt = salt;
         necesitaUpdate = true;
       }
       if (cuentaExistente.nombre !== persona.nombre) {
@@ -402,14 +369,7 @@ export const asegurarCuentasParaPersonas = async (
         huboCambios = true;
         try {
           const docRef = doc(db, CUENTAS_COLLECTION, cuentaExistente.uid);
-          await setDoc(docRef, {
-            username: cuentaExistente.username,
-            password: cuentaExistente.password,
-            nombre: cuentaExistente.nombre,
-            tipoServicio: cuentaExistente.tipoServicio,
-            requiereCambioCredenciales: cuentaExistente.requiereCambioCredenciales,
-            activo: cuentaExistente.activo,
-          }, { merge: true });
+          await setDoc(docRef, sanitizeCuentaForFirestore(cuentaExistente), { merge: true });
         } catch (e) {
           console.warn('Sync update cuenta diferida:', e);
         }
@@ -442,7 +402,7 @@ export const getCuentas = async (): Promise<Cuenta[]> => {
       try {
         const batch = writeBatch(db);
         adminCuentas.forEach((c) => {
-          batch.set(doc(db, CUENTAS_COLLECTION, c.uid), c);
+          batch.set(doc(db, CUENTAS_COLLECTION, c.uid), sanitizeCuentaForFirestore(c));
         });
         await batch.commit();
         guardarCuentasMemoriaYLocal(adminCuentas);
@@ -637,32 +597,31 @@ export const autenticarUsuarioPorCredenciales = async (
   // Verificación de contraseña:
   let passValida = false;
 
+  // 0. Si la cuenta posee passwordHash y passwordSalt criptográficos, validar mediante Web Crypto SHA-256
+  if (cuenta.passwordHash && cuenta.passwordSalt) {
+    passValida = await verifyPassword(cleanPass, cuenta.passwordSalt, cuenta.passwordHash);
+  }
+
   // 1. Verificación para Administradores
-  if (cuenta.uid === 'admin-1-uid' || cleanId === 'admin1') {
+  if (!passValida && (cuenta.uid === 'admin-1-uid' || cleanId === 'admin1')) {
     passValida =
-      cuenta.password === cleanPass ||
       cleanPass === 'arquero1234' ||
       cleanPass.toLowerCase() === 'admin1';
-  } else if (cuenta.uid === 'admin-2-uid' || cleanId === 'admin2') {
+  } else if (!passValida && (cuenta.uid === 'admin-2-uid' || cleanId === 'admin2')) {
     passValida =
-      cuenta.password === cleanPass ||
       cleanPass === 'ortega1234' ||
       cleanPass.toLowerCase() === 'admin2';
-  } else if (cuenta.rol === 'ADMIN') {
+  } else if (!passValida && cuenta.rol === 'ADMIN') {
     passValida =
-      cuenta.password === cleanPass ||
       cleanPass === 'arquero1234' ||
-      cleanPass === 'ortega1234' ||
-      cuenta.password?.trim().toLowerCase() === cleanPass.toLowerCase();
-  } else {
+      cleanPass === 'ortega1234';
+  } else if (!passValida) {
     // 2. Verificación para Efectivos (Usuarios normales)
     const cleanApellido = normalizarApellidoParaLogin(cuenta.nombre);
     const passDefault = cuenta.username || `${cleanApellido}rol1`;
     const cleanPassNorm = normalizarApellidoParaLogin(cleanPass);
 
     passValida =
-      (cuenta.password && cuenta.password.trim() === cleanPass) ||
-      (cuenta.password && cuenta.password.trim().toLowerCase() === cleanPass.toLowerCase()) ||
       passDefault.toLowerCase() === cleanPass.toLowerCase() ||
       `${cleanApellido}rol1` === cleanPass.toLowerCase() ||
       `${cleanApellido}rol2` === cleanPass.toLowerCase() ||
@@ -697,20 +656,25 @@ export const actualizarCredencialesUsuario = async (
   if (index < 0) return false;
 
   const now = new Date().toISOString();
+  const { hash, salt } = await hashPassword(nuevaPassword.trim());
+
   local[index] = {
     ...local[index],
     username: nuevoUsername.trim().toLowerCase(),
-    password: nuevaPassword.trim(),
+    passwordHash: hash,
+    passwordSalt: salt,
     requiereCambioCredenciales: false,
     ultimoAcceso: now,
   };
+  delete (local[index] as any).password;
   guardarCuentasMemoriaYLocal(local);
 
   try {
     const docRef = doc(db, CUENTAS_COLLECTION, uid);
     await setDoc(docRef, {
       username: nuevoUsername.trim().toLowerCase(),
-      password: nuevaPassword.trim(),
+      passwordHash: hash,
+      passwordSalt: salt,
       requiereCambioCredenciales: false,
       ultimoAcceso: now,
     }, { merge: true });
@@ -729,11 +693,20 @@ export const crearCuenta = async (
     nombre: string;
     rol: RolUsuario;
     activo?: boolean;
+    password?: string;
   },
   adminInfo: { uid: string; nombre: string }
 ): Promise<Cuenta> => {
   const docRef = doc(db, CUENTAS_COLLECTION, datos.uid);
   const now = new Date().toISOString();
+
+  let pHash: string | undefined;
+  let pSalt: string | undefined;
+  if (datos.password && datos.password.trim()) {
+    const res = await hashPassword(datos.password.trim());
+    pHash = res.hash;
+    pSalt = res.salt;
+  }
 
   const nuevaCuenta: Cuenta = {
     id: datos.uid,
@@ -742,6 +715,8 @@ export const crearCuenta = async (
     email: datos.email.toLowerCase().trim(),
     nombre: datos.nombre.trim(),
     rol: datos.rol,
+    passwordHash: pHash,
+    passwordSalt: pSalt,
     activo: datos.activo !== undefined ? datos.activo : true,
     fechaCreacion: now,
     ultimoAcceso: now,
@@ -757,7 +732,7 @@ export const crearCuenta = async (
   memoryCuentasCache = local;
 
   try {
-    await setDoc(docRef, nuevaCuenta);
+    await setDoc(docRef, sanitizeCuentaForFirestore(nuevaCuenta));
   } catch (error) {
     console.warn('Error creando cuenta en Firestore:', error);
   }
@@ -797,34 +772,35 @@ export const modificarCuenta = async (
 
   const anterior = local[index];
   const cleanNombre = datos.rol === 'ADMIN' ? datos.nombre.trim() : getApellidoUG(datos.nombre);
+
+  let passwordHash = anterior.passwordHash;
+  let passwordSalt = anterior.passwordSalt;
+  if (datos.password && datos.password.trim()) {
+    const res = await hashPassword(datos.password.trim());
+    passwordHash = res.hash;
+    passwordSalt = res.salt;
+  }
   
   const cuentaActualizada: Cuenta = {
     ...anterior,
     nombre: cleanNombre,
     email: datos.email.trim().toLowerCase(),
     username: datos.username ? datos.username.trim().toLowerCase() : anterior.username,
-    password: datos.password ? datos.password.trim() : anterior.password,
+    passwordHash,
+    passwordSalt,
     rol: datos.rol,
     personaId: datos.personaId || null,
     activo: datos.activo !== undefined ? datos.activo : anterior.activo,
     tipoServicio: datos.tipoServicio || anterior.tipoServicio || 'GUARDIA',
   };
+  delete (cuentaActualizada as any).password;
 
   local[index] = cuentaActualizada;
   guardarCuentasMemoriaYLocal(local);
 
   try {
     const docRef = doc(db, CUENTAS_COLLECTION, uid);
-    await setDoc(docRef, {
-      nombre: cuentaActualizada.nombre,
-      email: cuentaActualizada.email,
-      username: cuentaActualizada.username || '',
-      password: cuentaActualizada.password || '',
-      rol: cuentaActualizada.rol,
-      personaId: cuentaActualizada.personaId,
-      activo: cuentaActualizada.activo,
-      tipoServicio: cuentaActualizada.tipoServicio,
-    }, { merge: true });
+    await setDoc(docRef, sanitizeCuentaForFirestore(cuentaActualizada), { merge: true });
   } catch (error) {
     console.warn('Error modificando cuenta en Firestore:', error);
   }

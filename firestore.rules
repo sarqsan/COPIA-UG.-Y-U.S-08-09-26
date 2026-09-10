@@ -1,8 +1,112 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
+
+    // Helper functions for security validation
+    function hasValidTimestamp(data) {
+      return data.fechaCreacion is string || data.timestamp is string;
+    }
+
+    // 1. Fichas de personal (ROL 1 / ROL 2)
+    match /personas/{personaId} {
+      allow read: if true;
+      allow create, update: if request.resource.data.nombre is string
+        && request.resource.data.nombre.size() > 0
+        && request.resource.data.empleo in ['ROL 1', 'ROL 2']
+        && request.resource.data.activo is bool;
+      allow delete: if true;
+    }
+
+    // 2. Cuentas de acceso: NUNCA se permiten contraseñas en texto plano
+    match /cuentas/{cuentaId} {
+      allow read: if true;
+      allow create, update: if !request.resource.data.keys().hasAny(['password'])
+        && request.resource.data.nombre is string
+        && request.resource.data.rol in ['ADMIN', 'USUARIO'];
+      allow delete: if true;
+
+      // Subcolección de tokens FCM para notificaciones
+      match /fcmTokens/{tokenId} {
+        allow read, write: if true;
+      }
+    }
+
+    // 3. Cuadrantes y subcolección de servicios diarios
+    match /cuadrantes/{cuadranteId} {
+      allow read: if true;
+      allow create, update: if request.resource.data.nombre is string
+        && request.resource.data.fechaInicio is string
+        && request.resource.data.fechaFin is string;
+      allow delete: if true;
+
+      match /servicios/{servicioId} {
+        allow read, write: if true;
+      }
+    }
+
+    // 4. Notificaciones operativas
+    match /notificaciones/{notificacionId} {
+      allow read: if true;
+      allow create, update: if request.resource.data.titulo is string
+        && request.resource.data.mensaje is string;
+      allow delete: if true;
+    }
+
+    // 5. Solicitudes de cambio de guardia entre compañeros
+    match /solicitudes_cambio/{solicitudId} {
+      allow read: if true;
+      allow create, update: if request.resource.data.solicitantePersonaId is string
+        && request.resource.data.destinatarioPersonaId is string
+        && request.resource.data.estado is string;
+      allow delete: if true;
+    }
+
+    // 6. Incidencias y ausencias
+    match /incidencias_ausencia/{incidenciaId} {
+      allow read: if true;
+      allow create, update: if request.resource.data.titularPersonaId is string
+        && request.resource.data.tipoAusencia is string;
+      allow delete: if true;
+    }
+
+    // 7. Registro inmutable de auditoría: ESTRICTAMENTE PROHIBIDO MODIFICAR O BORRAR
+    match /auditLogs/{logId} {
+      allow read: if true;
+      allow create: if request.resource.data.adminUid is string
+        && request.resource.data.accion is string;
+      allow update, delete: if false; // Inmutable
+    }
+
+    // 8. Mensajes de chat interno
+    match /mensajes_chat/{mensajeId} {
+      allow read: if true;
+      allow create: if request.resource.data.autorUid is string
+        && request.resource.data.contenido is string;
+      allow update, delete: if true;
+    }
+
+    // 9. Patrullas operativas
+    match /patrullas/{patrullaId} {
       allow read, write: if true;
+    }
+
+    // 10. Ciclos operativos
+    match /ciclos/{cicloId} {
+      allow read, write: if true;
+    }
+
+    // 11. Ausencias y compensaciones US
+    match /ausencias_us/{id} {
+      allow read, write: if true;
+    }
+    match /compensacion_imaginarias_us/{id} {
+      allow read, write: if true;
+    }
+
+    // Bloqueo por defecto para cualquier otra ruta no especificada
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
+

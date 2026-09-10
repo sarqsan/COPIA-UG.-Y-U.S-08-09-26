@@ -107,7 +107,11 @@ export const getAuditLogs = async (options?: {
     if (!snapshot.empty) {
       const logs: AuditLog[] = [];
       snapshot.forEach((docSnap) => {
-        logs.push(docSnap.data() as AuditLog);
+        const d = docSnap.data() as AuditLog;
+        logs.push({
+          ...d,
+          id: d.id || docSnap.id,
+        });
       });
       memoryAuditLogsCache = logs;
 

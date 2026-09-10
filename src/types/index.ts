@@ -35,10 +35,12 @@ export interface Persona {
 
 export interface Cuenta {
   id: string;
-  uid: string; // Firebase Auth UID
+  uid: string; // Identificador único de cuenta
   personaId: string | null; // ID de la persona vinculada (si aplica)
   username?: string; // Nombre de usuario personalizado o inicial (apellido+rol)
-  password?: string; // Contraseña personalizada o inicial
+  password?: string; // Solo para compatibilidad temporal en runtime; NUNCA en Firestore
+  passwordHash?: string; // Hash criptográfico seguro (SHA-256)
+  passwordSalt?: string; // Sal criptográfica única por usuario
   email: string;
   nombre: string;
   rol: RolUsuario;

@@ -683,11 +683,11 @@ export const PersonaDetailPage: React.FC<PersonaDetailPageProps> = ({
           </div>
         ) : (
           <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
-            {logsPersona.map((log) => {
+            {logsPersona.map((log, index) => {
               const accionInfo = formatAccionAudit(log.accion);
               return (
                 <div
-                  key={log.id}
+                  key={log.id || `persona-log-${log.timestamp || index}-${index}`}
                   className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
                 >
                   <div className="space-y-1">

@@ -100,12 +100,13 @@ export const AuditLogTable: React.FC<AuditLogTableProps> = ({ logs }) => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {logsFiltrados.map((log) => {
+              {logsFiltrados.map((log, index) => {
                 const accionInfo = formatAccionAudit(log.accion);
+                const logKey = log.id || `audit-${log.timestamp || index}-${index}`;
                 return (
                   <tr
-                    key={log.id}
-                    id={`row-audit-${log.id}`}
+                    key={logKey}
+                    id={`row-audit-${logKey}`}
                     className="transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/40"
                   >
                     {/* Timestamp */}

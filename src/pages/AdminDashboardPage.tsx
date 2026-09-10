@@ -317,9 +317,9 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         ) : (
           <div className="space-y-4">
             {/* Solicitudes de Cambio de Guardia */}
-            {solicitudesPendientesAdmin.map((sol) => (
+            {solicitudesPendientesAdmin.map((sol, index) => (
               <div
-                key={sol.id}
+                key={sol.id || `sol-${sol.fechaServicio || index}-${index}`}
                 className="p-4 rounded-2xl border border-amber-400 bg-amber-50/80 dark:bg-amber-950/40 dark:border-amber-700/80 flex flex-col gap-3 shadow-xs"
               >
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 border-b border-amber-200/60 dark:border-amber-800/60 pb-2.5">
@@ -403,9 +403,9 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
             ))}
 
             {/* Incidencias de Ausencia */}
-            {incidenciasActivas.map((inc) => (
+            {incidenciasActivas.map((inc, index) => (
               <div
-                key={inc.id}
+                key={inc.id || `inc-${inc.fechaServicio || index}-${index}`}
                 className="p-4 rounded-2xl border border-red-200 bg-red-50/40 dark:bg-red-950/20 dark:border-red-900/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
               >
                 <div className="space-y-1">
@@ -644,11 +644,11 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
           </p>
         ) : (
           <div className="space-y-2">
-            {recentLogs.slice(0, 5).map((log) => {
+            {recentLogs.slice(0, 5).map((log, index) => {
               const accionInfo = formatAccionAudit(log.accion);
               return (
                 <div
-                  key={log.id}
+                  key={log.id || `audit-log-${log.timestamp || index}-${index}`}
                   className="flex items-start justify-between rounded-xl bg-slate-50 p-3 text-xs dark:bg-slate-800/40"
                 >
                   <div className="space-y-1">
