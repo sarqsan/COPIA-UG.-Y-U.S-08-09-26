@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Patrulla, EstadoPatrulla } from '../../types/patrullaTypes';
-import { cambiarEstadoPatrulla } from '../../services/patrullaService';
+import { cambiarEstadoPatrulla, eliminarPatrulla } from '../../services/patrullaService';
 import {
   X,
   Shield,
@@ -15,6 +15,7 @@ import {
   Info,
   AlertTriangle,
   History,
+  Trash2,
 } from 'lucide-react';
 
 interface PatrullaDetalleModalProps {
@@ -23,6 +24,7 @@ interface PatrullaDetalleModalProps {
   patrulla: Patrulla;
   puedeGestionar: boolean;
   adminInfo: { uid: string; nombre: string };
+  cuenta?: any;
   onSustituirClick: (patrulla: Patrulla) => void;
   onSuccess: () => void;
 }
@@ -33,12 +35,14 @@ export const PatrullaDetalleModal: React.FC<PatrullaDetalleModalProps> = ({
   patrulla,
   puedeGestionar,
   adminInfo,
+  cuenta,
   onSustituirClick,
   onSuccess,
 }) => {
   const [loading, setLoading] = useState(false);
   const [showCancelarPrompt, setShowCancelarPrompt] = useState(false);
   const [motivoCancelacion, setMotivoCancelacion] = useState('');
+  const [showEliminarPrompt, setShowEliminarPrompt] = useState(false);
 
   if (!isOpen) return null;
 
@@ -55,6 +59,23 @@ export const PatrullaDetalleModal: React.FC<PatrullaDetalleModalProps> = ({
       onClose();
     } catch (err: any) {
       alert(err.message || 'Error al actualizar estado de la patrulla.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEliminar = async () => {
+    setLoading(true);
+    try {
+      await eliminarPatrulla({
+        patrullaId: patrulla.id,
+        adminInfo,
+        cuenta,
+      });
+      onSuccess();
+      onClose();
+    } catch (err: any) {
+      alert(err.message || 'Error al eliminar definitivamente la patrulla.');
     } finally {
       setLoading(false);
     }
@@ -252,10 +273,42 @@ export const PatrullaDetalleModal: React.FC<PatrullaDetalleModalProps> = ({
             </div>
           )}
 
+          {/* Diálogo de confirmación para eliminación definitiva */}
+          {showEliminarPrompt && (
+            <div className="rounded-xl border-2 border-red-400 bg-red-50/95 p-4 dark:border-red-700 dark:bg-red-950/80 space-y-2.5 animate-fade-in shadow-md">
+              <div className="text-xs sm:text-sm font-bold text-red-900 dark:text-red-100 flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-red-600 shrink-0" />
+                <span>¿Seguro que quieres eliminar esta patrulla? Esta acción eliminará definitivamente el registro.</span>
+              </div>
+              <p className="text-[11px] text-red-700 dark:text-red-300 leading-relaxed">
+                Se eliminará permanentemente de Firestore el documento de la <strong>Patrulla #{patrulla.numeroSecuencial}</strong> ({patrulla.fecha} • {patrulla.personaNombre}). El contador general no se reiniciará para evitar colisiones.
+              </p>
+              <div className="flex justify-end gap-2 pt-1.5">
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => setShowEliminarPrompt(false)}
+                  className="rounded-xl border border-slate-300 bg-white px-3.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={handleEliminar}
+                  className="flex items-center gap-1.5 rounded-xl bg-red-600 px-4 py-1.5 text-xs font-bold text-white hover:bg-red-700 disabled:opacity-50 transition shadow-sm"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span>{loading ? 'Eliminando...' : 'Eliminar'}</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Acciones para Administrador */}
-          {puedeGestionar && !showCancelarPrompt && (
+          {puedeGestionar && !showCancelarPrompt && !showEliminarPrompt && (
             <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 {patrulla.estado !== 'CANCELADA' && (
                   <button
                     type="button"
@@ -278,18 +331,27 @@ export const PatrullaDetalleModal: React.FC<PatrullaDetalleModalProps> = ({
                     <span>Marcar Realizada</span>
                   </button>
                 )}
+
+                {patrulla.estado !== 'CANCELADA' && (
+                  <button
+                    type="button"
+                    onClick={() => setShowCancelarPrompt(true)}
+                    className="flex items-center gap-1 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800 transition"
+                  >
+                    <XCircle className="h-3.5 w-3.5" />
+                    <span>Cancelar Patrulla</span>
+                  </button>
+                )}
               </div>
 
-              {patrulla.estado !== 'CANCELADA' && (
-                <button
-                  type="button"
-                  onClick={() => setShowCancelarPrompt(true)}
-                  className="flex items-center gap-1 rounded-xl px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition"
-                >
-                  <XCircle className="h-3.5 w-3.5" />
-                  <span>Cancelar Patrulla</span>
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => setShowEliminarPrompt(true)}
+                className="flex items-center gap-1 rounded-xl border border-red-200 bg-red-50/60 px-3 py-1.5 text-xs font-bold text-red-700 hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300 transition"
+              >
+                <Trash2 className="h-3.5 w-3.5 text-red-600" />
+                <span>Eliminar patrulla</span>
+              </button>
             </div>
           )}
         </div>

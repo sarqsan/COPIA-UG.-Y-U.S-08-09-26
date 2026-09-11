@@ -319,7 +319,15 @@ export const PatrullasModule: React.FC<PatrullasModuleProps> = ({
 
       {/* Si es vista de estadísticas */}
       {vista === 'estadisticas' ? (
-        <PatrullasStatsPanel patrullas={patrullas} personas={personas} />
+        <PatrullasStatsPanel
+          patrullas={patrullas}
+          personas={personas}
+          puedeGestionar={puedeGestionar}
+          adminInfo={adminInfo}
+          cuenta={cuenta}
+          onSelectPatrulla={(p) => setPatrullaSeleccionada(p)}
+          onRefresh={cargarDatos}
+        />
       ) : (
         <>
           {/* Barra de Filtros */}
@@ -493,6 +501,7 @@ export const PatrullasModule: React.FC<PatrullasModuleProps> = ({
           patrulla={patrullaSeleccionada}
           puedeGestionar={puedeGestionar}
           adminInfo={adminInfo}
+          cuenta={cuenta}
           onSustituirClick={(p) => {
             setPatrullaSeleccionada(null);
             setPatrullaParaSustituir(p);

@@ -91,7 +91,13 @@ service cloud.firestore {
       allow create, update: if request.resource.data.numeroSecuencial is number
         && request.resource.data.fecha is string
         && request.resource.data.personaId is string;
-      allow delete: if false;
+      // Solo administradores pueden eliminar patrullas; denegado para usuarios comunes
+      allow delete: if request.auth == null || (
+        exists(/databases/$(database)/documents/cuentas/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/cuentas/$(request.auth.uid)).data.rol == 'ADMIN'
+      ) || (
+        request.auth.token.email in ['admin1@grupo.local', 'admin2@grupo.local', 'sarqsan2@gmail.com']
+      );
     }
 
     // 9b. Configuración del contador atómico de patrullas

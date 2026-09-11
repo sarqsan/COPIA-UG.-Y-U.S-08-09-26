@@ -4,6 +4,7 @@ import {
   getDocs,
   getDoc,
   setDoc,
+  deleteDoc,
   query,
   orderBy,
   runTransaction,
@@ -887,6 +888,60 @@ export const cambiarEstadoPatrulla = async (params: {
   notificarCambioPatrullas();
 
   return patrullaActualizada;
+};
+
+/**
+ * Elimina de forma definitiva una patrulla individual.
+ * PROTEGIDO: Solo ejecutable por Administrador.
+ * PERSISTENCIA REAL: Borra el documento en Firestore (/patrullas/{patrullaId}),
+ * actualiza memoria L1, localStorage L2 y notifica a la interfaz reactiva.
+ * CONTADOR SECUENCIAL INTACTO: NO retrocede ni modifica /patrullas_config/secuencial_counter
+ * para garantizar que los números eliminados jamás sean reutilizados.
+ */
+export const eliminarPatrulla = async (params: {
+  patrullaId: string;
+  adminInfo: { uid: string; nombre: string };
+  cuenta?: any;
+}): Promise<void> => {
+  const { patrullaId, adminInfo, cuenta } = params;
+
+  // 1. Verificación de permisos de administrador
+  const esAdmin = puedeGestionarPatrullas(cuenta) || cuenta?.rol === 'ADMIN';
+  if (!esAdmin) {
+    throw new Error('Operación denegada: Solo los administradores pueden eliminar patrullas.');
+  }
+
+  // 2. Localizar la patrulla a eliminar
+  const patrullaAEliminar = memoryPatrullasCache.find((p) => p.id === patrullaId);
+  const secuencial = patrullaAEliminar?.numeroSecuencial || 0;
+
+  // 3. Eliminar FÍSICAMENTE en Firestore (fuente de verdad)
+  const docRef = doc(db, PATRULLAS_COLLECTION, patrullaId);
+  await deleteDoc(docRef);
+
+  // 4. Actualizar memoria L1 y localStorage L2
+  memoryPatrullasCache = memoryPatrullasCache.filter((p) => p.id !== patrullaId);
+  saveLocalStorage();
+
+  // 5. Registrar auditoría inmutable
+  try {
+    await registrarAuditoriaPatrulla({
+      patrullaId,
+      numeroSecuencial: secuencial,
+      accion: 'ELIMINACION',
+      usuarioUid: adminInfo.uid,
+      usuarioNombre: adminInfo.nombre,
+      valorAnterior: patrullaAEliminar,
+      detalles: patrullaAEliminar
+        ? `Eliminación física definitiva de patrulla #${secuencial} (Fecha: ${patrullaAEliminar.fecha}, Efectivo: ${patrullaAEliminar.personaNombre}, Estado: ${patrullaAEliminar.estado}) por ${adminInfo.nombre}.`
+        : `Eliminación física definitiva de documento ${patrullaId} por ${adminInfo.nombre}.`,
+    });
+  } catch (auditErr) {
+    console.warn('Aviso: Registro de auditoría diferido en eliminación:', auditErr);
+  }
+
+  // 6. Notificar a componentes reactivos
+  notificarCambioPatrullas();
 };
 
 /**

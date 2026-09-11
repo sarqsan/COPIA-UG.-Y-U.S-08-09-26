@@ -46,7 +46,8 @@ export interface PatrullaAuditLog {
     | 'MODIFICACION'
     | 'SUSTITUCION'
     | 'CANCELACION'
-    | 'CAMBIO_ESTADO';
+    | 'CAMBIO_ESTADO'
+    | 'ELIMINACION';
   usuarioUid: string;
   usuarioNombre: string;
   fecha: string;
