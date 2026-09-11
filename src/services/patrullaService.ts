@@ -7,6 +7,7 @@ import {
   query,
   orderBy,
   runTransaction,
+  limit,
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { Persona, Empleo } from '../types';
@@ -78,6 +79,23 @@ const notificarCambioPatrullas = () => {
     window.dispatchEvent(new CustomEvent('patrullas_actualizadas'));
     window.dispatchEvent(new CustomEvent('patrullas_updated'));
   }
+};
+
+/**
+ * Elimina valores 'undefined' recursivamente para garantizar compatibilidad estricta con Firestore
+ */
+const cleanFirestoreData = <T extends Record<string, any>>(obj: T): Record<string, any> => {
+  const res: Record<string, any> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v !== undefined) {
+      if (v !== null && typeof v === 'object' && !Array.isArray(v) && !(v instanceof Date)) {
+        res[k] = cleanFirestoreData(v);
+      } else {
+        res[k] = v;
+      }
+    }
+  }
+  return res;
 };
 
 loadLocalStorage();
@@ -191,45 +209,76 @@ export const puedeGestionarPatrullas = (cuenta?: {
 /**
  * Consulta el siguiente número secuencial que le correspondería a la próxima patrulla.
  * OPERACIÓN PURA DE CONSULTA (SOLO LECTURA): No incrementa ni muta el contador en Firestore ni memoria.
- * Evita saltos y huecos en la numeración secuencial (ej. PAT-003 a PAT-005).
+ * Evita saltos y huecos en la numeración secuencial.
  */
 export const consultarSiguienteNumeroSecuencial = async (): Promise<number> => {
-  loadLocalStorage();
-  const maxMemoria = memoryPatrullasCache.reduce((m, p) => Math.max(m, p.numeroSecuencial || 0), 0);
   try {
     const configDocRef = doc(db, PATRULLAS_CONFIG_COLLECTION, SECUENCIAL_DOC_ID);
     const snap = await getDoc(configDocRef);
-    let ultimo = 0;
     if (snap.exists()) {
-      ultimo = snap.data()?.ultimoSecuencial || 0;
+      const val = snap.data()?.ultimoSecuencial;
+      if (typeof val === 'number') {
+        return val + 1;
+      }
     }
-    const base = Math.max(ultimo, maxMemoria, memoryUltimoSecuencial);
-    return base + 1;
+    // Si aún no existe el documento de configuración, consultar el máximo en /patrullas
+    const colRef = collection(db, PATRULLAS_COLLECTION);
+    const qMax = query(colRef, orderBy('numeroSecuencial', 'desc'), limit(1));
+    const snapMax = await getDocs(qMax);
+    if (!snapMax.empty) {
+      const maxSec = snapMax.docs[0].data().numeroSecuencial || 0;
+      return maxSec + 1;
+    }
+    return 1;
   } catch (err) {
+    console.warn('Error al consultar siguiente número secuencial en Firestore:', err);
+    loadLocalStorage();
+    const maxMemoria = memoryPatrullasCache.reduce((m, p) => Math.max(m, p.numeroSecuencial || 0), 0);
     return Math.max(maxMemoria, memoryUltimoSecuencial) + 1;
   }
 };
 
 /**
  * Consume atómicamente el siguiente número secuencial persistente.
- * Se ejecuta EXCLUSIVAMENTE cuando se persiste una patrulla real en el sistema.
+ * Se ejecuta EXCLUSIVAMENTE mediante transacción atómica sobre Firestore (/patrullas_config/secuencial_counter).
+ * Si el contador aún no existe, se inicializa considerando el máximo número de /patrullas para evitar duplicados.
+ * Si Firestore falla, la operación lanza un error explícito: NO inventar números ni usar fallbacks locales.
  */
 export const consumirSiguienteNumeroSecuencial = async (): Promise<number> => {
-  loadLocalStorage();
-  const maxMemoria = memoryPatrullasCache.reduce((m, p) => Math.max(m, p.numeroSecuencial || 0), 0);
+  const configDocRef = doc(db, PATRULLAS_CONFIG_COLLECTION, SECUENCIAL_DOC_ID);
+
+  // 1. Obtener el número máximo existente actualmente en /patrullas para inicializar
+  // el contador si el documento /patrullas_config/secuencial_counter no existiera aún.
+  let maxExistenteEnPatrullas = 0;
   try {
-    const configDocRef = doc(db, PATRULLAS_CONFIG_COLLECTION, SECUENCIAL_DOC_ID);
+    const colRef = collection(db, PATRULLAS_COLLECTION);
+    const qMax = query(colRef, orderBy('numeroSecuencial', 'desc'), limit(1));
+    const snapMax = await getDocs(qMax);
+    if (!snapMax.empty) {
+      maxExistenteEnPatrullas = snapMax.docs[0].data().numeroSecuencial || 0;
+    }
+  } catch (errQuery) {
+    console.warn('Aviso: Consulta de base para contador secuencial:', errQuery);
+  }
+
+  // 2. Transacción atómica estricta en Firestore
+  try {
     const nuevoSecuencial = await runTransaction(db, async (transaction) => {
       const snap = await transaction.get(configDocRef);
-      let ultimo = 0;
+      let ultimo = maxExistenteEnPatrullas;
       if (snap.exists()) {
-        ultimo = snap.data()?.ultimoSecuencial || 0;
+        const val = snap.data()?.ultimoSecuencial;
+        if (typeof val === 'number') {
+          ultimo = Math.max(ultimo, val);
+        }
       }
-      const base = Math.max(ultimo, maxMemoria, memoryUltimoSecuencial);
-      const siguiente = base + 1;
+      const siguiente = ultimo + 1;
       transaction.set(
         configDocRef,
-        { ultimoSecuencial: siguiente, fechaActualizacion: new Date().toISOString() },
+        {
+          ultimoSecuencial: siguiente,
+          fechaActualizacion: new Date().toISOString(),
+        },
         { merge: true }
       );
       return siguiente;
@@ -237,12 +286,11 @@ export const consumirSiguienteNumeroSecuencial = async (): Promise<number> => {
 
     memoryUltimoSecuencial = nuevoSecuencial;
     return nuevoSecuencial;
-  } catch (err) {
-    console.warn('Transacción Firestore no disponible para secuencial, usando fallback local L1/L2:', err);
-    const siguiente = Math.max(maxMemoria, memoryUltimoSecuencial) + 1;
-    memoryUltimoSecuencial = siguiente;
-    saveLocalStorage();
-    return siguiente;
+  } catch (err: any) {
+    console.error('Error crítico: Falló la transacción atómica del contador en Firestore:', err);
+    throw new Error(
+      `Error de persistencia en Firestore: No se pudo obtener el número secuencial atómico. Operación detenida para evitar duplicados o colisiones. (${err?.message || err})`
+    );
   }
 };
 
@@ -430,16 +478,14 @@ export const getPatrullas = async (filtro?: {
     const q = query(colRef, orderBy('numeroSecuencial', 'asc'));
     const snap = await getDocs(q);
 
-    if (!snap.empty) {
-      const items: Patrulla[] = [];
-      snap.forEach((docSnap) => {
-        items.push(docSnap.data() as Patrulla);
-      });
-      memoryPatrullasCache = items;
-      saveLocalStorage();
-    }
+    const items: Patrulla[] = [];
+    snap.forEach((docSnap) => {
+      items.push(docSnap.data() as Patrulla);
+    });
+    memoryPatrullasCache = items;
+    saveLocalStorage();
   } catch (err) {
-    console.warn('Lectura Firestore diferida para patrullas, usando caché L1/L2:', err);
+    console.warn('Error al cargar patrullas desde Firestore, usando caché local:', err);
   }
 
   let res = [...memoryPatrullasCache];
@@ -494,8 +540,8 @@ export const crearPatrulla = async (params: {
     throw new Error(motivo);
   }
 
-  // Comprobar si ya tiene otra patrulla activa asignada en la misma fecha
-  loadLocalStorage();
+  // Cargar patrullas reales de Firestore para comprobar si ya tiene otra patrulla activa en la misma fecha
+  await getPatrullas();
   const patrullaMismoDia = memoryPatrullasCache.find(
     (p) => p.fecha === params.fecha && p.personaId === persona.id && p.estado !== 'CANCELADA'
   );
@@ -530,7 +576,12 @@ export const crearPatrulla = async (params: {
     observaciones: params.observaciones,
   };
 
-  // Guardar en memoria L1 y L2
+  // 1. Guardar OBLIGATORIAMENTE en Firestore (fuente de verdad).
+  // Si la escritura falla, se propaga el error y NO se actualiza memoria ni localStorage.
+  const docRef = doc(db, PATRULLAS_COLLECTION, patrullaId);
+  await setDoc(docRef, cleanFirestoreData(nuevaPatrulla));
+
+  // 2. Solo tras confirmación de éxito en Firestore, actualizar memoria L1 y localStorage L2
   const idx = memoryPatrullasCache.findIndex((p) => p.id === patrullaId);
   if (idx >= 0) {
     memoryPatrullasCache[idx] = nuevaPatrulla;
@@ -539,26 +590,22 @@ export const crearPatrulla = async (params: {
   }
   saveLocalStorage();
 
-  // Guardar en Firestore L3
+  // 3. Registrar auditoría independiente
   try {
-    const docRef = doc(db, PATRULLAS_COLLECTION, patrullaId);
-    await setDoc(docRef, nuevaPatrulla);
-  } catch (e: any) {
-    console.warn('Persistencia Firestore diferida para nueva patrulla:', e.message || e);
+    await registrarAuditoriaPatrulla({
+      patrullaId,
+      numeroSecuencial,
+      accion: 'CREACION',
+      usuarioUid: params.adminInfo.uid,
+      usuarioNombre: params.adminInfo.nombre,
+      valorNuevo: nuevaPatrulla,
+      detalles: `Patrulla #${numeroSecuencial} creada para ${persona.nombre} (${persona.empleo}) en fecha ${params.fecha} a las ${hora} (${tipoJornada}). 0 horas computables.`,
+    });
+  } catch (auditErr) {
+    console.warn('Aviso: Registro de auditoría diferido:', auditErr);
   }
 
-  // Registrar auditoría independiente
-  await registrarAuditoriaPatrulla({
-    patrullaId,
-    numeroSecuencial,
-    accion: 'CREACION',
-    usuarioUid: params.adminInfo.uid,
-    usuarioNombre: params.adminInfo.nombre,
-    valorNuevo: nuevaPatrulla,
-    detalles: `Patrulla #${numeroSecuencial} creada para ${persona.nombre} (${persona.empleo}) en fecha ${params.fecha} a las ${hora} (${tipoJornada}). 0 horas computables.`,
-  });
-
-  // Notificar asignación
+  // 4. Notificar asignación
   try {
     await crearNotificacion({
       tipo: 'AVISO_IMPORTANTE',
@@ -570,7 +617,7 @@ export const crearPatrulla = async (params: {
       linkTab: 'cuadrantes',
     });
   } catch (err) {
-    console.warn('Notificación de patrulla diferida:', err);
+    console.warn('Aviso: Notificación de patrulla diferida:', err);
   }
 
   notificarCambioPatrullas();
@@ -732,33 +779,33 @@ export const sustituirPatrulla = async (params: {
     modificadoPorNombre: adminInfo.nombre,
   };
 
-  // Actualizar memoria
+  // 1. Persistir obligatoriamente en Firestore sobre el documento individual
+  const docRef = doc(db, PATRULLAS_COLLECTION, patrullaId);
+  await setDoc(docRef, cleanFirestoreData(patrullaActualizada), { merge: true });
+
+  // 2. Solo tras confirmación de Firestore, actualizar memoria local
   const idx = memoryPatrullasCache.findIndex((p) => p.id === patrullaId);
   if (idx >= 0) {
     memoryPatrullasCache[idx] = patrullaActualizada;
   }
   saveLocalStorage();
 
-  // Actualizar Firestore
+  // 3. Registrar auditoría
   try {
-    const docRef = doc(db, PATRULLAS_COLLECTION, patrullaId);
-    await setDoc(docRef, patrullaActualizada, { merge: true });
-  } catch (e: any) {
-    console.warn('Persistencia Firestore diferida para sustitución de patrulla:', e.message || e);
+    await registrarAuditoriaPatrulla({
+      patrullaId,
+      numeroSecuencial: patrulla.numeroSecuencial,
+      accion: 'SUSTITUCION',
+      usuarioUid: adminInfo.uid,
+      usuarioNombre: adminInfo.nombre,
+      valorAnterior,
+      valorNuevo: patrullaActualizada,
+      motivo,
+      detalles: `Sustitución en Patrulla #${patrulla.numeroSecuencial} (${patrulla.fecha} a las ${patrulla.hora}). Original: ${personaOriginalNombre} (${personaOriginalEmpleo}). Sustituto: ${nuevaPersona.nombre} (${nuevaPersona.empleo}). Motivo: ${motivo}.`,
+    });
+  } catch (auditErr) {
+    console.warn('Aviso: Registro de auditoría diferido en sustitución:', auditErr);
   }
-
-  // Registrar auditoría
-  await registrarAuditoriaPatrulla({
-    patrullaId,
-    numeroSecuencial: patrulla.numeroSecuencial,
-    accion: 'SUSTITUCION',
-    usuarioUid: adminInfo.uid,
-    usuarioNombre: adminInfo.nombre,
-    valorAnterior,
-    valorNuevo: patrullaActualizada,
-    motivo,
-    detalles: `Sustitución en Patrulla #${patrulla.numeroSecuencial} (${patrulla.fecha} a las ${patrulla.hora}). Original: ${personaOriginalNombre} (${personaOriginalEmpleo}). Sustituto: ${nuevaPersona.nombre} (${nuevaPersona.empleo}). Motivo: ${motivo}.`,
-  });
 
   // Notificar al sustituto y al titular previo
   try {
@@ -780,6 +827,8 @@ export const sustituirPatrulla = async (params: {
 
 /**
  * Cambia el estado de una Patrulla (PROGRAMADA, REALIZADA, CANCELADA)
+ * Modifica EXCLUSIVAMENTE el documento individual /patrullas/{patrullaId}.
+ * No altera ni borra ninguna otra patrulla.
  */
 export const cambiarEstadoPatrulla = async (params: {
   patrullaId: string;
@@ -788,7 +837,13 @@ export const cambiarEstadoPatrulla = async (params: {
   motivo?: string;
 }): Promise<Patrulla> => {
   const { patrullaId, nuevoEstado, adminInfo, motivo } = params;
-  const patrulla = memoryPatrullasCache.find((p) => p.id === patrullaId);
+  let patrulla = memoryPatrullasCache.find((p) => p.id === patrullaId);
+  if (!patrulla) {
+    const snap = await getDoc(doc(db, PATRULLAS_COLLECTION, patrullaId));
+    if (snap.exists()) {
+      patrulla = snap.data() as Patrulla;
+    }
+  }
   if (!patrulla) {
     throw new Error(`Patrulla con ID ${patrullaId} no encontrada.`);
   }
@@ -802,6 +857,11 @@ export const cambiarEstadoPatrulla = async (params: {
     modificadoPorNombre: adminInfo.nombre,
   };
 
+  // 1. Actualizar ÚNICA Y EXCLUSIVAMENTE el documento de esta patrulla en Firestore
+  const docRef = doc(db, PATRULLAS_COLLECTION, patrullaId);
+  await setDoc(docRef, cleanFirestoreData(patrullaActualizada), { merge: true });
+
+  // 2. Solo tras confirmación de éxito en Firestore, actualizar memoria local
   const idx = memoryPatrullasCache.findIndex((p) => p.id === patrullaId);
   if (idx >= 0) {
     memoryPatrullasCache[idx] = patrullaActualizada;
@@ -809,23 +869,20 @@ export const cambiarEstadoPatrulla = async (params: {
   saveLocalStorage();
 
   try {
-    const docRef = doc(db, PATRULLAS_COLLECTION, patrullaId);
-    await setDoc(docRef, patrullaActualizada, { merge: true });
-  } catch (e: any) {
-    console.warn('Persistencia Firestore diferida para cambio de estado:', e.message || e);
+    await registrarAuditoriaPatrulla({
+      patrullaId,
+      numeroSecuencial: patrulla.numeroSecuencial,
+      accion: nuevoEstado === 'CANCELADA' ? 'CANCELACION' : 'CAMBIO_ESTADO',
+      usuarioUid: adminInfo.uid,
+      usuarioNombre: adminInfo.nombre,
+      valorAnterior,
+      valorNuevo: { estado: nuevoEstado },
+      motivo,
+      detalles: `Estado de Patrulla #${patrulla.numeroSecuencial} cambiado de ${valorAnterior.estado} a ${nuevoEstado}.${motivo ? ` Motivo: ${motivo}` : ''}`,
+    });
+  } catch (auditErr) {
+    console.warn('Aviso: Registro de auditoría diferido en cambio de estado:', auditErr);
   }
-
-  await registrarAuditoriaPatrulla({
-    patrullaId,
-    numeroSecuencial: patrulla.numeroSecuencial,
-    accion: nuevoEstado === 'CANCELADA' ? 'CANCELACION' : 'CAMBIO_ESTADO',
-    usuarioUid: adminInfo.uid,
-    usuarioNombre: adminInfo.nombre,
-    valorAnterior,
-    valorNuevo: { estado: nuevoEstado },
-    motivo,
-    detalles: `Estado de Patrulla #${patrulla.numeroSecuencial} cambiado de ${valorAnterior.estado} a ${nuevoEstado}.${motivo ? ` Motivo: ${motivo}` : ''}`,
-  });
 
   notificarCambioPatrullas();
 
@@ -866,7 +923,7 @@ export const registrarAuditoriaPatrulla = async (params: {
 
   try {
     const docRef = doc(db, PATRULLAS_AUDIT_COLLECTION, auditId);
-    await setDoc(docRef, log);
+    await setDoc(docRef, cleanFirestoreData(log));
   } catch (e: any) {
     console.warn('Persistencia Firestore diferida para auditoría de patrulla:', e.message || e);
   }

@@ -87,7 +87,27 @@ service cloud.firestore {
 
     // 9. Patrullas operativas
     match /patrullas/{patrullaId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow create, update: if request.resource.data.numeroSecuencial is number
+        && request.resource.data.fecha is string
+        && request.resource.data.personaId is string;
+      allow delete: if false;
+    }
+
+    // 9b. Configuración del contador atómico de patrullas
+    match /patrullas_config/{configId} {
+      allow read: if true;
+      allow create, update: if request.resource.data.ultimoSecuencial is number
+        && request.resource.data.ultimoSecuencial >= 0;
+      allow delete: if false;
+    }
+
+    // 9c. Auditoría inmutable de patrullas
+    match /patrullas_audit/{auditId} {
+      allow read: if true;
+      allow create: if request.resource.data.patrullaId is string
+        && request.resource.data.accion is string;
+      allow update, delete: if false;
     }
 
     // 10. Ciclos operativos
