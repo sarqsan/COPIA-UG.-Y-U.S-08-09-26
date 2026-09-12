@@ -78,14 +78,22 @@ export const obtenerEstadoPlanificadorDia10 = async (
   const ultimoDiaNum = new Date(Date.UTC(anioSiguiente, mesSiguienteNum, 0)).getUTCDate();
   const fechaFinMesSiguiente = `${mesSiguienteStr}-${String(ultimoDiaNum).padStart(2, '0')}`;
 
-  // Comprobar si ya existe un cuadrante de U.S. para el mes siguiente
+  // Comprobar si ya existe un cuadrante confirmado de U.S. específicamente para el mes siguiente
   const todosLosCuadrantes = await getCuadrantes({ tipoServicio: 'US' });
   const cuadranteExistente = todosLosCuadrantes.find((c) => {
+    // Debe ser exclusivamente de la Unidad de Seguridad y estar confirmado
     if (c.tipoServicio !== 'US' && !c.id.includes('-us-') && !c.configuracionUS) return false;
-    // Comprobar si cubre el mes siguiente
+    if (c.estado !== 'CONFIRMADO') return false;
+
+    // 1. Coincidencia por cicloId específico del mes siguiente
     if (c.cicloId === `ciclo-us-${mesSiguienteStr}` || c.cicloId === `Ciclo U.S. ${mesSiguienteStr}`) return true;
-    if (c.fechaInicio <= fechaInicioMesSiguiente && c.fechaFin >= fechaFinMesSiguiente) return true;
-    if (c.fechaInicio?.startsWith(mesSiguienteStr)) return true;
+
+    // 2. Coincidencia por delimitación mensual exacta
+    if (c.fechaInicio === fechaInicioMesSiguiente && c.fechaFin === fechaFinMesSiguiente) return true;
+
+    // 3. Coincidencia si el cuadrante empieza y termina estrictamente dentro del mes siguiente
+    if (c.fechaInicio?.startsWith(mesSiguienteStr) && c.fechaFin?.startsWith(mesSiguienteStr)) return true;
+
     return false;
   });
 
@@ -178,9 +186,9 @@ export const ejecutarPlanificadorAutomaticoUS = async (options?: {
       (p) => p.tipoServicio === 'US' || p.grupo === 'US_SEGURIDAD'
     );
 
-    if (personalUS.length < 5) {
+    if (personalUS.length < 10) {
       throw new Error(
-        `Plantilla insuficiente en la Unidad de Seguridad: se requieren al menos 5 efectivos para cubrir Diurno (2), Nocturno (2) e Imaginaria (1). Disponibles: ${personalUS.length}.`
+        `Plantilla insuficiente en la Unidad de Seguridad: se requieren al menos 10 efectivos para cubrir Diurno (2), Nocturno (2), Imaginaria (1) y descansos reglamentarios (saliente y 24h libres). Disponibles: ${personalUS.length}.`
       );
     }
 
@@ -192,9 +200,9 @@ export const ejecutarPlanificadorAutomaticoUS = async (options?: {
       (b.fechaFin || '').localeCompare(a.fechaFin || '')
     );
 
-    // Encontrar el cuadrante inmediatamente anterior al mes siguiente
+    // Encontrar el cuadrante inmediatamente anterior al mes siguiente (confirmado)
     const cuadrantePrevio = cuadrantesUSOrdenados.find(
-      (c) => (c.fechaFin || '') < estado.fechaInicioMesSiguiente
+      (c) => (c.fechaFin || '') < estado.fechaInicioMesSiguiente && c.estado === 'CONFIRMADO'
     );
 
     let estadoContinuidad = null;

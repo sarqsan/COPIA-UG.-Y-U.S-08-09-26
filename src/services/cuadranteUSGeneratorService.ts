@@ -78,13 +78,16 @@ export const generarSimulacionCuadranteUS = (params: {
     (p) => (p.tipoServicio || (p.grupo === 'US_SEGURIDAD' ? 'US' : 'GUARDIA')) === 'US'
   );
 
-  if (usPersonas.length < 5) {
+  // Validación de plantilla mínima viable según necesidades operativas:
+  // Se requieren al menos 10 personas para cubrir 2 Diurnos, 2 Nocturnos, 1 Imaginaria diaria (3-day restriction)
+  // y descansos reglamentarios (Saliente y 24h libres post-nocturno).
+  if (usPersonas.length < 10) {
     throw new Error(
-      `La Unidad de Seguridad (U.S.) requiere al menos 5 efectivos para cubrir 2 Diurnos + 2 Nocturnos + 1 Imaginaria diaria respetando los descansos obligatorios. Efectivos actuales: ${usPersonas.length}.`
+      `Dotación insuficiente para generar un cuadrante U.S. válido con las restricciones actuales. Se requieren al menos 10 efectivos activos para garantizar la cobertura simultánea de Diurno (2), Nocturno (2), Imaginaria (1) y los descansos reglamentarios mínimos (Saliente y 24h libres post-nocturno). Efectivos disponibles: ${usPersonas.length}.`
     );
   }
 
-  // Ordenar por orden de rotación o identificador
+  // Ordenar plantilla U.S. según orden de rotación oficial
   const plantillaUS = [...usPersonas].sort(
     (a, b) => (a.ordenRotacion ?? 999) - (b.ordenRotacion ?? 999) || a.nombre.localeCompare(b.nombre)
   );
@@ -96,7 +99,7 @@ export const generarSimulacionCuadranteUS = (params: {
   // Mapa de ausencias por día (V, P, AP)
   const ausenciasPorDia: Record<string, AusenciaDiaUS[]> = mapaAusenciasPrecalculadas || {};
 
-  // Estado de seguimiento por persona para balanceo inteligente
+  // Estado de seguimiento por persona para balanceo inteligente de presentes/imaginarias y telemetría
   interface EstadoPersona {
     persona: Persona;
     totalServicios: number;
@@ -106,7 +109,7 @@ export const generarSimulacionCuadranteUS = (params: {
     imaginarias: number;
     presentes: number;
     horasComputables: number;
-    ultimoServicioDiaIdx: number; // Índice del último día en que tuvo servicio
+    ultimoServicioDiaIdx: number;
     ultimoTipoServicio: 'DIURNO' | 'NOCTURNO' | 'IMAGINARIA' | 'PRESENTE' | 'LIBRE' | null;
   }
 
@@ -128,21 +131,78 @@ export const generarSimulacionCuadranteUS = (params: {
     };
   });
 
-  // Asignaciones día a día
-  const asignacionesDias: {
-    diurnos: string[]; // [pId1, pId2]
-    nocturnos: string[]; // [pId1, pId2]
-    imaginaria: string; // pId
-    presentes: string[]; // [pId...]
+  // FASE 1: CONSTRUCCIÓN DE LA RUEDA MATEMÁTICA Y DETERMINACIÓN DE CONTINUIDAD
+  // Bloques de 2 efectivos (parejas deterministas de la rueda)
+  const numBloques = Math.floor(plantillaUS.length / 2);
+  const bloques: Array<[Persona, Persona]> = [];
+  for (let i = 0; i < numBloques; i++) {
+    bloques.push([plantillaUS[2 * i], plantillaUS[2 * i + 1]]);
+  }
+  // Personal adicional cuando la plantilla es impar (ej. 15 o 17 personas):
+  // Se integran como disponibles para Imaginarias, Presentes y coberturas operativas de ausencias
+  const personalExtra = plantillaUS.slice(2 * numBloques);
+
+  // Determinación del bloque inicial de Diurno (b0) y de los Nocturnos/Salientes iniciales
+  let b0 = 0;
+  let nocturnosDia0Originales: string[] = [];
+  let salientesDia0Originales: string[] = [];
+
+  if (estadoContinuidadMesAnterior && estadoContinuidadMesAnterior.diurnosOriginales?.length > 0) {
+    // 1. Identificar en qué bloque se encontraban los Diurnos ORIGINALES del último día del mes previo
+    const prevDiurnoIds = new Set(estadoContinuidadMesAnterior.diurnosOriginales);
+    let bloquePrevDiurnoIdx = -1;
+
+    for (let bIdx = 0; bIdx < numBloques; bIdx++) {
+      const [p1, p2] = bloques[bIdx];
+      if (prevDiurnoIds.has(p1.id) || prevDiurnoIds.has(p2.id)) {
+        bloquePrevDiurnoIdx = bIdx;
+        break;
+      }
+    }
+
+    if (bloquePrevDiurnoIdx !== -1) {
+      // Regla estricta D -> N: El bloque que hizo Diurno el último día hace Nocturno en Día 0
+      nocturnosDia0Originales = [
+        bloques[bloquePrevDiurnoIdx][0].id,
+        bloques[bloquePrevDiurnoIdx][1].id,
+      ];
+      // El Diurno del Día 0 es el siguiente bloque correlativo de la rueda
+      b0 = (bloquePrevDiurnoIdx + 1) % numBloques;
+    } else {
+      nocturnosDia0Originales = estadoContinuidadMesAnterior.diurnosOriginales.slice(0, 2);
+      b0 = 0;
+    }
+
+    // Los salientes de noche en Día 0 son quienes hicieron Nocturno original el último día
+    salientesDia0Originales = estadoContinuidadMesAnterior.nocturnosOriginales || [];
+  } else {
+    // Sin continuidad previa: Bloque 0 en Diurno, el bloque inmediatamente anterior en Nocturno
+    b0 = 0;
+    const bloquePrevN = (numBloques - 1 + numBloques) % numBloques;
+    nocturnosDia0Originales = [bloques[bloquePrevN][0].id, bloques[bloquePrevN][1].id];
+    const bloqueSaliente = (numBloques - 2 + numBloques) % numBloques;
+    salientesDia0Originales = [bloques[bloqueSaliente][0].id, bloques[bloqueSaliente][1].id];
+  }
+
+  // Estructura intermedia de asignaciones día a día
+  interface AsignacionDiaItem {
+    diurnosOriginales: string[];
+    diurnosReales: string[];
+    nocturnosOriginales: string[];
+    nocturnosReales: string[];
+    imaginariaOriginal: string;
+    imaginariaReal: string;
+    presentes: string[];
     ausencias: AusenciaDiaUS[];
     esLaborable: boolean;
     esNocturnoProlongado: boolean;
     diaSemana: number;
     esFinDeSemana: boolean;
-  }[] = [];
+  }
 
-  // FASE 1: GENERACIÓN DE TURNOS DE 12 HORAS (DIURNO Y NOCTURNO)
-  // Estrategia: Patrón D -> N -> L -> L -> L con balanceo adaptativo
+  const asignacionesDias: AsignacionDiaItem[] = [];
+
+  // FASE 2: SECUENCIA DETERMINISTA D -> N -> SALIENTE Y COBERTURA DE AUSENCIAS
   for (let diaIdx = 0; diaIdx < totalDias; diaIdx++) {
     const fecha = fechas[diaIdx];
     const fechaObj = new Date(fecha);
@@ -150,156 +210,142 @@ export const generarSimulacionCuadranteUS = (params: {
     const esFinDeSemana = diaSemana === 0 || diaSemana === 6;
     const esLaborable = diaSemana >= 1 && diaSemana <= 5;
 
-    // Calcular si el día siguiente es laborable para la prolongación nocturna
     const diaMananaIdx = diaIdx + 1;
     const mananaLaborable = diaMananaIdx < totalDias ? esFechaLaborable(fechas[diaMananaIdx]) : false;
     const esNocturnoProlongado = mananaLaborable;
 
-    // Ausencias del día
     const ausenciasHoy = ausenciasPorDia[fecha] || [];
     const idsEnAusencia = new Set(ausenciasHoy.map((a) => a.personaId));
 
-    // Identificar quiénes salieron de noche en diaIdx - 1
-    let salientesNocheAyer: Set<string>;
-    let diurnosAyer: Set<string>;
+    // 2.1 Bloque Diurno original de hoy (Pura rueda matemática)
+    const bloqueDiurnoIdx = (b0 + diaIdx) % numBloques;
+    const diurnosOriginales = [
+      bloques[bloqueDiurnoIdx][0].id,
+      bloques[bloqueDiurnoIdx][1].id,
+    ];
 
-    if (diaIdx > 0) {
-      const asignacionAyer = asignacionesDias[diaIdx - 1];
-      salientesNocheAyer = new Set(asignacionAyer ? asignacionAyer.nocturnos : []);
-      diurnosAyer = new Set(asignacionAyer ? asignacionAyer.diurnos : []);
-    } else if (estadoContinuidadMesAnterior) {
-      // CONTINUIDAD ESTRICTA DESDE EL MES ANTERIOR (Asignaciones ORIGINALES):
-      // Los nocturnos del último día del mes previo son salientes de noche en día 1
-      salientesNocheAyer = new Set(estadoContinuidadMesAnterior.nocturnosOriginales || []);
-      // Los diurnos del último día del mes previo son candidatos de máxima prioridad para Nocturno hoy (D -> N)
-      diurnosAyer = new Set(estadoContinuidadMesAnterior.diurnosOriginales || []);
+    // 2.2 Bloque Nocturno original de hoy (Pura rueda matemática: Diurno del día anterior)
+    let nocturnosOriginales: string[] = [];
+    if (diaIdx === 0) {
+      nocturnosOriginales = [...nocturnosDia0Originales];
     } else {
-      salientesNocheAyer = new Set([]);
-      diurnosAyer = new Set([]);
+      const bloqueNocturnoIdx = (b0 + diaIdx - 1 + numBloques) % numBloques;
+      nocturnosOriginales = [
+        bloques[bloqueNocturnoIdx][0].id,
+        bloques[bloqueNocturnoIdx][1].id,
+      ];
     }
 
-    // 1.1 SELECCIONAR 2 DIURNOS PARA HOY (07:00 a 19:00)
-    // Candidatos elegibles para Diurno:
-    // - NO en ausencia hoy
-    // - NO saliente de noche ayer
-    // - NO haber tenido Nocturno en diaIdx - 2 si no cumplió el día libre completo
-    // - Preferir quienes llevan al menos 2-3 días de descanso
-    const candidatosDiurno = plantillaUS.filter((p) => {
-      if (idsEnAusencia.has(p.id)) return false;
-      if (salientesNocheAyer.has(p.id)) return false;
-      if (diurnosAyer.has(p.id)) return false; // Evitar D -> D consecutivo si es posible
-      const est = estados[p.id];
-      // Descanso obligatorio: si tuvo noche hace 2 días (diaIdx - 2), diaIdx - 1 fue saliente, diaIdx es el primer día hábil
-      if (diaIdx - est.ultimoServicioDiaIdx < 2 && est.ultimoTipoServicio === 'NOCTURNO') {
-        return false;
-      }
-      return true;
-    });
-
-    // Función de puntuación para Diurno (menor score = mejor candidato)
-    const scoringDiurno = (p: Persona) => {
-      const est = estados[p.id];
-      let score = est.totalServicios * 100 + est.diurnos * 60 + est.horasComputables * 2;
-      if (esFinDeSemana) {
-        score += est.finesDeSemana * 80;
-      }
-      // Bonificar descanso largo
-      const diasDesdeUltimo = diaIdx - est.ultimoServicioDiaIdx;
-      score -= Math.min(diasDesdeUltimo, 5) * 15;
-      return score;
-    };
-
-    candidatosDiurno.sort((a, b) => scoringDiurno(a) - scoringDiurno(b));
-
-    // Fallback si no hay suficientes candidatos estrictos
-    const diurnosSeleccionados: string[] = [];
-    for (const c of candidatosDiurno) {
-      if (diurnosSeleccionados.length < 2) {
-        diurnosSeleccionados.push(c.id);
-      }
+    // 2.3 Salientes de noche hoy (quienes hicieron Nocturno ayer)
+    let salientesNocheHoy: string[] = [];
+    if (diaIdx === 0) {
+      salientesNocheHoy = [...salientesDia0Originales];
+    } else if (diaIdx === 1) {
+      salientesNocheHoy = [...nocturnosDia0Originales];
+    } else {
+      const bloqueSalienteIdx = (b0 + diaIdx - 2 + numBloques) % numBloques;
+      salientesNocheHoy = [
+        bloques[bloqueSalienteIdx][0].id,
+        bloques[bloqueSalienteIdx][1].id,
+      ];
     }
+    const salientesSet = new Set(salientesNocheHoy);
 
-    if (diurnosSeleccionados.length < 2) {
-      // Tomar cualquier persona disponible no bloqueada por ausencias ni saliente de noche
-      const fallback = plantillaUS.filter(
-        (p) => !idsEnAusencia.has(p.id) && !salientesNocheAyer.has(p.id) && !diurnosSeleccionados.includes(p.id)
-      );
-      fallback.sort((a, b) => estados[a.id].totalServicios - estados[b.id].totalServicios);
-      for (const f of fallback) {
-        if (diurnosSeleccionados.length < 2) {
-          diurnosSeleccionados.push(f.id);
+    // 2.4 Resolver ejecución real respetando ausencias sin alterar personaIdOriginal
+    const idsOcupadosHoy = new Set<string>();
+
+    const buscarSustituto = (tipoTurno: 'DIURNO' | 'NOCTURNO'): Persona => {
+      const candidatos = plantillaUS.filter((p) => {
+        if (idsEnAusencia.has(p.id)) return false;
+        if (idsOcupadosHoy.has(p.id)) return false;
+        if (salientesSet.has(p.id)) return false;
+        return true;
+      });
+
+      if (candidatos.length === 0) {
+        const fallback = plantillaUS.filter(
+          (p) => !idsEnAusencia.has(p.id) && !idsOcupadosHoy.has(p.id)
+        );
+        return fallback.length > 0 ? fallback[0] : plantillaUS[0];
+      }
+
+      // Prioridad a personal extra (si existe), luego a quien tenga menos servicios
+      candidatos.sort((a, b) => {
+        const aEsExtra = personalExtra.some((pe) => pe.id === a.id);
+        const bEsExtra = personalExtra.some((pe) => pe.id === b.id);
+        if (aEsExtra && !bEsExtra) return -1;
+        if (!aEsExtra && bEsExtra) return 1;
+
+        const estA = estados[a.id];
+        const estB = estados[b.id];
+        if (estA.totalServicios !== estB.totalServicios) {
+          return estA.totalServicios - estB.totalServicios;
         }
-      }
-    }
+        return estA.horasComputables - estB.horasComputables;
+      });
 
-    const idsDiurnoSet = new Set(diurnosSeleccionados);
-
-    // 1.2 SELECCIONAR 2 NOCTURNOS PARA HOY (19:00 a 07:00 / 07:45)
-    // Candidatos elegibles para Nocturno:
-    // - NO en ausencia hoy
-    // - NO asignado a Diurno hoy
-    // - NO saliente de noche ayer
-    // - Prioridad alta a quienes hicieron Diurno ayer (Patrón D -> N)
-    const candidatosNocturno = plantillaUS.filter((p) => {
-      if (idsEnAusencia.has(p.id)) return false;
-      if (idsDiurnoSet.has(p.id)) return false;
-      if (salientesNocheAyer.has(p.id)) return false;
-      return true;
-    });
-
-    // Puntuación para Nocturno
-    const scoringNocturno = (p: Persona) => {
-      const est = estados[p.id];
-      let score = est.totalServicios * 100 + est.nocturnos * 60 + est.horasComputables * 2;
-      if (esFinDeSemana) {
-        score += est.finesDeSemana * 80;
-      }
-      // BONIFICACIÓN MUY FUERTE si hizo Diurno ayer (Patrón D -> N)
-      if (diurnosAyer.has(p.id)) {
-        score -= 200;
-      } else {
-        const diasDesdeUltimo = diaIdx - est.ultimoServicioDiaIdx;
-        score -= Math.min(diasDesdeUltimo, 4) * 10;
-      }
-      return score;
+      return candidatos[0];
     };
 
-    candidatosNocturno.sort((a, b) => scoringNocturno(a) - scoringNocturno(b));
-
-    const nocturnosSeleccionados: string[] = [];
-    for (const c of candidatosNocturno) {
-      if (nocturnosSeleccionados.length < 2) {
-        nocturnosSeleccionados.push(c.id);
+    // Asignar Diurnos
+    const diurnosReales: string[] = [];
+    diurnosOriginales.forEach((origId) => {
+      if (idsEnAusencia.has(origId)) {
+        const sust = buscarSustituto('DIURNO');
+        diurnosReales.push(sust.id);
+        idsOcupadosHoy.add(sust.id);
+      } else {
+        diurnosReales.push(origId);
+        idsOcupadosHoy.add(origId);
       }
-    }
-
-    // Actualizar estados temporales
-    const horasNocturno = esNocturnoProlongado ? 12.75 : 12.0;
-
-    diurnosSeleccionados.forEach((pId) => {
-      const est = estados[pId];
-      est.totalServicios += 1;
-      est.diurnos += 1;
-      est.horasComputables += 12;
-      est.ultimoServicioDiaIdx = diaIdx;
-      est.ultimoTipoServicio = 'DIURNO';
-      if (esFinDeSemana) est.finesDeSemana += 1;
     });
 
-    nocturnosSeleccionados.forEach((pId) => {
+    // Asignar Nocturnos
+    const nocturnosReales: string[] = [];
+    nocturnosOriginales.forEach((origId) => {
+      if (idsEnAusencia.has(origId)) {
+        const sust = buscarSustituto('NOCTURNO');
+        nocturnosReales.push(sust.id);
+        idsOcupadosHoy.add(sust.id);
+      } else {
+        nocturnosReales.push(origId);
+        idsOcupadosHoy.add(origId);
+      }
+    });
+
+    // Actualizar métricas acumuladas
+    const horasNocturno = esNocturnoProlongado ? 12.75 : 12.0;
+    diurnosReales.forEach((pId) => {
       const est = estados[pId];
-      est.totalServicios += 1;
-      est.nocturnos += 1;
-      est.horasComputables += horasNocturno;
-      est.ultimoServicioDiaIdx = diaIdx;
-      est.ultimoTipoServicio = 'NOCTURNO';
-      if (esFinDeSemana) est.finesDeSemana += 1;
+      if (est) {
+        est.totalServicios += 1;
+        est.diurnos += 1;
+        est.horasComputables += 12;
+        est.ultimoServicioDiaIdx = diaIdx;
+        est.ultimoTipoServicio = 'DIURNO';
+        if (esFinDeSemana) est.finesDeSemana += 1;
+      }
+    });
+
+    nocturnosReales.forEach((pId) => {
+      const est = estados[pId];
+      if (est) {
+        est.totalServicios += 1;
+        est.nocturnos += 1;
+        est.horasComputables += horasNocturno;
+        est.ultimoServicioDiaIdx = diaIdx;
+        est.ultimoTipoServicio = 'NOCTURNO';
+        if (esFinDeSemana) est.finesDeSemana += 1;
+      }
     });
 
     asignacionesDias.push({
-      diurnos: diurnosSeleccionados,
-      nocturnos: nocturnosSeleccionados,
-      imaginaria: '',
+      diurnosOriginales,
+      diurnosReales,
+      nocturnosOriginales,
+      nocturnosReales,
+      imaginariaOriginal: '',
+      imaginariaReal: '',
       presentes: [],
       ausencias: ausenciasHoy,
       esLaborable,
@@ -309,22 +355,23 @@ export const generarSimulacionCuadranteUS = (params: {
     });
   }
 
-  // FASE 2: ASIGNACIÓN DE IMAGINARIAS (24 HORAS)
-  // RESTRICCIÓN OBLIGATORIA:
-  // Una persona NO puede ser imaginaria el día D si tiene servicio en D-1, en D o en D+1.
+  // FASE 3: ASIGNACIÓN DE IMAGINARIAS (24 HORAS)
+  // Restricción de 3 días: NO puede ser imaginaria si tiene servicio en D-1, D o D+1
   for (let diaIdx = 0; diaIdx < totalDias; diaIdx++) {
     const fecha = fechas[diaIdx];
     const asignacionHoy = asignacionesDias[diaIdx];
     const ausenciasHoy = ausenciasPorDia[fecha] || [];
     const idsEnAusencia = new Set(ausenciasHoy.map((a) => a.personaId));
 
-    // Personas con servicio hoy (D)
-    const serviciosHoy = new Set([...asignacionHoy.diurnos, ...asignacionHoy.nocturnos]);
+    const serviciosHoy = new Set([...asignacionHoy.diurnosReales, ...asignacionHoy.nocturnosReales]);
 
-    // Personas con servicio ayer (D-1)
+    // Servicios ayer
     let serviciosAyer: Set<string>;
     if (diaIdx > 0) {
-      serviciosAyer = new Set([...asignacionesDias[diaIdx - 1].diurnos, ...asignacionesDias[diaIdx - 1].nocturnos]);
+      serviciosAyer = new Set([
+        ...asignacionesDias[diaIdx - 1].diurnosReales,
+        ...asignacionesDias[diaIdx - 1].nocturnosReales,
+      ]);
     } else if (estadoContinuidadMesAnterior) {
       serviciosAyer = new Set([
         ...(estadoContinuidadMesAnterior.diurnosOriginales || []),
@@ -334,15 +381,17 @@ export const generarSimulacionCuadranteUS = (params: {
       serviciosAyer = new Set([]);
     }
 
-    // Personas con servicio mañana (D+1)
-    const serviciosManana = new Set(
-      diaIdx < totalDias - 1
-        ? [...asignacionesDias[diaIdx + 1].diurnos, ...asignacionesDias[diaIdx + 1].nocturnos]
-        : []
-    );
+    // Servicios mañana
+    let serviciosManana: Set<string>;
+    if (diaIdx < totalDias - 1) {
+      serviciosManana = new Set([
+        ...asignacionesDias[diaIdx + 1].diurnosReales,
+        ...asignacionesDias[diaIdx + 1].nocturnosReales,
+      ]);
+    } else {
+      serviciosManana = new Set([]);
+    }
 
-    // Candidatos para Imaginaria:
-    // NO tener servicio en D-1, D, D+1 ni ausencia en D
     const candidatosImaginaria = plantillaUS.filter((p) => {
       if (idsEnAusencia.has(p.id)) return false;
       if (serviciosHoy.has(p.id)) return false;
@@ -351,7 +400,6 @@ export const generarSimulacionCuadranteUS = (params: {
       return true;
     });
 
-    // Puntuación para Imaginaria (priorizar quien lleve menos imaginarias)
     candidatosImaginaria.sort((a, b) => {
       const estA = estados[a.id];
       const estB = estados[b.id];
@@ -361,32 +409,28 @@ export const generarSimulacionCuadranteUS = (params: {
       return estA.totalServicios - estB.totalServicios;
     });
 
-    let imaginariaElegida = '';
+    let imagElegida = '';
     if (candidatosImaginaria.length > 0) {
-      imaginariaElegida = candidatosImaginaria[0].id;
+      imagElegida = candidatosImaginaria[0].id;
     } else {
-      // Fallback menos restrictivo si la plantilla es ajustada: relajar D-1 o D+1 si no hay alternativa absoluta
       const fallback = plantillaUS.filter(
         (p) => !idsEnAusencia.has(p.id) && !serviciosHoy.has(p.id)
       );
       fallback.sort((a, b) => estados[a.id].imaginarias - estados[b.id].imaginarias);
-      imaginariaElegida = fallback[0]?.id || plantillaUS[0].id;
+      imagElegida = fallback[0]?.id || plantillaUS[0].id;
     }
 
-    asignacionHoy.imaginaria = imaginariaElegida;
-    if (estados[imaginariaElegida]) {
-      estados[imaginariaElegida].imaginarias += 1;
+    asignacionHoy.imaginariaOriginal = imagElegida;
+    asignacionHoy.imaginariaReal = imagElegida;
+    if (estados[imagElegida]) {
+      estados[imagElegida].imaginarias += 1;
     }
   }
 
-  // FASE 3: ASIGNACIÓN DE PRESENTES (7.5H EN DÍAS LABORABLES)
-  // Días laborables: lunes a viernes
-  // REGLA FUNDAMENTAL: Si el número de horas máximas que pueden trabajar es el fijado por el mes (días laborables * 7.5h - ajuste),
-  // deben hacer presentes (7.5h) hasta llegar a dicho límite de horas, siempre sin pasarse.
+  // FASE 4: ASIGNACIÓN DE PRESENTES (7.5H EN DÍAS LABORABLES)
   const totalDiasLaborables = fechas.filter(esFechaLaborable).length;
   const horasMaximasReferencia = Math.max(0, totalDiasLaborables * 7.5 - ajusteHoras);
 
-  // Computar horas iniciales por ausencias concedidas (7.5h cada día de ausencia en laborables)
   for (let diaIdx = 0; diaIdx < totalDias; diaIdx++) {
     const asig = asignacionesDias[diaIdx];
     if (!asig.esLaborable) continue;
@@ -397,15 +441,13 @@ export const generarSimulacionCuadranteUS = (params: {
     });
   }
 
-  // Asignar presentes iterativamente a los miembros con déficit de horas
   let huboAsignacion = true;
-  let iteracionesMaximas = 500; // Guarda de seguridad
+  let iteracionesMaximas = 500;
 
   while (huboAsignacion && iteracionesMaximas > 0) {
     iteracionesMaximas--;
     huboAsignacion = false;
 
-    // Ordenar efectivos candidatos: aquellos que aún pueden recibir un presente de 7.5h sin superar el máximo fijado
     const candidatos = plantillaUS
       .filter((p) => estados[p.id].horasComputables + 7.5 <= horasMaximasReferencia)
       .sort((a, b) => {
@@ -420,7 +462,6 @@ export const generarSimulacionCuadranteUS = (params: {
     for (const p of candidatos) {
       if (estados[p.id].horasComputables + 7.5 > horasMaximasReferencia) continue;
 
-      // Buscar el mejor día laborable disponible para este efectivo
       const diasDisponibles: { diaIdx: number; score: number }[] = [];
 
       for (let diaIdx = 0; diaIdx < totalDias; diaIdx++) {
@@ -431,27 +472,16 @@ export const generarSimulacionCuadranteUS = (params: {
         const ausenciasHoy = ausenciasPorDia[fecha] || [];
         const idsEnAusencia = new Set(ausenciasHoy.map((a) => a.personaId));
 
-        // Incompatibilidades estrictas:
-        // 1. Ausencia concedida hoy
         if (idsEnAusencia.has(p.id)) continue;
-        // 2. Diurno o Nocturno hoy
-        if (asig.diurnos.includes(p.id) || asig.nocturnos.includes(p.id)) continue;
-        // 3. Imaginaria hoy
-        if (asig.imaginaria === p.id) continue;
-        // 4. Ya es presente hoy
+        if (asig.diurnosReales.includes(p.id) || asig.nocturnosReales.includes(p.id)) continue;
+        if (asig.imaginariaReal === p.id) continue;
         if (asig.presentes.includes(p.id)) continue;
-        // 5. Saliente de noche ayer (descanso obligatorio tras nocturno)
-        if (diaIdx > 0 && asignacionesDias[diaIdx - 1].nocturnos.includes(p.id)) continue;
+        if (diaIdx > 0 && asignacionesDias[diaIdx - 1].nocturnosReales.includes(p.id)) continue;
 
-        // Puntuación del día:
-        // - Distribuir uniformemente el número de presentes diarios en la unidad
         let score = asig.presentes.length * 20;
-
-        // - Penalizar ligeramente si al día siguiente entra en Diurno a primera hora
-        if (diaIdx < totalDias - 1 && asignacionesDias[diaIdx + 1].diurnos.includes(p.id)) {
+        if (diaIdx < totalDias - 1 && asignacionesDias[diaIdx + 1].diurnosReales.includes(p.id)) {
           score += 10;
         }
-        // - Penalizar ligeramente si hizo presente el día anterior para espaciar si hay opciones
         if (diaIdx > 0 && asignacionesDias[diaIdx - 1].presentes.includes(p.id)) {
           score += 5;
         }
@@ -467,13 +497,12 @@ export const generarSimulacionCuadranteUS = (params: {
         estados[p.id].presentes += 1;
         estados[p.id].horasComputables += 7.5;
         huboAsignacion = true;
-        // Balancear rotativamente pasando al siguiente ciclo
         break;
       }
     }
   }
 
-  // FASE 4: CONSTRUCCIÓN DE OBJETOS FINALES SERVICIO DIA US
+  // FASE 5: CONSTRUCCIÓN DE OBJETOS FINALES SERVICIO DIA US
   const serviciosUS: ServicioDiaUS[] = [];
   const serviciosStandard: ServicioDia[] = [];
 
@@ -483,26 +512,37 @@ export const generarSimulacionCuadranteUS = (params: {
   fechas.forEach((fecha, idx) => {
     const asig = asignacionesDias[idx];
 
-    const crearSlot = (personaId: string): SlotAsignacionUS => ({
-      personaIdOriginal: personaId,
-      personaIdReal: personaId,
+    const crearSlot = (personaIdOriginal: string, personaIdReal?: string): SlotAsignacionUS => ({
+      personaIdOriginal,
+      personaIdReal: personaIdReal || personaIdOriginal,
       estadoAsignacion: 'PROGRAMADO',
-      tipoOrigen: 'GENERADO_AUTOMATICO',
+      tipoOrigen: (personaIdReal && personaIdReal !== personaIdOriginal) ? 'MODIFICADO_MANUAL' : 'GENERADO_AUTOMATICO',
     });
 
-    const crearAsignacionStandard = (personaId: string, empleo: 'ROL 1' | 'ROL 2'): ServicioAsignacion => ({
-      personaIdOriginal: personaId,
-      personaIdReal: personaId,
+    const crearAsignacionStandard = (
+      personaIdOriginal: string,
+      personaIdReal: string,
+      empleo: 'ROL 1' | 'ROL 2'
+    ): ServicioAsignacion => ({
+      personaIdOriginal,
+      personaIdReal: personaIdReal || personaIdOriginal,
       empleoRequerido: empleo,
       estadoAsignacion: 'PROGRAMADO',
-      tipoOrigen: 'GENERADO_AUTOMATICO',
+      tipoOrigen: (personaIdReal && personaIdReal !== personaIdOriginal) ? 'MODIFICADO_MANUAL' : 'GENERADO_AUTOMATICO',
     });
 
-    const d1 = asig.diurnos[0] || plantillaUS[0].id;
-    const d2 = asig.diurnos[1] || plantillaUS[1].id;
-    const n1 = asig.nocturnos[0] || plantillaUS[2 % plantillaUS.length].id;
-    const n2 = asig.nocturnos[1] || plantillaUS[3 % plantillaUS.length].id;
-    const imag = asig.imaginaria || plantillaUS[4 % plantillaUS.length].id;
+    const dOrig1 = asig.diurnosOriginales[0] || plantillaUS[0].id;
+    const dOrig2 = asig.diurnosOriginales[1] || plantillaUS[1].id;
+    const dReal1 = asig.diurnosReales[0] || dOrig1;
+    const dReal2 = asig.diurnosReales[1] || dOrig2;
+
+    const nOrig1 = asig.nocturnosOriginales[0] || plantillaUS[2 % plantillaUS.length].id;
+    const nOrig2 = asig.nocturnosOriginales[1] || plantillaUS[3 % plantillaUS.length].id;
+    const nReal1 = asig.nocturnosReales[0] || nOrig1;
+    const nReal2 = asig.nocturnosReales[1] || nOrig2;
+
+    const imagOrig = asig.imaginariaOriginal || plantillaUS[4 % plantillaUS.length].id;
+    const imagReal = asig.imaginariaReal || imagOrig;
 
     const srvUS: ServicioDiaUS = {
       id: `SRV-US-${cuadranteId}-${fecha}`,
@@ -516,16 +556,16 @@ export const generarSimulacionCuadranteUS = (params: {
         horaInicio: '07:00',
         horaFin: '19:00',
         horas: 12.0,
-        titulares: [crearSlot(d1), crearSlot(d2)],
+        titulares: [crearSlot(dOrig1, dReal1), crearSlot(dOrig2, dReal2)],
       },
       nocturno: {
         horaInicio: '19:00',
         horaFin: asig.esNocturnoProlongado ? '07:45' : '07:00',
         horas: asig.esNocturnoProlongado ? 12.75 : 12.0,
-        titulares: [crearSlot(n1), crearSlot(n2)],
+        titulares: [crearSlot(nOrig1, nReal1), crearSlot(nOrig2, nReal2)],
       },
-      imaginaria: crearSlot(imag),
-      presentes: asig.presentes.map(crearSlot),
+      imaginaria: crearSlot(imagOrig, imagReal),
+      presentes: asig.presentes.map((pId) => crearSlot(pId, pId)),
       ausencias: asig.ausencias,
       tieneModificacionesManuales: false,
       observaciones: `U.S. 12h: Diurno (07-19) / Nocturno (19-${asig.esNocturnoProlongado ? '07:45' : '07:00'})`,
@@ -545,17 +585,17 @@ export const generarSimulacionCuadranteUS = (params: {
       horaFin: asig.esNocturnoProlongado ? '07:45' : '07:00',
       titulares: {
         rol1: [
-          crearAsignacionStandard(d1, personasMap.get(d1)?.empleo || 'ROL 1'),
-          crearAsignacionStandard(d2, personasMap.get(d2)?.empleo || 'ROL 1'),
+          crearAsignacionStandard(dOrig1, dReal1, personasMap.get(dReal1)?.empleo || 'ROL 1'),
+          crearAsignacionStandard(dOrig2, dReal2, personasMap.get(dReal2)?.empleo || 'ROL 1'),
         ],
         rol2: [
-          crearAsignacionStandard(n1, personasMap.get(n1)?.empleo || 'ROL 2'),
-          crearAsignacionStandard(n2, personasMap.get(n2)?.empleo || 'ROL 2'),
+          crearAsignacionStandard(nOrig1, nReal1, personasMap.get(nReal1)?.empleo || 'ROL 2'),
+          crearAsignacionStandard(nOrig2, nReal2, personasMap.get(nReal2)?.empleo || 'ROL 2'),
         ],
       },
       imaginarias: {
-        rol1: crearAsignacionStandard(imag, personasMap.get(imag)?.empleo || 'ROL 1'),
-        rol2: crearAsignacionStandard(imag, personasMap.get(imag)?.empleo || 'ROL 2'),
+        rol1: crearAsignacionStandard(imagOrig, imagReal, personasMap.get(imagReal)?.empleo || 'ROL 1'),
+        rol2: crearAsignacionStandard(imagOrig, imagReal, personasMap.get(imagReal)?.empleo || 'ROL 2'),
       },
       tieneModificacionesManuales: false,
       observaciones: `Turno U.S. (12h): Diurno (07:00-19:00) | Nocturno (19:00-${asig.esNocturnoProlongado ? '07:45' : '07:00'})`,
@@ -744,6 +784,62 @@ export const extraerEstadoContinuidadDesdeServiciosUS = (
     }
   }
 
+  // Totales acumulados en el mes previo (calculados sobre personaIdOriginal para continuidad)
+  const totalesAcumulados: Record<
+    string,
+    {
+      totalServicios?: number;
+      diurnos?: number;
+      nocturnos?: number;
+      finesDeSemana?: number;
+      imaginarias?: number;
+      horasComputables?: number;
+    }
+  > = {};
+
+  srvOrdenados.forEach((srv: any) => {
+    const esFds = srv.esFinDeSemana;
+    const esProlongado = srv.esNocturnoProlongado;
+
+    const acc = (id: string, tipo: 'D' | 'N' | 'I') => {
+      if (!id) return;
+      if (!totalesAcumulados[id]) {
+        totalesAcumulados[id] = {
+          totalServicios: 0,
+          diurnos: 0,
+          nocturnos: 0,
+          finesDeSemana: 0,
+          imaginarias: 0,
+          horasComputables: 0,
+        };
+      }
+      const pTot = totalesAcumulados[id];
+      if (tipo === 'D') {
+        pTot.totalServicios = (pTot.totalServicios || 0) + 1;
+        pTot.diurnos = (pTot.diurnos || 0) + 1;
+        pTot.horasComputables = (pTot.horasComputables || 0) + 12;
+        if (esFds) pTot.finesDeSemana = (pTot.finesDeSemana || 0) + 1;
+      } else if (tipo === 'N') {
+        pTot.totalServicios = (pTot.totalServicios || 0) + 1;
+        pTot.nocturnos = (pTot.nocturnos || 0) + 1;
+        pTot.horasComputables = (pTot.horasComputables || 0) + (esProlongado ? 12.75 : 12.0);
+        if (esFds) pTot.finesDeSemana = (pTot.finesDeSemana || 0) + 1;
+      } else if (tipo === 'I') {
+        pTot.imaginarias = (pTot.imaginarias || 0) + 1;
+      }
+    };
+
+    if (srv.diurno?.titulares) {
+      srv.diurno.titulares.forEach((t: any) => acc(extractOriginalId(t), 'D'));
+    }
+    if (srv.nocturno?.titulares) {
+      srv.nocturno.titulares.forEach((t: any) => acc(extractOriginalId(t), 'N'));
+    }
+    if (srv.imaginaria) {
+      acc(extractOriginalId(srv.imaginaria), 'I');
+    }
+  });
+
   return {
     ultimoDiaFecha: srvUltimo.fecha,
     diurnosOriginales,
@@ -751,6 +847,7 @@ export const extraerEstadoContinuidadDesdeServiciosUS = (
     imaginariaOriginal: imagOriginal,
     penultimoDiaNocturnosOriginales,
     diasDesdeUltimoServicioOriginal,
+    totalesAcumulados,
   };
 };
 

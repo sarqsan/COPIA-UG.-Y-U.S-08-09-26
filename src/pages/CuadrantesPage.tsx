@@ -34,7 +34,10 @@ import { asegurarCuentasParaPersonas } from '../services/cuentasService';
 import { doc, writeBatch, collection, getDocs, setDoc } from 'firebase/firestore';
 import { db, auth } from '../firebase/config';
 import { generarSimulacionCuadrante } from '../services/cuadranteGeneratorService';
-import { generarSimulacionCuadranteUS } from '../services/cuadranteUSGeneratorService';
+import {
+  generarSimulacionCuadranteUS,
+  extraerEstadoContinuidadDesdeServiciosUS,
+} from '../services/cuadranteUSGeneratorService';
 import { validarCapacidadPlantilla } from '../services/cuadranteValidatorService';
 import { CuadranteTableView } from '../components/cuadrante/CuadranteTableView';
 import { CuadranteMensualView } from '../components/cuadrante/CuadranteMensualView';
@@ -378,9 +381,9 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
             ? excelPersonasGeneradas
             : personasActivasUnidad;
 
-        if (personalUS.length < 5) {
+        if (personalUS.length < 10) {
           alert(
-            `Se requieren al menos 5 efectivos activos en la Unidad de Seguridad para cubrir turnos diurno (2), nocturno (2) e imaginaria (1).\nEfectivos actuales disponibles: ${personalUS.length}.\nPuedes subir un archivo Excel con las 2 columnas (ROL y APELLIDO) o usar el botón "Cargar Plantilla Oficial".`
+            `Se requieren al menos 10 efectivos activos en la Unidad de Seguridad para cubrir turnos diurno (2), nocturno (2), imaginaria (1) y descansos obligatorios.\nEfectivos actuales disponibles: ${personalUS.length}.\nPuedes subir un archivo Excel con las 2 columnas (ROL y APELLIDO) o usar el botón "Cargar Plantilla Oficial".`
           );
           return;
         }
@@ -395,6 +398,28 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
         const mapaAusencias = await getMapaAusenciasAprobadasUS(fechaInicio, fechaFin);
         const imaginariasPendientes = await getImaginariasPendientesCompensacionUS();
 
+        // Extraer continuidad estricta del cuadrante inmediatamente anterior para garantizar
+        // paridad 100% matemática entre la generación manual y la automática
+        const todosCuadrantesUS = await getCuadrantes({ tipoServicio: 'US' });
+        const cuadrantesUSOrdenados = [...todosCuadrantesUS].sort((a, b) =>
+          (b.fechaFin || '').localeCompare(a.fechaFin || '')
+        );
+        const cuadrantePrevio = cuadrantesUSOrdenados.find(
+          (c) => (c.fechaFin || '') < fechaInicio && c.estado === 'CONFIRMADO'
+        );
+
+        let estadoContinuidad = null;
+        if (cuadrantePrevio) {
+          try {
+            const serviciosPrevios = await getServiciosByCuadranteId(cuadrantePrevio.id);
+            if (serviciosPrevios && serviciosPrevios.length > 0) {
+              estadoContinuidad = extraerEstadoContinuidadDesdeServiciosUS(serviciosPrevios);
+            }
+          } catch (err) {
+            console.warn('Advertencia al cargar servicios del cuadrante previo U.S. en generación manual:', err);
+          }
+        }
+
         const simUS = generarSimulacionCuadranteUS({
           nombre: nombreCuadrante.trim() || 'Cuadrante Unidad de Seguridad (U.S.) 2026 - 2027',
           cicloId,
@@ -406,6 +431,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
           creadoPorNombre: adminInfo.nombre,
           mapaAusenciasPrecalculadas: mapaAusencias,
           imaginariasPendientesCompensacion: imaginariasPendientes,
+          estadoContinuidadMesAnterior: estadoContinuidad,
         });
 
         setSimulacionActivaUS(simUS);
