@@ -153,12 +153,34 @@ const BORDER_HEADER: Partial<ExcelJS.Borders> = {
  * - Pestaña dedicada exclusiva: "Servicios Especiales" (días de especial consideración)
  * - Pestaña "Resumen Semestral" con balance completo
  */
-export const descargarCuadranteExcel = async (
+export interface VisualExcelCell {
+  value: string | number;
+  colSpan?: number;
+  rowSpan?: number;
+  isMergedSlave?: boolean;
+  bgColor?: string;
+  textColor?: string;
+  isBold?: boolean;
+  isItalic?: boolean;
+  align?: 'left' | 'center' | 'right';
+}
+
+export interface VisualExcelSheet {
+  name: string;
+  rows: VisualExcelCell[][];
+  colWidths?: number[];
+}
+
+/**
+ * Función interna que genera el libro de trabajo completo de Excel para la U.G.
+ * sin forzar la descarga de archivos (reutilizable para visualización y descarga).
+ */
+export const generarWorkbookCuadranteExcel = async (
   cuadrante: CuadranteMaestro,
   servicios: ServicioDia[],
   personas: Persona[],
   patrullasProp?: Patrulla[]
-) => {
+): Promise<ExcelJS.Workbook> => {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = `${NOMBRE_GRUPO_UG} - Gestión de Guardias`;
   workbook.created = new Date();
@@ -353,12 +375,10 @@ export const descargarCuadranteExcel = async (
     const rowHeader2 = ws.getRow(5);
     rowHeader2.height = 18;
 
-    [1, 2, 3].forEach((colIdx) => {
-      const cell = ws.getCell(5, colIdx);
-      cell.value = '';
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF475569' } };
-      cell.border = BORDER_HEADER;
-    });
+    // Fusionar cabeceras de columnas fijas de personal en filas 4 y 5 para centrado vertical óptimo
+    ws.mergeCells(4, 1, 5, 1);
+    ws.mergeCells(4, 2, 5, 2);
+    ws.mergeCells(4, 3, 5, 3);
 
     for (let d = 1; d <= mesInfo.dias; d++) {
       const colIdx = 3 + d;
@@ -398,12 +418,12 @@ export const descargarCuadranteExcel = async (
       cell.border = BORDER_THIN_GRAY;
     }
 
-    [total1Col, total2Col, total3Col, total4Col, total5Col].forEach((c) => {
-      const cell = ws.getCell(5, c);
-      cell.value = '';
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF334155' } };
-      cell.border = BORDER_HEADER;
-    });
+    // Fusionar cabeceras de columnas de totales en filas 4 y 5
+    ws.mergeCells(4, total1Col, 5, total1Col);
+    ws.mergeCells(4, total2Col, 5, total2Col);
+    ws.mergeCells(4, total3Col, 5, total3Col);
+    ws.mergeCells(4, total4Col, 5, total4Col);
+    ws.mergeCells(4, total5Col, 5, total5Col);
 
     // FILAS DE PERSONAL CON ASIGNACIONES Y PATRULLAS
     plantillaOrdenada.forEach((persona, idx) => {
@@ -622,6 +642,7 @@ export const descargarCuadranteExcel = async (
     cellDescS.value = 'Guardia 24h (09:00 a 09:00)';
     cellDescS.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FF1E293B' } };
     cellDescS.alignment = { vertical: 'middle', horizontal: 'left' };
+    ws.mergeCells(rowLeyenda1, 3, rowLeyenda1, 6);
 
     // S★
     const cellL1b = ws.getCell(rowLeyenda1, 7);
@@ -635,6 +656,7 @@ export const descargarCuadranteExcel = async (
     cellDescSb.value = 'Día Especial (★)';
     cellDescSb.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FF6B21A8' } };
     cellDescSb.alignment = { vertical: 'middle', horizontal: 'left' };
+    ws.mergeCells(rowLeyenda1, 8, rowLeyenda1, 11);
 
     // I
     const cellL2 = ws.getCell(rowLeyenda1, 12);
@@ -648,6 +670,7 @@ export const descargarCuadranteExcel = async (
     cellDescI.value = 'Imaginaria Retén 24h';
     cellDescI.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FF1E293B' } };
     cellDescI.alignment = { vertical: 'middle', horizontal: 'left' };
+    ws.mergeCells(rowLeyenda1, 13, rowLeyenda1, 16);
 
     // P (Patrulla)
     const cellLP = ws.getCell(rowLeyenda1, 17);
@@ -661,6 +684,7 @@ export const descargarCuadranteExcel = async (
     cellDescP.value = 'Patrulla U.G. (0h comp.)';
     cellDescP.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FF0F766E' } };
     cellDescP.alignment = { vertical: 'middle', horizontal: 'left' };
+    ws.mergeCells(rowLeyenda1, 18, rowLeyenda1, 22);
 
     // C (Cobertura)
     const cellL3 = ws.getCell(rowLeyenda1, 23);
@@ -674,6 +698,7 @@ export const descargarCuadranteExcel = async (
     cellDescC.value = 'Cobertura Baja';
     cellDescC.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FF047857' } };
     cellDescC.alignment = { vertical: 'middle', horizontal: 'left' };
+    ws.mergeCells(rowLeyenda1, 24, rowLeyenda1, 27);
 
     // B (Baja)
     const cellL4 = ws.getCell(rowLeyenda1, 28);
@@ -687,6 +712,7 @@ export const descargarCuadranteExcel = async (
     cellDescB.value = 'Baja Médica';
     cellDescB.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FFE11D48' } };
     cellDescB.alignment = { vertical: 'middle', horizontal: 'left' };
+    ws.mergeCells(rowLeyenda1, 29, rowLeyenda1, 32);
 
     // L (Libre)
     const cellL5 = ws.getCell(rowLeyenda1, 33);
@@ -700,21 +726,22 @@ export const descargarCuadranteExcel = async (
     cellDescL.value = 'Libre / Descanso';
     cellDescL.font = { name: 'Calibri', size: 9, color: { argb: 'FF64748B' } };
     cellDescL.alignment = { vertical: 'middle', horizontal: 'left' };
+    ws.mergeCells(rowLeyenda1, 34, rowLeyenda1, Math.min(38, totalCols));
 
     // Configuración de anchos de columna para A4 Apaisado
-    ws.getColumn(1).width = 4.5;  // Nº
-    ws.getColumn(2).width = 9.5;  // ROL
-    ws.getColumn(3).width = 24.0; // APELLIDOS / EFECTIVO
+    ws.getColumn(1).width = 4.0;  // Nº
+    ws.getColumn(2).width = 8.5;  // ROL
+    ws.getColumn(3).width = 20.0; // APELLIDOS / EFECTIVO
 
     for (let d = 1; d <= mesInfo.dias; d++) {
-      ws.getColumn(3 + d).width = 4.2; // Cuadrados proporcionados
+      ws.getColumn(3 + d).width = 4.2; // Cuadrados proporcionados e idénticos para cada día
     }
 
-    ws.getColumn(total1Col).width = 8.0;
-    ws.getColumn(total2Col).width = 8.0;
-    ws.getColumn(total3Col).width = 8.0;
-    ws.getColumn(total4Col).width = 9.0;
-    ws.getColumn(total5Col).width = 9.0;
+    ws.getColumn(total1Col).width = 7.5;
+    ws.getColumn(total2Col).width = 7.5;
+    ws.getColumn(total3Col).width = 7.5;
+    ws.getColumn(total4Col).width = 8.0;
+    ws.getColumn(total5Col).width = 8.0;
   }
 
   // =========================================================================
@@ -1233,7 +1260,20 @@ export const descargarCuadranteExcel = async (
   wsResumen.getColumn(8).width = 16; // PUNTOS ESP. (★)
   wsResumen.getColumn(9).width = 20; // BALANCE DE REPARTO
 
-  // Generar buffer binario y disparar descarga
+  return workbook;
+};
+
+/**
+ * Función oficial de exportación y descarga física de Excel para administradores (U.G.)
+ * Mantiene intacta la descarga previa del sistema.
+ */
+export const descargarCuadranteExcel = async (
+  cuadrante: CuadranteMaestro,
+  servicios: ServicioDia[],
+  personas: Persona[],
+  patrullasProp?: Patrulla[]
+) => {
+  const workbook = await generarWorkbookCuadranteExcel(cuadrante, servicios, personas, patrullasProp);
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -1247,4 +1287,183 @@ export const descargarCuadranteExcel = async (
   a.click();
   document.body.removeChild(a);
   window.URL.revokeObjectURL(url);
+};
+
+function colLetterToNumber(letters: string): number {
+  let col = 0;
+  for (let i = 0; i < letters.length; i++) {
+    col = col * 26 + (letters.charCodeAt(i) - 64);
+  }
+  return col;
+}
+
+function parseCellAddress(addr: string): { col: number; row: number } {
+  const match = addr.match(/^([A-Z]+)(\d+)$/);
+  if (!match) return { col: 1, row: 1 };
+  return {
+    col: colLetterToNumber(match[1]),
+    row: parseInt(match[2], 10),
+  };
+}
+
+function normalizeArgbColor(colorObj?: Partial<ExcelJS.Color>): string | undefined {
+  if (!colorObj) return undefined;
+  if (colorObj.argb && typeof colorObj.argb === 'string') {
+    const raw = colorObj.argb;
+    if (raw.length === 8) {
+      return '#' + raw.slice(2);
+    }
+    if (raw.length === 6) {
+      return '#' + raw;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Convierte un workbook de ExcelJS a una estructura ligera de visualización HTML/React
+ * conservando las hojas, celdas combinadas, colores de fondo y tipografías.
+ */
+export const extraerDatosVisualesDesdeExcelJSWorkbook = (workbook: ExcelJS.Workbook): VisualExcelSheet[] => {
+  const sheets: VisualExcelSheet[] = [];
+
+  workbook.worksheets.forEach((ws) => {
+    const maxRows = Math.min(ws.rowCount, 100);
+    const maxCols = Math.min(ws.columnCount, 60);
+    if (maxRows === 0 || maxCols === 0) return;
+
+    // 1. Mapear celdas combinadas (merges)
+    const mergeMap = new Map<string, { colSpan: number; rowSpan: number }>();
+    const slaveCells = new Set<string>();
+
+    const rawMerges = (ws.model as any)?.merges || [];
+    rawMerges.forEach((rangeStr: string) => {
+      const parts = rangeStr.split(':');
+      if (parts.length === 2) {
+        const start = parseCellAddress(parts[0]);
+        const end = parseCellAddress(parts[1]);
+        const colSpan = end.col - start.col + 1;
+        const rowSpan = end.row - start.row + 1;
+
+        mergeMap.set(`${start.row}_${start.col}`, { colSpan, rowSpan });
+
+        for (let r = start.row; r <= end.row; r++) {
+          for (let c = start.col; c <= end.col; c++) {
+            if (r !== start.row || c !== start.col) {
+              slaveCells.add(`${r}_${c}`);
+            }
+          }
+        }
+      }
+    });
+
+    const rows: VisualExcelCell[][] = [];
+
+    for (let r = 1; r <= maxRows; r++) {
+      const rowCells: VisualExcelCell[] = [];
+      let rowHasAnyValue = false;
+
+      for (let c = 1; c <= maxCols; c++) {
+        const key = `${r}_${c}`;
+        if (slaveCells.has(key)) {
+          rowCells.push({
+            value: '',
+            isMergedSlave: true,
+          });
+          continue;
+        }
+
+        const cell = ws.getCell(r, c);
+        const mergeInfo = mergeMap.get(key);
+
+        let cellVal: string | number = '';
+        if (cell.value !== null && cell.value !== undefined) {
+          if (typeof cell.value === 'object') {
+            if ('result' in (cell.value as any) && (cell.value as any).result !== undefined) {
+              cellVal = String((cell.value as any).result);
+            } else if ('richText' in (cell.value as any) && Array.isArray((cell.value as any).richText)) {
+              cellVal = (cell.value as any).richText.map((rt: any) => rt.text).join('');
+            } else if ('text' in (cell.value as any)) {
+              cellVal = String((cell.value as any).text);
+            } else {
+              cellVal = '';
+            }
+          } else {
+            cellVal = cell.value as string | number;
+          }
+        }
+
+        if (cellVal !== '' && cellVal !== null) {
+          rowHasAnyValue = true;
+        }
+
+        let bg: string | undefined = undefined;
+        if (cell.fill && cell.fill.type === 'pattern' && cell.fill.fgColor) {
+          bg = normalizeArgbColor(cell.fill.fgColor);
+        }
+
+        let fg: string | undefined = undefined;
+        let isBold = false;
+        let isItalic = false;
+        if (cell.font) {
+          fg = normalizeArgbColor(cell.font.color);
+          isBold = Boolean(cell.font.bold);
+          isItalic = Boolean(cell.font.italic);
+        }
+
+        let align: 'left' | 'center' | 'right' | undefined = undefined;
+        if (cell.alignment?.horizontal === 'center' || cell.alignment?.horizontal === 'left' || cell.alignment?.horizontal === 'right') {
+          align = cell.alignment.horizontal;
+        }
+
+        rowCells.push({
+          value: cellVal,
+          colSpan: mergeInfo?.colSpan,
+          rowSpan: mergeInfo?.rowSpan,
+          bgColor: bg,
+          textColor: fg,
+          isBold,
+          isItalic,
+          align,
+        });
+      }
+
+      // Evitar filas vacías al final
+      if (rowHasAnyValue || r <= 10) {
+        rows.push(rowCells);
+      }
+    }
+
+    const colWidths: number[] = [];
+    for (let c = 1; c <= maxCols; c++) {
+      const col = ws.getColumn(c);
+      let px = 36;
+      if (col && typeof col.width === 'number' && col.width > 0) {
+        if (Math.abs(col.width - 4.2) < 0.2) {
+          px = 36; // Ancho cuadrado e idéntico para todos los días
+        } else if (Math.abs(col.width - 4.0) < 0.2) {
+          px = 32; // Nº
+        } else if (Math.abs(col.width - 8.5) < 0.3) {
+          px = 62; // ROL
+        } else if (Math.abs(col.width - 20.0) < 0.5) {
+          px = 150; // APELLIDOS / EFECTIVO
+        } else if (Math.abs(col.width - 7.5) < 0.3) {
+          px = 56; // Totales
+        } else if (Math.abs(col.width - 8.0) < 0.3) {
+          px = 58; // Totales pat/esp
+        } else {
+          px = Math.max(Math.round(col.width * 7.2) + 4, 32);
+        }
+      }
+      colWidths.push(px);
+    }
+
+    sheets.push({
+      name: ws.name,
+      rows,
+      colWidths,
+    });
+  });
+
+  return sheets;
 };

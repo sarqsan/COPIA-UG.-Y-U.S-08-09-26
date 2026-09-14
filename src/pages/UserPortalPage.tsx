@@ -46,6 +46,7 @@ import {
 import { getPatrullas } from '../services/patrullaService';
 import { Patrulla } from '../types/patrullaTypes';
 import { ChatPage } from './ChatPage';
+import { CuadranteGeneralExcelView } from '../components/cuadrante/CuadranteGeneralExcelView';
 import {
   Calendar,
   Layers,
@@ -72,6 +73,7 @@ import {
   Briefcase,
   Shield,
   Palmtree,
+  FileSpreadsheet,
 } from 'lucide-react';
 import {
   getRolUG,
@@ -96,8 +98,9 @@ export const UserPortalPage: React.FC = () => {
   const [notificaciones, setNotificaciones] = useState<Notificacion[]>([]);
 
   // Pestañas activas en el portal del usuario
-  const [activeTab, setActiveTab] = useState<'proximos' | 'imaginarias' | 'solicitudes' | 'documentos' | 'bajas' | 'calendario' | 'chat' | 'ausenciasUS' | 'patrullas'>('proximos');
+  const [activeTab, setActiveTab] = useState<'proximos' | 'imaginarias' | 'solicitudes' | 'documentos' | 'bajas' | 'calendario' | 'cuadranteGeneral' | 'chat' | 'ausenciasUS' | 'patrullas'>('proximos');
   const [misPatrullas, setMisPatrullas] = useState<Patrulla[]>([]);
+  const [todasLasPatrullas, setTodasLasPatrullas] = useState<Patrulla[]>([]);
 
   // Modales
   const [isCambioModalOpen, setIsCambioModalOpen] = useState(false);
@@ -141,6 +144,15 @@ export const UserPortalPage: React.FC = () => {
         setSolicitudesAusenciaUS(ausUS);
       }
 
+      if (userTipoServicio !== 'US') {
+        try {
+          const todasPats = await getPatrullas();
+          setTodasLasPatrullas(todasPats);
+        } catch (e) {
+          console.warn('No se pudieron cargar todas las patrullas:', e);
+        }
+      }
+
       if (currentPersona?.id) {
         const partes = await getPartesMedicos(currentPersona.id, false);
         setPartesMedicos(partes);
@@ -174,7 +186,7 @@ export const UserPortalPage: React.FC = () => {
     const handleFcmMessage = (event: MessageEvent) => {
       if (event.data && event.data.type === 'FCM_NAVIGATE') {
         const targetTab = event.data.linkTab;
-        if (targetTab && ['proximos', 'imaginarias', 'solicitudes', 'documentos', 'bajas', 'calendario', 'chat', 'ausenciasUS', 'patrullas'].includes(targetTab)) {
+        if (targetTab && ['proximos', 'imaginarias', 'solicitudes', 'documentos', 'bajas', 'calendario', 'cuadranteGeneral', 'chat', 'ausenciasUS', 'patrullas'].includes(targetTab)) {
           setActiveTab(targetTab as any);
         } else if (targetTab === 'cuadrantes') {
           setActiveTab('calendario');
@@ -190,7 +202,7 @@ export const UserPortalPage: React.FC = () => {
       const params = new URLSearchParams(window.location.search);
       const urlTab = params.get('tab');
       if (urlTab) {
-        if (['proximos', 'imaginarias', 'solicitudes', 'documentos', 'bajas', 'calendario', 'chat', 'ausenciasUS', 'patrullas'].includes(urlTab)) {
+        if (['proximos', 'imaginarias', 'solicitudes', 'documentos', 'bajas', 'calendario', 'cuadranteGeneral', 'chat', 'ausenciasUS', 'patrullas'].includes(urlTab)) {
           setActiveTab(urlTab as any);
         } else if (urlTab === 'cuadrantes') {
           setActiveTab('calendario');
@@ -970,7 +982,7 @@ export const UserPortalPage: React.FC = () => {
         )}
 
         {/* ACCIONES RÁPIDAS */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           {userTipoServicio === 'US' ? (
             <button
               onClick={() => setIsAusenciaUSModalOpen(true)}
@@ -1019,13 +1031,32 @@ export const UserPortalPage: React.FC = () => {
 
           <button
             onClick={() => setActiveTab('calendario')}
-            className="flex flex-col items-center justify-center p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800 transition text-center gap-1.5 cursor-pointer"
+            className={`flex flex-col items-center justify-center p-4 rounded-2xl border shadow-2xs hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800 transition text-center gap-1.5 cursor-pointer ${
+              activeTab === 'calendario'
+                ? 'bg-purple-50 border-purple-300 dark:bg-purple-950/40 dark:border-purple-800'
+                : 'bg-white border-slate-200'
+            }`}
           >
             <div className="p-2.5 bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300 rounded-xl">
               <CalendarDays className="w-5 h-5" />
             </div>
             <span className="text-xs font-bold text-slate-900 dark:text-white">Mi Calendario</span>
             <span className="text-[10px] text-slate-400">Vista mensual completa</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('cuadranteGeneral')}
+            className={`flex flex-col items-center justify-center p-4 rounded-2xl border shadow-2xs hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800 transition text-center gap-1.5 cursor-pointer ${
+              activeTab === 'cuadranteGeneral'
+                ? 'bg-emerald-50 border-emerald-400 dark:bg-emerald-950/40 dark:border-emerald-700'
+                : 'bg-white border-slate-200'
+            }`}
+          >
+            <div className="p-2.5 bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 rounded-xl">
+              <FileSpreadsheet className="w-5 h-5" />
+            </div>
+            <span className="text-xs font-bold text-slate-900 dark:text-white">Ver cuadrante general</span>
+            <span className="text-[10px] text-slate-400">Excel oficial ({userTipoServicio === 'US' ? 'U.S.' : 'U.G.'})</span>
           </button>
         </div>
 
@@ -1129,6 +1160,17 @@ export const UserPortalPage: React.FC = () => {
             >
               <Calendar className="w-4 h-4" />
               Calendario Mensual
+            </button>
+            <button
+              onClick={() => setActiveTab('cuadranteGeneral')}
+              className={`px-4 py-2 rounded-xl transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                activeTab === 'cuadranteGeneral'
+                  ? 'bg-emerald-700 text-white shadow-xs dark:bg-emerald-600 dark:text-white'
+                  : 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'
+              }`}
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              Ver cuadrante general
             </button>
             <button
               onClick={() => setActiveTab('chat')}
@@ -1927,6 +1969,38 @@ export const UserPortalPage: React.FC = () => {
               )
             )}
 
+            {/* TAB: VER CUADRANTE GENERAL (REUTILIZACIÓN DEL EXCEL OFICIAL, SOLO LECTURA) */}
+            {activeTab === 'cuadranteGeneral' && (
+              cuadranteActivo ? (
+                <div className="space-y-4">
+                  <CuadranteGeneralExcelView
+                    userTipoServicio={userTipoServicio}
+                    cuadrante={cuadranteActivo}
+                    servicios={servicios}
+                    personas={personas}
+                    patrullas={todasLasPatrullas}
+                  />
+                </div>
+              ) : (
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 text-center space-y-4 shadow-sm">
+                  <div className="w-12 h-12 bg-emerald-500/10 text-emerald-600 rounded-2xl mx-auto flex items-center justify-center">
+                    <FileSpreadsheet className="w-6 h-6" />
+                  </div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">Cargando Cuadrante General...</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+                    El sistema está preparando la matriz completa de turnos en formato Excel oficial para tu unidad.
+                  </p>
+                  <button
+                    onClick={cargarDatos}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition cursor-pointer shadow-md"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    <span>Cargar Cuadrante General</span>
+                  </button>
+                </div>
+              )
+            )}
+
             {/* TAB: MIS PATRULLAS (U.G. FASE 3 - 0 HORAS COMPUTABLES) */}
             {activeTab === 'patrullas' && (
               <div className="space-y-4">
@@ -2127,6 +2201,7 @@ export const UserPortalPage: React.FC = () => {
             else if (tab === 'mis-servicios' || tab === 'servicios') setActiveTab('proximos');
             else if (tab === 'bajas') setActiveTab('bajas');
             else if (tab === 'calendario') setActiveTab('calendario');
+            else if (tab === 'cuadranteGeneral' || tab === 'cuadrante') setActiveTab('cuadranteGeneral');
             else if (tab === 'chat') {
               setChatInitialTab('PRIVADO');
               setChatInitialDestinatarioId(refId || 'ADMIN_OFICIAL');
