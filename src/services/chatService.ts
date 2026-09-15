@@ -8,6 +8,7 @@ import {
   orderBy,
   where,
   arrayUnion,
+  onSnapshot,
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { MensajeChat,
@@ -21,6 +22,7 @@ import { MensajeChat,
 } from '../types';
 import { registrarAuditLog } from './auditService';
 import { crearNotificacion } from './notificacionesService';
+import { sanitizeForFirestore } from '../utils/firestoreSanitizer';
 
 const CHAT_COLLECTION = 'mensajes_chat';
 const CHAT_STORAGE_KEY = 'chat_mensajes_cache_v2';
@@ -133,7 +135,7 @@ export const enviarMensajeGrupo = async (params: {
 
   try {
     const docRef = doc(db, CHAT_COLLECTION, msgId);
-    await setDoc(docRef, nuevoMensaje);
+    await setDoc(docRef, sanitizeForFirestore(nuevoMensaje));
   } catch (err: any) {
     console.warn('Persistencia de mensaje en Firestore diferida:', err.message || err);
   }
@@ -202,7 +204,7 @@ export const enviarMensajePrivado = async (params: {
 
   try {
     const docRef = doc(db, CHAT_COLLECTION, msgId);
-    await setDoc(docRef, nuevoMensaje);
+    await setDoc(docRef, sanitizeForFirestore(nuevoMensaje));
   } catch (err: any) {
     console.warn('Persistencia de mensaje privado en Firestore diferida:', err.message || err);
   }
@@ -289,7 +291,7 @@ export const enviarMensajeAdministrativo = async (params: {
 
   try {
     const docRef = doc(db, CHAT_COLLECTION, msgId);
-    await setDoc(docRef, nuevoMensaje);
+    await setDoc(docRef, sanitizeForFirestore(nuevoMensaje));
   } catch (err: any) {
     console.warn('Persistencia de aviso admin en Firestore diferida:', err.message || err);
   }
@@ -340,7 +342,7 @@ export const getMensajes = async (params: {
       // Sembrar mensajes iniciales en Firestore si la colección está vacía
       for (const initMsg of INITIAL_MESSAGES) {
         try {
-          await setDoc(doc(db, CHAT_COLLECTION, initMsg.id), initMsg);
+          await setDoc(doc(db, CHAT_COLLECTION, initMsg.id), sanitizeForFirestore(initMsg));
         } catch (e) {
           // Ignore
         }
@@ -352,7 +354,16 @@ export const getMensajes = async (params: {
         items.push(msg);
       });
       if (items.length > 0) {
-        memoryChatCache = items;
+        const map = new Map<string, MensajeChat>();
+        memoryChatCache.forEach((m) => {
+          if (m && m.id) map.set(m.id, m);
+        });
+        items.forEach((m) => {
+          if (m && m.id) map.set(m.id, m);
+        });
+        memoryChatCache = Array.from(map.values()).sort(
+          (a, b) => new Date(a.fechaHora).getTime() - new Date(b.fechaHora).getTime()
+        );
         saveChatToStorage();
       }
     }
@@ -363,7 +374,7 @@ export const getMensajes = async (params: {
   return memoryChatCache
     .filter((msg) => {
       if (tipo && msg.tipo !== tipo) return false;
-      if (tipoServicio && msg.tipoServicio && msg.tipoServicio !== tipoServicio) return false;
+      if (tipoServicio && msg.tipo !== 'PRIVADO' && msg.tipoServicio && msg.tipoServicio !== tipoServicio) return false;
       if (conversacionId && msg.conversacionId !== conversacionId) return false;
       if (isAdmin) return true;
       if (msg.tipo === 'GRUPO' || msg.tipo === 'ADMINISTRATIVO') return true;
@@ -379,6 +390,81 @@ export const getMensajes = async (params: {
       return false;
     })
     .sort((a, b) => new Date(a.fechaHora).getTime() - new Date(b.fechaHora).getTime());
+};
+
+/**
+ * Suscripción en tiempo real a los mensajes del chat
+ */
+export const subscribeMensajes = (
+  callback: (mensajes: MensajeChat[]) => void,
+  params?: {
+    personaId?: string | null;
+    uid?: string | null;
+    isAdmin?: boolean;
+    tipo?: TipoMensajeChat;
+    conversacionId?: string;
+    tipoServicio?: TipoServicio;
+  }
+): (() => void) => {
+  try {
+    const colRef = collection(db, CHAT_COLLECTION);
+    const q = query(colRef, orderBy('fechaHora', 'asc'));
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const firestoreItems: MensajeChat[] = [];
+        snapshot.forEach((docSnap) => {
+          firestoreItems.push(docSnap.data() as MensajeChat);
+        });
+
+        if (firestoreItems.length > 0) {
+          const map = new Map<string, MensajeChat>();
+          memoryChatCache.forEach((m) => {
+            if (m && m.id) map.set(m.id, m);
+          });
+          firestoreItems.forEach((m) => {
+            if (m && m.id) map.set(m.id, m);
+          });
+          memoryChatCache = Array.from(map.values()).sort(
+            (a, b) => new Date(a.fechaHora).getTime() - new Date(b.fechaHora).getTime()
+          );
+          saveChatToStorage();
+        }
+
+        let resultado = memoryChatCache;
+        if (params) {
+          const { personaId, uid, isAdmin, tipo, conversacionId, tipoServicio } = params;
+          resultado = resultado.filter((msg) => {
+            if (tipo && msg.tipo !== tipo) return false;
+            if (tipoServicio && msg.tipo !== 'PRIVADO' && msg.tipoServicio && msg.tipoServicio !== tipoServicio) return false;
+            if (conversacionId && msg.conversacionId !== conversacionId) return false;
+            if (isAdmin) return true;
+            if (msg.tipo === 'GRUPO' || msg.tipo === 'ADMINISTRATIVO') return true;
+            if (msg.tipo === 'PRIVADO') {
+              const pId = personaId || '';
+              return (
+                msg.autorPersonaId === pId ||
+                msg.destinatarioPersonaId === pId ||
+                (pId && msg.conversacionId ? msg.conversacionId.includes(pId) : false) ||
+                (uid ? msg.autorUid === uid || (msg.destinatariosUids && msg.destinatariosUids.includes(uid)) : false)
+              );
+            }
+            return false;
+          });
+        }
+        callback(resultado.sort((a, b) => new Date(a.fechaHora).getTime() - new Date(b.fechaHora).getTime()));
+      },
+      (err) => {
+        console.warn('Listener de chat en tiempo real diferido:', err.message || err);
+      }
+    );
+
+    return unsubscribe;
+  } catch (err: any) {
+    console.warn('Error configurando listener de chat:', err.message || err);
+    return () => {};
+  }
 };
 
 /**

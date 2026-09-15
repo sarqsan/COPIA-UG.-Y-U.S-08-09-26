@@ -10,6 +10,7 @@ import { MensajeChat,
 } from '../../types';
 import {
   getMensajes,
+  subscribeMensajes,
   enviarMensajeGrupo,
   enviarMensajePrivado,
   enviarMensajeAdministrativo,
@@ -121,43 +122,41 @@ export const ChatModal: React.FC<ChatModalProps> = ({
     }
   }, [isOpen, initialTab, initialDestinatarioId, destinatariosPrivados]);
 
-  const cargarMensajes = async () => {
-    setCargando(true);
-    try {
-      let convId: string | undefined = undefined;
-      if (tab === 'PRIVADO') {
-        const remitenteId = currentPersona ? currentPersona.id : ADMIN_OFICIAL_ID;
-        const targetId = compañeroPrivadoId || (destinatariosPrivados[0]?.id);
-        if (targetId) {
-          convId = getConversacionPrivadaId(remitenteId, targetId);
-        }
-      }
+  useEffect(() => {
+    if (!isOpen) return;
 
-      const msgs = await getMensajes({
+    if (tab === 'PRIVADO' && !compañeroPrivadoId && destinatariosPrivados.length > 0) {
+      setCompañeroPrivadoId(destinatariosPrivados[0].id);
+    }
+
+    let convId: string | undefined = undefined;
+    if (tab === 'PRIVADO') {
+      const remitenteId = currentPersona ? currentPersona.id : ADMIN_OFICIAL_ID;
+      const targetId = compañeroPrivadoId || (destinatariosPrivados[0]?.id);
+      if (targetId) {
+        convId = getConversacionPrivadaId(remitenteId, targetId);
+      }
+    }
+
+    setCargando(true);
+    const unsubscribe = subscribeMensajes(
+      (msgs) => {
+        setMensajes(msgs);
+        setCargando(false);
+      },
+      {
         personaId: currentPersona?.id,
         uid: currentCuentaInfo.uid,
         isAdmin,
         tipo: tab,
         conversacionId: convId,
-        tipoServicio: 'GUARDIA',
-      });
-
-      setMensajes(msgs);
-    } catch (err) {
-      console.error('Error cargando chat:', err);
-    } finally {
-      setCargando(false);
-    }
-  };
-
-  useEffect(() => {
-    if (isOpen) {
-      if (tab === 'PRIVADO' && !compañeroPrivadoId && destinatariosPrivados.length > 0) {
-        setCompañeroPrivadoId(destinatariosPrivados[0].id);
       }
-      cargarMensajes();
-    }
-  }, [isOpen, tab, compañeroPrivadoId]);
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, [isOpen, tab, compañeroPrivadoId, currentPersona?.id, currentCuentaInfo.uid, isAdmin, destinatariosPrivados]);
 
   if (!isOpen) return null;
 

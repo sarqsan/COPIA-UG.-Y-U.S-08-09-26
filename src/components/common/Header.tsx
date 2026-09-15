@@ -12,7 +12,7 @@ import {
 import { NotificacionesModal } from '../notificaciones/NotificacionesModal';
 import { ChatModal } from '../chat/ChatModal';
 import { CambiarPasswordModal } from '../auth/CambiarPasswordModal';
-import { getNotificaciones } from '../../services/notificacionesService';
+import { getNotificaciones, subscribeNotificaciones } from '../../services/notificacionesService';
 import { formatUsuarioUG, NOMBRE_GRUPO_UG } from '../../utils/ugNomenclatura';
 
 interface HeaderProps {
@@ -43,14 +43,23 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileMenu, onNavigateTa
 
   useEffect(() => {
     fetchNotifsCount();
+
+    const unsubscribe = subscribeNotificaciones(
+      (notifs) => {
+        setUnreadCount((notifs || []).filter((n) => !n.leida).length);
+      },
+      currentPersona?.id,
+      currentCuenta?.uid,
+      rol === 'ADMIN'
+    );
+
     const handleUpdate = () => {
       fetchNotifsCount();
     };
     window.addEventListener('notificaciones_updated', handleUpdate);
-    const interval = setInterval(fetchNotifsCount, 10000);
     return () => {
+      unsubscribe();
       window.removeEventListener('notificaciones_updated', handleUpdate);
-      clearInterval(interval);
     };
   }, [currentPersona?.id, currentCuenta?.uid, rol]);
 

@@ -13,6 +13,7 @@ import {
 import { getCuadrantes, getServiciosByCuadranteId } from '../services/cuadranteService';
 import {
   getSolicitudesCambio,
+  subscribeSolicitudesCambio,
   responderSolicitudCompanero,
   aceptarContraofertaSolicitante,
 } from '../services/cambiosService';
@@ -22,7 +23,7 @@ import {
   confirmarRecepcionAvisoImaginaria,
   getPartesMedicos,
 } from '../services/ausenciasService';
-import { getNotificaciones } from '../services/notificacionesService';
+import { getNotificaciones, subscribeNotificaciones } from '../services/notificacionesService';
 import { registrarAccionAudit } from '../services/auditService';
 import { SolicitarCambioModal } from '../components/cambios/SolicitarCambioModal';
 import { ResponderContraofertaModal } from '../components/cambios/ResponderContraofertaModal';
@@ -169,6 +170,24 @@ export const UserPortalPage: React.FC = () => {
 
   useEffect(() => {
     cargarDatos();
+
+    const unsubscribeSolicitudes = subscribeSolicitudesCambio(
+      (sols) => {
+        setSolicitudes(sols);
+      },
+      undefined,
+      userTipoServicio
+    );
+
+    const unsubscribeNotificaciones = subscribeNotificaciones(
+      (notifs) => {
+        setNotificaciones(notifs);
+      },
+      currentPersona?.id,
+      currentCuenta?.uid,
+      false
+    );
+
     const handleUpdate = async () => {
       if (currentPersona?.id || currentCuenta?.uid) {
         const notifs = await getNotificaciones(currentPersona?.id, currentCuenta?.uid, false);
@@ -213,13 +232,15 @@ export const UserPortalPage: React.FC = () => {
     window.addEventListener('notificaciones_updated', handleUpdate);
     window.addEventListener('patrullas_updated', handlePatrullasUpdate);
     return () => {
+      unsubscribeSolicitudes();
+      unsubscribeNotificaciones();
       window.removeEventListener('notificaciones_updated', handleUpdate);
       window.removeEventListener('patrullas_updated', handlePatrullasUpdate);
       if (typeof navigator !== 'undefined' && navigator.serviceWorker) {
         navigator.serviceWorker.removeEventListener('message', handleFcmMessage);
       }
     };
-  }, [currentPersona?.id, currentCuenta?.uid]);
+  }, [currentPersona?.id, currentCuenta?.uid, userTipoServicio]);
 
   const hoyStr = new Date().toISOString().split('T')[0];
 

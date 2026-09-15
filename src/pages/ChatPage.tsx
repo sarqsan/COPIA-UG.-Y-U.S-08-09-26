@@ -9,6 +9,7 @@ import { MensajeChat,
 } from '../types';
 import {
   getMensajes,
+  subscribeMensajes,
   enviarMensajeGrupo,
   enviarMensajePrivado,
   enviarMensajeAdministrativo,
@@ -122,26 +123,24 @@ export const ChatPage: React.FC<ChatPageProps> = ({
   };
 
   const cargarMensajes = async () => {
+    let convId: string | undefined = undefined;
+    if (tab === 'PRIVADO') {
+      if (isAdmin && destinatarioPrivadoId) {
+        convId = getConversacionPrivadaId(ADMIN_OFICIAL_ID, destinatarioPrivadoId);
+      } else if (currentPersona && destinatarioPrivadoId) {
+        convId = getConversacionPrivadaId(currentPersona.id, destinatarioPrivadoId);
+      }
+    }
+
     setCargando(true);
     try {
-      let convId: string | undefined = undefined;
-      if (tab === 'PRIVADO') {
-        if (isAdmin && destinatarioPrivadoId) {
-          convId = getConversacionPrivadaId(ADMIN_OFICIAL_ID, destinatarioPrivadoId);
-        } else if (currentPersona && destinatarioPrivadoId) {
-          convId = getConversacionPrivadaId(currentPersona.id, destinatarioPrivadoId);
-        }
-      }
-
       const msgs = await getMensajes({
         personaId: currentPersona?.id,
         uid: currentCuentaInfo.uid,
         isAdmin,
         tipo: tab,
         conversacionId: convId,
-        tipoServicio: 'GUARDIA',
       });
-
       setMensajes(msgs);
       setTimeout(scrollToBottom, 100);
     } catch (err) {
@@ -152,8 +151,35 @@ export const ChatPage: React.FC<ChatPageProps> = ({
   };
 
   useEffect(() => {
-    cargarMensajes();
-  }, [tab, destinatarioPrivadoId]);
+    let convId: string | undefined = undefined;
+    if (tab === 'PRIVADO') {
+      if (isAdmin && destinatarioPrivadoId) {
+        convId = getConversacionPrivadaId(ADMIN_OFICIAL_ID, destinatarioPrivadoId);
+      } else if (currentPersona && destinatarioPrivadoId) {
+        convId = getConversacionPrivadaId(currentPersona.id, destinatarioPrivadoId);
+      }
+    }
+
+    setCargando(true);
+    const unsubscribe = subscribeMensajes(
+      (msgs) => {
+        setMensajes(msgs);
+        setCargando(false);
+        setTimeout(scrollToBottom, 100);
+      },
+      {
+        personaId: currentPersona?.id,
+        uid: currentCuentaInfo.uid,
+        isAdmin,
+        tipo: tab,
+        conversacionId: convId,
+      }
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, [tab, destinatarioPrivadoId, currentPersona?.id, currentCuentaInfo.uid, isAdmin]);
 
   const handleEnviar = async (e: React.FormEvent) => {
     e.preventDefault();

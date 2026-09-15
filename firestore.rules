@@ -7,6 +7,18 @@ service cloud.firestore {
       return data.fechaCreacion is string || data.timestamp is string;
     }
 
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return request.auth != null && (
+        (exists(/databases/$(database)/documents/cuentas/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/cuentas/$(request.auth.uid)).data.rol == 'ADMIN') ||
+        (request.auth.token.email in ['admin1@grupo.local', 'admin2@grupo.local', 'sarqsan2@gmail.com'])
+      );
+    }
+
     // 1. Fichas de personal (ROL 1 / ROL 2)
     match /personas/{personaId} {
       allow read: if true;
@@ -61,6 +73,54 @@ service cloud.firestore {
       allow delete: if true;
     }
 
+    // 5b. Documentos de cambio firmados
+    match /documentos_cambio_firmados/{documentoId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated()
+        && request.resource.data.codigoVerificacion is string
+        && request.resource.data.codigoVerificacion.size() > 0
+        && request.resource.data.solicitudId is string
+        && request.resource.data.fechaEmision is string;
+      allow update: if isAuthenticated()
+        && request.resource.data.codigoVerificacion == resource.data.codigoVerificacion
+        && request.resource.data.solicitudId == resource.data.solicitudId;
+      allow delete: if isAdmin();
+    }
+    match /documentos_cambios_firmados/{documentoId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated()
+        && request.resource.data.codigoVerificacion is string
+        && request.resource.data.codigoVerificacion.size() > 0
+        && request.resource.data.solicitudId is string
+        && request.resource.data.fechaEmision is string;
+      allow update: if isAuthenticated()
+        && request.resource.data.codigoVerificacion == resource.data.codigoVerificacion
+        && request.resource.data.solicitudId == resource.data.solicitudId;
+      allow delete: if isAdmin();
+    }
+
+    // 5c. Configuración y registro de envíos a Personal
+    match /configuracion_sistema/{docId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAdmin()
+        && request.resource.data.destinatario is string
+        && request.resource.data.asunto is string;
+      allow delete: if false;
+    }
+    match /envios_email_cambios/{envioId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated()
+        && request.resource.data.id is string
+        && request.resource.data.idCambio is string
+        && request.resource.data.destinatario is string
+        && request.resource.data.fecha is string
+        && request.resource.data.estado in ['PENDIENTE', 'ENVIADO', 'ERROR', 'SIMULADO', 'DESCARTADO'];
+      allow update: if isAuthenticated()
+        && request.resource.data.idCambio == resource.data.idCambio
+        && request.resource.data.estado in ['PENDIENTE', 'ENVIADO', 'ERROR', 'SIMULADO', 'DESCARTADO'];
+      allow delete: if isAdmin();
+    }
+
     // 6. Incidencias y ausencias
     match /incidencias_ausencia/{incidenciaId} {
       allow read: if true;
@@ -92,12 +152,7 @@ service cloud.firestore {
         && request.resource.data.fecha is string
         && request.resource.data.personaId is string;
       // Solo administradores pueden eliminar patrullas; denegado para usuarios comunes
-      allow delete: if request.auth == null || (
-        exists(/databases/$(database)/documents/cuentas/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/cuentas/$(request.auth.uid)).data.rol == 'ADMIN'
-      ) || (
-        request.auth.token.email in ['admin1@grupo.local', 'admin2@grupo.local', 'sarqsan2@gmail.com']
-      );
+      allow delete: if isAdmin();
     }
 
     // 9b. Configuración del contador atómico de patrullas

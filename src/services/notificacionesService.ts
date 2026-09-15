@@ -7,11 +7,13 @@ import {
   orderBy,
   arrayUnion,
   writeBatch,
+  onSnapshot,
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { Notificacion, TipoNotificacion, Empleo, TipoServicio } from '../types';
 import { enviarPushParaNotificacion } from './pushNotificationService';
 import { registrarDispositivoFCM } from './fcmTokenService';
+import { sanitizeForFirestore } from '../utils/firestoreSanitizer';
 
 const NOTIFICACIONES_COLLECTION = 'notificaciones';
 const NOTIFICACIONES_STORAGE_KEY = 'notificaciones_cache_v3';
@@ -117,7 +119,7 @@ export const crearNotificacion = async (params: {
   // Persistir en Firestore directamente
   try {
     const docRef = doc(db, NOTIFICACIONES_COLLECTION, notifId);
-    await setDoc(docRef, notificacion);
+    await setDoc(docRef, sanitizeForFirestore(notificacion));
   } catch (err: any) {
     console.warn('Persistencia de notificación en Firestore diferida:', err.message || err);
   }
@@ -234,6 +236,95 @@ export const getNotificaciones = async (
       };
     })
     .sort((a, b) => new Date(b.fechaCreacion).getTime() - new Date(a.fechaCreacion).getTime());
+};
+
+/**
+ * Suscripción en tiempo real a las notificaciones para sincronización instantánea entre dispositivos
+ */
+export const subscribeNotificaciones = (
+  callback: (notificaciones: Notificacion[]) => void,
+  personaId?: string | null,
+  uid?: string | null,
+  isAdmin: boolean = false
+): (() => void) => {
+  try {
+    const colRef = collection(db, NOTIFICACIONES_COLLECTION);
+    const q = query(colRef, orderBy('fechaCreacion', 'desc'));
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const firestoreNotifs: Notificacion[] = [];
+        snapshot.forEach((docSnap) => {
+          firestoreNotifs.push(docSnap.data() as Notificacion);
+        });
+
+        const mergedMap = new Map<string, Notificacion>();
+        memoryNotificacionesCache.forEach((n) => {
+          if (n && n.id) mergedMap.set(n.id, n);
+        });
+        firestoreNotifs.forEach((n) => {
+          if (n && n.id) {
+            const localItem = mergedMap.get(n.id);
+            if (localItem && localItem.leida && !n.leida) {
+              mergedMap.set(n.id, { ...n, leida: true, leidoPor: localItem.leidoPor });
+            } else {
+              mergedMap.set(n.id, n);
+            }
+          }
+        });
+
+        memoryNotificacionesCache = Array.from(mergedMap.values()).sort(
+          (a, b) => new Date(b.fechaCreacion || 0).getTime() - new Date(a.fechaCreacion || 0).getTime()
+        );
+        saveNotifStorage(false);
+
+        const userKeys: string[] = [];
+        if (uid) userKeys.push(uid);
+        if (personaId) {
+          userKeys.push(personaId);
+          userKeys.push(`user-${personaId}`);
+        }
+        if (isAdmin) {
+          userKeys.push('ADMIN_GLOBAL');
+          if (uid) userKeys.push(`admin-${uid}`);
+        }
+
+        const resultado = memoryNotificacionesCache
+          .filter((item) => {
+            if (isAdmin) return true;
+            if (personaId && item.destinatarioPersonaId === personaId) return true;
+            if (uid && item.destinatarioUid === uid) return true;
+            if (item.esParaTodos) return true;
+            return false;
+          })
+          .map((item) => {
+            const leidoPorArr = Array.isArray(item.leidoPor) ? item.leidoPor : [];
+            const leidaPorEsteUsuario = userKeys.some((k) => leidoPorArr.includes(k));
+            const esDirigidaAUsuario =
+              (personaId && item.destinatarioPersonaId === personaId) ||
+              (uid && item.destinatarioUid === uid);
+            const estaLeida = leidaPorEsteUsuario || (esDirigidaAUsuario && item.leida && leidoPorArr.length > 0);
+
+            return {
+              ...item,
+              leida: !!estaLeida,
+            };
+          })
+          .sort((a, b) => new Date(b.fechaCreacion).getTime() - new Date(a.fechaCreacion).getTime());
+
+        callback(resultado);
+      },
+      (err) => {
+        console.warn('Listener de notificaciones en tiempo real diferido:', err.message || err);
+      }
+    );
+
+    return unsubscribe;
+  } catch (err: any) {
+    console.warn('Error configurando listener de notificaciones:', err.message || err);
+    return () => {};
+  }
 };
 
 /**

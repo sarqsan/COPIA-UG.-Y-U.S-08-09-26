@@ -9,8 +9,10 @@ import {
   orderBy,
   limit,
   writeBatch,
+  onSnapshot,
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
+import { sanitizeForFirestore } from '../utils/firestoreSanitizer';
 import {
   SolicitudCambio,
   ServicioDia,
@@ -1060,7 +1062,7 @@ export const crearSolicitudCambio = async (params: {
   // Persistir en Firestore
   try {
     const docRef = doc(db, SOLICITUDES_COLLECTION, solicitudId);
-    await setDoc(docRef, nuevaSolicitud);
+    await setDoc(docRef, sanitizeForFirestore(nuevaSolicitud));
   } catch (err: any) {
     console.warn('Persistencia de solicitud en Firestore diferida:', err.message || err);
   }
@@ -1138,6 +1140,13 @@ export const getSolicitudCambioById = async (
   return cached || null;
 };
 
+const getStatusRank = (st: string) => {
+  if (st === 'APROBADA_ADMIN' || st === 'RECHAZADA_ADMIN' || st === 'RECHAZADA_COMPAÑERO') return 3;
+  if (st === 'PENDIENTE_ADMIN') return 2;
+  if (st === 'CONTRAOFERTA_COMPAÑERO') return 1;
+  return 0;
+};
+
 /**
  * Obtiene las solicitudes de cambio (filtradas opcionalmente por cuadrante o tipo de grupo)
  */
@@ -1162,13 +1171,6 @@ export const getSolicitudesCambio = async (
       if (s && s.id) mergedMap.set(s.id, s);
     });
 
-    const getStatusRank = (st: string) => {
-      if (st === 'APROBADA_ADMIN' || st === 'RECHAZADA_ADMIN' || st === 'RECHAZADA_COMPAÑERO') return 3;
-      if (st === 'PENDIENTE_ADMIN') return 2;
-      if (st === 'CONTRAOFERTA_COMPAÑERO') return 1;
-      return 0;
-    };
-
     firestoreItems.forEach((f) => {
       if (f && f.id) {
         const local = mergedMap.get(f.id);
@@ -1178,7 +1180,7 @@ export const getSolicitudesCambio = async (
           if (getStatusRank(local.estado) > getStatusRank(f.estado)) {
             mergedMap.set(f.id, local);
             // Re-sincronizar con Firestore en segundo plano
-            setDoc(doc(db, SOLICITUDES_COLLECTION, f.id), local).catch(() => {});
+            setDoc(doc(db, SOLICITUDES_COLLECTION, f.id), sanitizeForFirestore(local), { merge: true }).catch(() => {});
           } else {
             mergedMap.set(f.id, f);
           }
@@ -1202,6 +1204,75 @@ export const getSolicitudesCambio = async (
       return true;
     })
     .sort((a, b) => new Date(b.fechaSolicitud).getTime() - new Date(a.fechaSolicitud).getTime());
+};
+
+/**
+ * Suscripción en tiempo real a las solicitudes de cambio (para sincronización multi-dispositivo)
+ */
+export const subscribeSolicitudesCambio = (
+  callback: (solicitudes: SolicitudCambio[]) => void,
+  cuadranteId?: string,
+  tipoServicio?: TipoServicio
+): (() => void) => {
+  try {
+    const colRef = collection(db, SOLICITUDES_COLLECTION);
+    const q = query(colRef, orderBy('fechaSolicitud', 'desc'));
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const firestoreItems: SolicitudCambio[] = [];
+        snapshot.forEach((docSnap) => {
+          firestoreItems.push(docSnap.data() as SolicitudCambio);
+        });
+
+        const mergedMap = new Map<string, SolicitudCambio>();
+        memorySolicitudesCache.forEach((s) => {
+          if (s && s.id) mergedMap.set(s.id, s);
+        });
+        firestoreItems.forEach((f) => {
+          if (f && f.id) {
+            const local = mergedMap.get(f.id);
+            if (!local) {
+              mergedMap.set(f.id, f);
+            } else {
+              const rankLocal = getStatusRank(local.estado);
+              const rankRemote = getStatusRank(f.estado);
+              if (rankLocal > rankRemote) {
+                mergedMap.set(f.id, local);
+              } else {
+                mergedMap.set(f.id, f);
+              }
+            }
+          }
+        });
+
+        memorySolicitudesCache = Array.from(mergedMap.values()).sort(
+          (a, b) => new Date(b.fechaSolicitud || 0).getTime() - new Date(a.fechaSolicitud || 0).getTime()
+        );
+        saveLocalCache(false);
+
+        const resultado = memorySolicitudesCache
+          .filter((s) => {
+            if (cuadranteId && s.cuadranteId && s.cuadranteId !== cuadranteId) return false;
+            const sTipo = s.tipoServicio || (s.solicitanteGrupo === 'US_SEGURIDAD' ? 'US' : 'GUARDIA');
+            if (tipoServicio && sTipo !== tipoServicio) return false;
+            return true;
+          })
+          .sort((a, b) => new Date(b.fechaSolicitud).getTime() - new Date(a.fechaSolicitud).getTime());
+
+        callback(resultado);
+      },
+      (err) => {
+        console.warn('Listener de solicitudes en tiempo real diferido:', err.message || err);
+      }
+    );
+
+    return unsubscribe;
+  } catch (err: any) {
+    console.warn('Error configurando listener de solicitudes:', err.message || err);
+    return () => {};
+  }
 };
 
 /**
@@ -1259,12 +1330,16 @@ export const responderSolicitudCompanero = async (params: {
 
     try {
       const docRef = doc(db, SOLICITUDES_COLLECTION, solicitudId);
-      await updateDoc(docRef, {
-        estado: 'PENDIENTE_ADMIN',
-        fechaRespuestaCompanero: now,
-        firmaDestinatario: sol.firmaDestinatario || 'FIRMA_REGISTRADA',
-        fechaFirmaDestinatario: now,
-      });
+      await setDoc(
+        docRef,
+        sanitizeForFirestore({
+          estado: 'PENDIENTE_ADMIN',
+          fechaRespuestaCompanero: now,
+          firmaDestinatario: sol.firmaDestinatario || 'FIRMA_REGISTRADA',
+          fechaFirmaDestinatario: now,
+        }),
+        { merge: true }
+      );
     } catch (err: any) {
       console.warn('Actualización de solicitud en Firestore diferida:', err.message || err);
     }
@@ -1355,16 +1430,20 @@ export const responderSolicitudCompanero = async (params: {
 
     try {
       const docRef = doc(db, SOLICITUDES_COLLECTION, solicitudId);
-      await updateDoc(docRef, {
-        estado: 'CONTRAOFERTA_COMPAÑERO',
-        esContraoferta: true,
-        servicioDevolucionId: contraofertaServicioId || null,
-        servicioDevolucionFecha: contraofertaFecha,
-        servicioDevolucionSlot: contraofertaSlot || null,
-        firmaDestinatario: sol.firmaDestinatario || null,
-        fechaFirmaDestinatario: now,
-        historialContraofertas: sol.historialContraofertas,
-      });
+      await setDoc(
+        docRef,
+        sanitizeForFirestore({
+          estado: 'CONTRAOFERTA_COMPAÑERO',
+          esContraoferta: true,
+          servicioDevolucionId: contraofertaServicioId || null,
+          servicioDevolucionFecha: contraofertaFecha,
+          servicioDevolucionSlot: contraofertaSlot || null,
+          firmaDestinatario: sol.firmaDestinatario || null,
+          fechaFirmaDestinatario: now,
+          historialContraofertas: sol.historialContraofertas,
+        }),
+        { merge: true }
+      );
     } catch (err: any) {
       console.warn('Actualización de contraoferta en Firestore diferida:', err.message || err);
     }
@@ -1392,11 +1471,15 @@ export const responderSolicitudCompanero = async (params: {
 
     try {
       const docRef = doc(db, SOLICITUDES_COLLECTION, solicitudId);
-      await updateDoc(docRef, {
-        estado: 'RECHAZADA_COMPAÑERO',
-        fechaRespuestaCompanero: now,
-        motivoRechazoCompanero: sol.motivoRechazoCompanero,
-      });
+      await setDoc(
+        docRef,
+        sanitizeForFirestore({
+          estado: 'RECHAZADA_COMPAÑERO',
+          fechaRespuestaCompanero: now,
+          motivoRechazoCompanero: sol.motivoRechazoCompanero,
+        }),
+        { merge: true }
+      );
     } catch (err: any) {
       console.warn('Actualización de solicitud en Firestore diferida:', err.message || err);
     }
@@ -1468,11 +1551,15 @@ export const aceptarContraofertaSolicitante = async (params: {
 
   try {
     const docRef = doc(db, SOLICITUDES_COLLECTION, solicitudId);
-    await updateDoc(docRef, {
-      estado: 'PENDIENTE_ADMIN',
-      firmaSolicitante: sol.firmaSolicitante || 'FIRMA_REGISTRADA',
-      fechaFirmaSolicitante: now,
-    });
+    await setDoc(
+      docRef,
+      sanitizeForFirestore({
+        estado: 'PENDIENTE_ADMIN',
+        firmaSolicitante: sol.firmaSolicitante || 'FIRMA_REGISTRADA',
+        fechaFirmaSolicitante: now,
+      }),
+      { merge: true }
+    );
   } catch (err: any) {
     console.warn('Actualización de contraoferta aceptada diferida:', err.message || err);
   }
@@ -1533,13 +1620,17 @@ export const resolverSolicitudAdmin = async (params: {
 
     try {
       const docRef = doc(db, SOLICITUDES_COLLECTION, solicitudId);
-      await updateDoc(docRef, {
-        estado: 'RECHAZADA_ADMIN',
-        fechaResolucionAdmin: now,
-        adminResolucionUid: adminInfo.uid,
-        adminResolucionNombre: adminInfo.nombre,
-        motivoRechazoAdmin: sol.motivoRechazoAdmin,
-      });
+      await setDoc(
+        docRef,
+        sanitizeForFirestore({
+          estado: 'RECHAZADA_ADMIN',
+          fechaResolucionAdmin: now,
+          adminResolucionUid: adminInfo.uid,
+          adminResolucionNombre: adminInfo.nombre,
+          motivoRechazoAdmin: sol.motivoRechazoAdmin,
+        }),
+        { merge: true }
+      );
     } catch (err: any) {
       console.warn('Actualización de rechazo en Firestore diferida:', err.message || err);
     }
@@ -1710,7 +1801,7 @@ export const resolverSolicitudAdmin = async (params: {
   memoryDocumentosFirmadosCache.unshift(documentoFirmado);
 
   try {
-    await setDoc(doc(db, DOCUMENTOS_FIRMA_COLLECTION, documentoId), documentoFirmado);
+    await setDoc(doc(db, DOCUMENTOS_FIRMA_COLLECTION, documentoId), sanitizeForFirestore(documentoFirmado));
   } catch (err: any) {
     console.warn('Persistencia de documento firmado en Firestore diferida:', err.message || err);
   }
@@ -1740,15 +1831,19 @@ export const resolverSolicitudAdmin = async (params: {
 
   try {
     const docRef = doc(db, SOLICITUDES_COLLECTION, solicitudId);
-    await updateDoc(docRef, {
-      estado: 'APROBADA_ADMIN',
-      fechaResolucionAdmin: now,
-      adminResolucionUid: adminInfo.uid,
-      adminResolucionNombre: adminInfo.nombre,
-      firmaAdmin: sol.firmaAdmin,
-      fechaFirmaAdmin: now,
-      documentoFirmadoId: documentoId,
-    });
+    await setDoc(
+      docRef,
+      sanitizeForFirestore({
+        estado: 'APROBADA_ADMIN',
+        fechaResolucionAdmin: now,
+        adminResolucionUid: adminInfo.uid,
+        adminResolucionNombre: adminInfo.nombre,
+        firmaAdmin: sol.firmaAdmin,
+        fechaFirmaAdmin: now,
+        documentoFirmadoId: documentoId,
+      }),
+      { merge: true }
+    );
   } catch (err: any) {
     console.warn('Actualización de solicitud en Firestore diferida:', err.message || err);
   }

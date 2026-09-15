@@ -14,6 +14,7 @@ import { formatFecha, formatAccionAudit } from '../utils/formatters';
 import { getCuadrantes, getServiciosByCuadranteId } from '../services/cuadranteService';
 import {
   getSolicitudesCambio,
+  subscribeSolicitudesCambio,
   getSolicitudCambioById,
   aprobarSolicitudAdmin,
   rechazarSolicitudAdmin,
@@ -112,6 +113,14 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   useEffect(() => {
     cargarDatosOperativos();
 
+    const unsubscribeSolicitudes = subscribeSolicitudesCambio(
+      (sols) => {
+        setSolicitudes(sols);
+      },
+      undefined,
+      'GUARDIA'
+    );
+
     const handleActualizacion = () => {
       cargarDatosOperativos();
     };
@@ -121,6 +130,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     window.addEventListener('focus', handleActualizacion);
 
     return () => {
+      unsubscribeSolicitudes();
       window.removeEventListener('cambios_updated', handleActualizacion);
       window.removeEventListener('notificaciones_updated', handleActualizacion);
       window.removeEventListener('focus', handleActualizacion);
