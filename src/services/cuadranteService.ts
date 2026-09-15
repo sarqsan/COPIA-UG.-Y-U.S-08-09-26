@@ -663,7 +663,10 @@ export const modificarServicioManual = async (params: {
       modificadoPorUid: adminInfo.uid,
       fechaModificacion: new Date().toISOString(),
     };
-  } else if (slotTipo === 'imaginaria_rol1') {
+  } else if (slotTipo === 'imaginaria_rol1' || slotTipo === 'rol1_imag') {
+    if (nuevaPersona.empleo !== 'ROL 1') {
+      return { success: false, message: 'La persona seleccionada debe pertenecer a ROL 1.' };
+    }
     puestoNombre = 'Imaginaria ROL 1';
     personaIdAnterior = srvActual.imaginarias.rol1?.personaIdReal || '';
     srvActual.imaginarias.rol1 = {
@@ -674,7 +677,10 @@ export const modificarServicioManual = async (params: {
       modificadoPorUid: adminInfo.uid,
       fechaModificacion: new Date().toISOString(),
     };
-  } else if (slotTipo === 'imaginaria_rol2') {
+  } else if (slotTipo === 'imaginaria_rol2' || slotTipo === 'rol2_imag') {
+    if (nuevaPersona.empleo !== 'ROL 2') {
+      return { success: false, message: 'La persona seleccionada debe pertenecer a ROL 2.' };
+    }
     puestoNombre = 'Imaginaria ROL 2';
     personaIdAnterior = srvActual.imaginarias.rol2?.personaIdReal || '';
     srvActual.imaginarias.rol2 = {

@@ -4,6 +4,7 @@ import {
   Persona,
   ServicioAsignacion,
   Empleo,
+  SlotServicioTipo,
 } from '../../types';
 import {
   X,
@@ -24,10 +25,10 @@ interface CuadranteEdicionManualModalProps {
   isOpen: boolean;
   onClose: () => void;
   servicio: ServicioDia;
-  slotTipo: 'rol1_1' | 'rol1_2' | 'rol2_1' | 'rol2_2' | 'rol1_imag' | 'rol2_imag';
+  slotTipo: SlotServicioTipo | 'rol1_1' | 'rol1_2' | 'rol2_1' | 'rol2_2' | 'rol1_imag' | 'rol2_imag';
   personas: Persona[];
   onSave: (params: {
-    slotTipo: 'rol1_1' | 'rol1_2' | 'rol2_1' | 'rol2_2' | 'rol1_imag' | 'rol2_imag';
+    slotTipo: any;
     nuevaPersonaId: string;
     motivo: string;
   }) => Promise<void>;
@@ -51,7 +52,7 @@ export const CuadranteEdicionManualModal: React.FC<CuadranteEdicionManualModalPr
 
   if (!isOpen) return null;
 
-  // Determinar datos del slot actual
+  // Determinar datos del slot actual de forma estricta y segura
   let asignacionActual: ServicioAsignacion;
   let empleoRequerido: Empleo = 'ROL 1';
   let slotNombre = '';
@@ -72,20 +73,37 @@ export const CuadranteEdicionManualModal: React.FC<CuadranteEdicionManualModalPr
     asignacionActual = servicio.titulares.rol2[1];
     empleoRequerido = 'ROL 2';
     slotNombre = 'ROL 2 Titular 2';
-  } else if (slotTipo === 'rol1_imag') {
+  } else if (slotTipo === 'rol1_imag' || (slotTipo as string) === 'imaginaria_rol1') {
     asignacionActual = servicio.imaginarias.rol1;
     empleoRequerido = 'ROL 1';
     slotNombre = 'ROL 1 Imaginaria';
-  } else {
+  } else if (slotTipo === 'rol2_imag' || (slotTipo as string) === 'imaginaria_rol2') {
     asignacionActual = servicio.imaginarias.rol2;
     empleoRequerido = 'ROL 2';
     slotNombre = 'ROL 2 Imaginaria';
+  } else {
+    // Salvaguarda final: analizar la cadena o el puesto
+    const slotStr = String(slotTipo).toLowerCase();
+    if (slotStr.includes('rol1') || slotStr.includes('r1')) {
+      asignacionActual = servicio.imaginarias.rol1;
+      empleoRequerido = 'ROL 1';
+      slotNombre = 'ROL 1 Imaginaria';
+    } else {
+      asignacionActual = servicio.imaginarias.rol2;
+      empleoRequerido = 'ROL 2';
+      slotNombre = 'ROL 2 Imaginaria';
+    }
+  }
+
+  // Doble verificación: si la asignación actual define empleoRequerido, prevalece rigurosamente
+  if (asignacionActual?.empleoRequerido) {
+    empleoRequerido = asignacionActual.empleoRequerido;
   }
 
   const personaOriginal = personas.find((p) => p.id === asignacionActual.personaIdOriginal);
   const personaReal = personas.find((p) => p.id === asignacionActual.personaIdReal);
 
-  // Candidatos válidos: mismo empleo y activos
+  // Candidatos válidos: rigurosamente del mismo empleo requerido (R1 para R1, R2 para R2) y activos
   const candidatos = personas.filter(
     (p) => p.activo && p.empleo === empleoRequerido && p.id !== asignacionActual.personaIdReal
   );

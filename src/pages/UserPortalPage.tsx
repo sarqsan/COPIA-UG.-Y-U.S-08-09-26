@@ -2117,14 +2117,19 @@ export const UserPortalPage: React.FC = () => {
                             </div>
                           </div>
 
-                          {esSustituida && pat.personaSustitutaNombre && (
+                          {(esSustituida || Boolean(pat.personaOriginalId)) && pat.personaSustitutaNombre && (
                             <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/50 text-[11px] space-y-1">
                               <span className="font-bold text-amber-900 dark:text-amber-300 block">
                                 Sustitución Registrada
                               </span>
                               <p className="text-slate-600 dark:text-slate-300">
-                                Realizada por: <strong>{sustituto?.nombre || pat.personaSustitutaNombre}</strong>
+                                {pat.estado === 'REALIZADA' ? 'Realizada efectivamente por: ' : 'Sustituida por: '}<strong>{sustituto?.nombre || pat.personaSustitutaNombre}</strong>
                               </p>
+                              {pat.personaOriginalNombre && pat.personaId === pat.personaSustitutaId && (
+                                <p className="text-slate-500 dark:text-slate-400 text-[10px]">
+                                  Titular original: {pat.personaOriginalNombre}
+                                </p>
+                              )}
                               {pat.motivoSustitucion && (
                                 <p className="text-slate-500 dark:text-slate-400 text-[10px]">
                                   Motivo: {pat.motivoSustitucion}

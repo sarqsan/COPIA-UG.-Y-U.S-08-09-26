@@ -965,8 +965,8 @@ export const CuadranteMensualView: React.FC<CuadranteMensualViewProps> = ({
                           else if (d.servicio.titulares?.rol1?.[1]?.personaIdReal === persona.id) slotEdicion = 'rol1_2';
                           else if (d.servicio.titulares?.rol2?.[0]?.personaIdReal === persona.id) slotEdicion = 'rol2_1';
                           else if (d.servicio.titulares?.rol2?.[1]?.personaIdReal === persona.id) slotEdicion = 'rol2_2';
-                          else if (d.servicio.imaginarias?.rol1?.personaIdReal === persona.id) slotEdicion = 'imaginaria_rol1';
-                          else if (d.servicio.imaginarias?.rol2?.personaIdReal === persona.id) slotEdicion = 'imaginaria_rol2';
+                          else if (d.servicio.imaginarias?.rol1?.personaIdReal === persona.id) slotEdicion = 'rol1_imag';
+                          else if (d.servicio.imaginarias?.rol2?.personaIdReal === persona.id) slotEdicion = 'rol2_imag';
                         }
                         const esEditableAdmin = Boolean(isAdmin && onEditSlot && d.servicio && slotEdicion);
 

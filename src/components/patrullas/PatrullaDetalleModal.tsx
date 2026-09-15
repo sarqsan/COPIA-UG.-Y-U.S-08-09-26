@@ -219,6 +219,12 @@ export const PatrullaDetalleModal: React.FC<PatrullaDetalleModalProps> = ({
                   {new Date(patrulla.fechaModificacion || '').toLocaleString()}
                 </p>
               )}
+              {patrulla.estado === 'REALIZADA' && (
+                <div className="flex items-center gap-1.5 text-emerald-800 dark:text-emerald-300 font-bold pt-1 border-t border-amber-200/60 dark:border-amber-900/40 text-[11px]">
+                  <CheckCircle className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <span>Realizada efectivamente por: {patrulla.personaSustitutaNombre || patrulla.personaNombre}</span>
+                </div>
+              )}
             </div>
           )}
 
@@ -320,7 +326,7 @@ export const PatrullaDetalleModal: React.FC<PatrullaDetalleModalProps> = ({
                   </button>
                 )}
 
-                {patrulla.estado === 'PROGRAMADA' && (
+                {(patrulla.estado === 'PROGRAMADA' || patrulla.estado === 'SUSTITUIDA') && (
                   <button
                     type="button"
                     onClick={() => handleCambiarEstado('REALIZADA')}

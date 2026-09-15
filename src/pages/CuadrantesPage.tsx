@@ -7,6 +7,7 @@ import {
   ExcelValidationResult,
   ExcelRowParsed,
   TipoServicio,
+  SlotServicioTipo,
 } from '../types';
 import {
   CuadranteSimulacionUSResult,
@@ -145,9 +146,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
 
   // Estado de edición manual UG
   const [editingServicioUG, setEditingServicioUG] = useState<ServicioDia | null>(null);
-  const [editingSlotUG, setEditingSlotUG] = useState<
-    'rol1_1' | 'rol1_2' | 'rol2_1' | 'rol2_2' | 'rol1_imag' | 'rol2_imag'
-  >('rol1_1');
+  const [editingSlotUG, setEditingSlotUG] = useState<SlotServicioTipo | 'rol1_1' | 'rol1_2' | 'rol2_1' | 'rol2_2' | 'rol1_imag' | 'rol2_imag'>('rol1_1');
   const [isEditUGModalOpen, setIsEditUGModalOpen] = useState(false);
 
   // Estado de edición manual US
@@ -668,7 +667,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
   // Abrir modal de edición manual UG
   const handleAbrirEdicionManualUG = (
     servicio: ServicioDia,
-    slotTipo: 'rol1_1' | 'rol1_2' | 'rol2_1' | 'rol2_2' | 'rol1_imag' | 'rol2_imag'
+    slotTipo: SlotServicioTipo | 'rol1_1' | 'rol1_2' | 'rol2_1' | 'rol2_2' | 'rol1_imag' | 'rol2_imag'
   ) => {
     setEditingServicioUG(servicio);
     setEditingSlotUG(slotTipo);
@@ -677,7 +676,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
 
   // Guardar edición manual UG
   const handleGuardarEdicionManualUG = async (params: {
-    slotTipo: 'rol1_1' | 'rol1_2' | 'rol2_1' | 'rol2_2' | 'rol1_imag' | 'rol2_imag';
+    slotTipo: any;
     nuevaPersonaId: string;
     motivo: string;
   }) => {

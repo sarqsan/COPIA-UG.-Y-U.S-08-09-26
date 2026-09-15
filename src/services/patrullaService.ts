@@ -497,7 +497,7 @@ export const getPatrullas = async (filtro?: {
     res = res.filter((p) => p.fecha <= filtro.fechaFin!);
   }
   if (filtro?.personaId) {
-    res = res.filter((p) => p.personaId === filtro.personaId);
+    res = res.filter((p) => p.personaId === filtro.personaId || p.personaOriginalId === filtro.personaId);
   }
   if (filtro?.estado) {
     res = res.filter((p) => p.estado === filtro.estado);
@@ -850,8 +850,20 @@ export const cambiarEstadoPatrulla = async (params: {
   }
 
   const valorAnterior = { estado: patrulla.estado };
+
+  // Si se marca como REALIZADA y tiene sustitución registrada, asegurar que el titular activo
+  // y destinatario del crédito de realización sea el sustituto que efectivamente la efectuó
+  const personaRealizadoraId = (nuevoEstado === 'REALIZADA' && patrulla.personaSustitutaId)
+    ? patrulla.personaSustitutaId
+    : patrulla.personaId;
+  const personaRealizadoraNombre = (nuevoEstado === 'REALIZADA' && patrulla.personaSustitutaNombre)
+    ? patrulla.personaSustitutaNombre
+    : patrulla.personaNombre;
+
   const patrullaActualizada: Patrulla = {
     ...patrulla,
+    personaId: personaRealizadoraId,
+    personaNombre: personaRealizadoraNombre,
     estado: nuevoEstado,
     fechaModificacion: new Date().toISOString(),
     modificadoPorUid: adminInfo.uid,
@@ -877,9 +889,9 @@ export const cambiarEstadoPatrulla = async (params: {
       usuarioUid: adminInfo.uid,
       usuarioNombre: adminInfo.nombre,
       valorAnterior,
-      valorNuevo: { estado: nuevoEstado },
+      valorNuevo: { estado: nuevoEstado, personaId: personaRealizadoraId },
       motivo,
-      detalles: `Estado de Patrulla #${patrulla.numeroSecuencial} cambiado de ${valorAnterior.estado} a ${nuevoEstado}.${motivo ? ` Motivo: ${motivo}` : ''}`,
+      detalles: `Estado de Patrulla #${patrulla.numeroSecuencial} cambiado de ${valorAnterior.estado} a ${nuevoEstado}${patrulla.personaSustitutaNombre ? ` (realizada efectivamente por ${patrulla.personaSustitutaNombre})` : ''}.${motivo ? ` Motivo: ${motivo}` : ''}`,
     });
   } catch (auditErr) {
     console.warn('Aviso: Registro de auditoría diferido en cambio de estado:', auditErr);
@@ -1066,8 +1078,13 @@ export const calcularEstadisticasPatrullas = (params: {
     if (p.personaEmpleo === 'ROL 1') totalRol1++;
     else if (p.personaEmpleo === 'ROL 2') totalRol2++;
 
-    // Asignar al efectivo actual
-    const cur = conteoPorPersona.get(p.personaId) || {
+    // Determinar a qué efectivo corresponde el registro/crédito de la patrulla
+    // Si la patrulla fue REALIZADA y contó con sustitución, el crédito corresponde a quien la realizó efectivamente
+    const personaCreditoId = (p.estado === 'REALIZADA' && p.personaSustitutaId)
+      ? p.personaSustitutaId
+      : p.personaId;
+
+    const cur = conteoPorPersona.get(personaCreditoId) || {
       total: 0,
       realizadas: 0,
       programadas: 0,
@@ -1084,7 +1101,7 @@ export const calcularEstadisticasPatrullas = (params: {
       cur.ultimaFecha = p.fecha;
       cur.ultimoNumero = p.numeroSecuencial;
     }
-    conteoPorPersona.set(p.personaId, cur);
+    conteoPorPersona.set(personaCreditoId, cur);
   });
 
   const personasUG = personas.filter(
