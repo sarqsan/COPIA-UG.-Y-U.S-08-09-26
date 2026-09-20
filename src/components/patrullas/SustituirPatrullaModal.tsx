@@ -199,7 +199,7 @@ export const SustituirPatrullaModal: React.FC<SustituirPatrullaModalProps> = ({
               <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-[11px] text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300">
                 <ShieldAlert className="h-4 w-4 text-amber-600 shrink-0" />
                 <span>
-                  {excluidosGuardia.length} efectivos excluidos (de guardia 24h o imaginaria este día).
+                  {excluidosGuardia.length} efectivos excluidos (de guardia 24h en D, saliente de guardia de D-1 o imaginaria).
                 </span>
               </div>
             )}

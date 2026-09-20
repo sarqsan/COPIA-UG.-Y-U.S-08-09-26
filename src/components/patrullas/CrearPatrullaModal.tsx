@@ -354,12 +354,12 @@ export const CrearPatrullaModal: React.FC<CrearPatrullaModalProps> = ({
                 </div>
               )}
 
-              {/* AVISO DE EXCLUSIÓN: Si hay personal de servicio/imaginaria este día */}
+              {/* AVISO DE EXCLUSIÓN: Si hay personal de servicio/saliente/imaginaria este día */}
               {excluidosIds.length > 0 && (
                 <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-[10px] text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
                   <ShieldAlert className="h-3.5 w-3.5 text-amber-500 shrink-0" />
                   <span>
-                    <strong>{excluidosIds.length} excluidos:</strong> No están disponibles por servicio (D) o imaginaria (D-1, D, D+1).
+                    <strong>{excluidosIds.length} excluidos:</strong> No están disponibles por servicio (D), saliente de guardia 24h (D-1) o imaginaria (D-1, D, D+1).
                   </span>
                 </div>
               )}

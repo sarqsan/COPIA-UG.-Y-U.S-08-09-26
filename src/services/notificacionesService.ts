@@ -178,12 +178,17 @@ export const getNotificaciones = async (
       firestoreNotifs.forEach((n) => {
         if (n && n.id) {
           const localItem = mergedMap.get(n.id);
-          // Preservar estado leído local si es más reciente
-          if (localItem && localItem.leida && !n.leida) {
-            mergedMap.set(n.id, { ...n, leida: true, leidoPor: localItem.leidoPor });
-          } else {
-            mergedMap.set(n.id, n);
-          }
+          const combinedLeidoPor = Array.from(
+            new Set([...(localItem?.leidoPor || []), ...(n.leidoPor || [])])
+          );
+          const estaLeidaLocal = !!localItem?.leida;
+          const estaLeidaRemoto = !!n.leida;
+          mergedMap.set(n.id, {
+            ...n,
+            leida: estaLeidaLocal || estaLeidaRemoto,
+            leidoPor: combinedLeidoPor,
+            fechaLeida: localItem?.fechaLeida || n.fechaLeida,
+          });
         }
       });
 
@@ -266,11 +271,17 @@ export const subscribeNotificaciones = (
         firestoreNotifs.forEach((n) => {
           if (n && n.id) {
             const localItem = mergedMap.get(n.id);
-            if (localItem && localItem.leida && !n.leida) {
-              mergedMap.set(n.id, { ...n, leida: true, leidoPor: localItem.leidoPor });
-            } else {
-              mergedMap.set(n.id, n);
-            }
+            const combinedLeidoPor = Array.from(
+              new Set([...(localItem?.leidoPor || []), ...(n.leidoPor || [])])
+            );
+            const estaLeidaLocal = !!localItem?.leida;
+            const estaLeidaRemoto = !!n.leida;
+            mergedMap.set(n.id, {
+              ...n,
+              leida: estaLeidaLocal || estaLeidaRemoto,
+              leidoPor: combinedLeidoPor,
+              fechaLeida: localItem?.fechaLeida || n.fechaLeida,
+            });
           }
         });
 
@@ -354,6 +365,8 @@ export const marcarNotificacionLeida = async (
   try {
     const docRef = doc(db, NOTIFICACIONES_COLLECTION, notificacionId);
     const updatePayload: any = {
+      titulo: item?.titulo || 'Notificación',
+      mensaje: item?.mensaje || '',
       leidoPor: arrayUnion(readerKey),
     };
     if (item?.destinatarioPersonaId || item?.destinatarioUid) {
@@ -377,6 +390,13 @@ export const marcarTodasNotificacionesLeidas = async (
   const items = await getNotificaciones(personaId, uid, isAdmin);
   const now = new Date().toISOString();
   const readerKey = uid || (personaId ? `user-${personaId}` : isAdmin ? 'ADMIN_GLOBAL' : 'user');
+  const userKeys: string[] = [readerKey];
+  if (uid && !userKeys.includes(uid)) userKeys.push(uid);
+  if (personaId) {
+    if (!userKeys.includes(`user-${personaId}`)) userKeys.push(`user-${personaId}`);
+    if (!userKeys.includes(personaId)) userKeys.push(personaId);
+  }
+  if (isAdmin && !userKeys.includes('ADMIN_GLOBAL')) userKeys.push('ADMIN_GLOBAL');
 
   items.forEach((n) => {
     n.leida = true;
@@ -384,10 +404,16 @@ export const marcarTodasNotificacionesLeidas = async (
     const cacheItem = memoryNotificacionesCache.find((ci) => ci.id === n.id);
     if (cacheItem) {
       if (!cacheItem.leidoPor) cacheItem.leidoPor = [];
-      if (!cacheItem.leidoPor.includes(readerKey)) {
-        cacheItem.leidoPor.push(readerKey);
-      }
-      if (cacheItem.destinatarioPersonaId || cacheItem.destinatarioUid) {
+      userKeys.forEach((k) => {
+        if (!cacheItem.leidoPor.includes(k)) {
+          cacheItem.leidoPor.push(k);
+        }
+      });
+      if (
+        cacheItem.destinatarioPersonaId ||
+        cacheItem.destinatarioUid ||
+        (isAdmin && cacheItem.esParaAdmin)
+      ) {
         cacheItem.leida = true;
         cacheItem.fechaLeida = now;
       }
@@ -396,19 +422,29 @@ export const marcarTodasNotificacionesLeidas = async (
   saveNotifStorage();
 
   try {
-    const batch = writeBatch(db);
-    items.slice(0, 400).forEach((n) => {
-      const ref = doc(db, NOTIFICACIONES_COLLECTION, n.id);
-      const updateData: any = {
-        leidoPor: arrayUnion(readerKey),
-      };
-      if (n.destinatarioPersonaId || n.destinatarioUid) {
-        updateData.leida = true;
-        updateData.fechaLeida = now;
-      }
-      batch.set(ref, updateData, { merge: true });
-    });
-    await batch.commit();
+    const BATCH_SIZE = 400;
+    for (let i = 0; i < items.length; i += BATCH_SIZE) {
+      const chunk = items.slice(i, i + BATCH_SIZE);
+      const batch = writeBatch(db);
+      chunk.forEach((n) => {
+        const ref = doc(db, NOTIFICACIONES_COLLECTION, n.id);
+        const updateData: any = {
+          titulo: n.titulo || 'Notificación',
+          mensaje: n.mensaje || '',
+          leidoPor: arrayUnion(...userKeys),
+        };
+        if (
+          n.destinatarioPersonaId ||
+          n.destinatarioUid ||
+          (isAdmin && n.esParaAdmin)
+        ) {
+          updateData.leida = true;
+          updateData.fechaLeida = now;
+        }
+        batch.set(ref, updateData, { merge: true });
+      });
+      await batch.commit();
+    }
   } catch (err: any) {
     console.warn('Batch marcar todas leídas en Firestore diferido:', err.message || err);
   }

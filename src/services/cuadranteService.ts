@@ -248,12 +248,14 @@ export const getServiciosByCuadranteId = async (
  */
 export const obtenerEfectivosEnServicioOImaginaria = async (fecha: string): Promise<{
   titularesIds: string[];
+  salientesGuardiaIds: string[];
   imaginariasIds: string[];
   todosExcluidosIds: string[];
   detalles: { id: string; rol: string; puesto: string }[];
 }> => {
   loadLocalCache();
   const titulares = new Set<string>();
+  const salientesGuardia = new Set<string>();
   const imaginarias = new Set<string>();
   const detalles: { id: string; rol: string; puesto: string }[] = [];
 
@@ -266,52 +268,71 @@ export const obtenerEfectivosEnServicioOImaginaria = async (fecha: string): Prom
   const fechaAyer = getFechaOffset(fecha, -1);
   const fechaManana = getFechaOffset(fecha, 1);
 
-  const registrarPersona = (id: string | undefined, puesto: string, esImaginaria = false) => {
+  const registrarPersona = (
+    id: string | undefined,
+    puesto: string,
+    tipo: 'TITULAR' | 'SALIENTE_GUARDIA' | 'IMAGINARIA' = 'TITULAR'
+  ) => {
     if (!id || id.trim() === '') return;
     const cleanId = id.trim();
-    if (esImaginaria) {
+    if (tipo === 'IMAGINARIA') {
       imaginarias.add(cleanId);
+    } else if (tipo === 'SALIENTE_GUARDIA') {
+      salientesGuardia.add(cleanId);
     } else {
       titulares.add(cleanId);
     }
     if (!detalles.some((d) => d.id === cleanId)) {
-      detalles.push({ id: cleanId, rol: esImaginaria ? 'IMAGINARIA' : 'TITULAR', puesto });
+      detalles.push({ id: cleanId, rol: tipo, puesto });
     }
   };
+
+  let encontroDiaHoy = false;
+  let encontroDiaAyer = false;
 
   const procesarServicios = (serviciosList: ServicioDia[]) => {
     if (!Array.isArray(serviciosList)) return;
     // 1. Día D: Titulares (24h) e Imaginarias
     const srvHoy = serviciosList.find((s) => s && s.fecha === fecha);
     if (srvHoy) {
+      encontroDiaHoy = true;
       srvHoy.titulares?.rol1?.forEach((t, i) => {
         const id = t?.personaIdReal || t?.personaIdOriginal || (t as any)?.personaId;
-        registrarPersona(id, `Titular R1 #${i + 1} (Día D)`);
+        registrarPersona(id, `Titular R1 #${i + 1} (Día D)`, 'TITULAR');
       });
       srvHoy.titulares?.rol2?.forEach((t, i) => {
         const id = t?.personaIdReal || t?.personaIdOriginal || (t as any)?.personaId;
-        registrarPersona(id, `Titular R2 #${i + 1} (Día D)`);
+        registrarPersona(id, `Titular R2 #${i + 1} (Día D)`, 'TITULAR');
       });
       if (srvHoy.imaginarias?.rol1) {
         const id = srvHoy.imaginarias.rol1.personaIdReal || srvHoy.imaginarias.rol1.personaIdOriginal || (srvHoy.imaginarias.rol1 as any)?.personaId;
-        registrarPersona(id, 'Imaginaria R1 (Día D)', true);
+        registrarPersona(id, 'Imaginaria R1 (Día D)', 'IMAGINARIA');
       }
       if (srvHoy.imaginarias?.rol2) {
         const id = srvHoy.imaginarias.rol2.personaIdReal || srvHoy.imaginarias.rol2.personaIdOriginal || (srvHoy.imaginarias.rol2 as any)?.personaId;
-        registrarPersona(id, 'Imaginaria R2 (Día D)', true);
+        registrarPersona(id, 'Imaginaria R2 (Día D)', 'IMAGINARIA');
       }
     }
 
-    // 2. Día D-1 (Ayer): Imaginarias
+    // 2. Día D-1 (Ayer): Titulares de guardia 24h (Saliente de guardia en Día D) e Imaginarias
     const srvAyer = serviciosList.find((s) => s && s.fecha === fechaAyer);
     if (srvAyer) {
+      encontroDiaAyer = true;
+      srvAyer.titulares?.rol1?.forEach((t, i) => {
+        const id = t?.personaIdReal || t?.personaIdOriginal || (t as any)?.personaId;
+        registrarPersona(id, `Saliente de guardia 24h R1 #${i + 1} (Día anterior D-1)`, 'SALIENTE_GUARDIA');
+      });
+      srvAyer.titulares?.rol2?.forEach((t, i) => {
+        const id = t?.personaIdReal || t?.personaIdOriginal || (t as any)?.personaId;
+        registrarPersona(id, `Saliente de guardia 24h R2 #${i + 1} (Día anterior D-1)`, 'SALIENTE_GUARDIA');
+      });
       if (srvAyer.imaginarias?.rol1) {
         const id = srvAyer.imaginarias.rol1.personaIdReal || srvAyer.imaginarias.rol1.personaIdOriginal || (srvAyer.imaginarias.rol1 as any)?.personaId;
-        registrarPersona(id, 'Imaginaria R1 día anterior (D-1)', true);
+        registrarPersona(id, 'Imaginaria R1 día anterior (D-1)', 'IMAGINARIA');
       }
       if (srvAyer.imaginarias?.rol2) {
         const id = srvAyer.imaginarias.rol2.personaIdReal || srvAyer.imaginarias.rol2.personaIdOriginal || (srvAyer.imaginarias.rol2 as any)?.personaId;
-        registrarPersona(id, 'Imaginaria R2 día anterior (D-1)', true);
+        registrarPersona(id, 'Imaginaria R2 día anterior (D-1)', 'IMAGINARIA');
       }
     }
 
@@ -320,11 +341,11 @@ export const obtenerEfectivosEnServicioOImaginaria = async (fecha: string): Prom
     if (srvManana) {
       if (srvManana.imaginarias?.rol1) {
         const id = srvManana.imaginarias.rol1.personaIdReal || srvManana.imaginarias.rol1.personaIdOriginal || (srvManana.imaginarias.rol1 as any)?.personaId;
-        registrarPersona(id, 'Imaginaria R1 día siguiente (D+1)', true);
+        registrarPersona(id, 'Imaginaria R1 día siguiente (D+1)', 'IMAGINARIA');
       }
       if (srvManana.imaginarias?.rol2) {
         const id = srvManana.imaginarias.rol2.personaIdReal || srvManana.imaginarias.rol2.personaIdOriginal || (srvManana.imaginarias.rol2 as any)?.personaId;
-        registrarPersona(id, 'Imaginaria R2 día siguiente (D+1)', true);
+        registrarPersona(id, 'Imaginaria R2 día siguiente (D+1)', 'IMAGINARIA');
       }
     }
   };
@@ -334,8 +355,8 @@ export const obtenerEfectivosEnServicioOImaginaria = async (fecha: string): Prom
     procesarServicios(serviciosList);
   }
 
-  // 2. Si no se halló en la memoria rápida, buscar cuadrantes de GUARDIA en Firestore
-  if (titulares.size === 0 && imaginarias.size === 0) {
+  // 2. Si no se halló fecha u hoy o ayer en memoria rápida, buscar cuadrantes de GUARDIA en Firestore
+  if (!encontroDiaHoy || !encontroDiaAyer) {
     try {
       const cuadrantes = await getCuadrantes({ tipoServicio: 'GUARDIA' });
       for (const c of cuadrantes) {
@@ -349,10 +370,11 @@ export const obtenerEfectivosEnServicioOImaginaria = async (fecha: string): Prom
     }
   }
 
-  const todosExcluidos = new Set<string>([...titulares, ...imaginarias]);
+  const todosExcluidos = new Set<string>([...titulares, ...salientesGuardia, ...imaginarias]);
 
   return {
     titularesIds: Array.from(titulares),
+    salientesGuardiaIds: Array.from(salientesGuardia),
     imaginariasIds: Array.from(imaginarias),
     todosExcluidosIds: Array.from(todosExcluidos),
     detalles,

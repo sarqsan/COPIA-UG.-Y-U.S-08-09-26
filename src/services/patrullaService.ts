@@ -524,14 +524,19 @@ export const crearPatrulla = async (params: {
     throw new Error(`Persona con ID ${params.personaId} no encontrada.`);
   }
 
-  // VALIDACIÓN DEFENSIVA ESTRICTA DE COMPATIBILIDAD (Bloque 4):
-  // En D: NO puede tener servicio U.G. titular en D.
+  // VALIDACIÓN DEFENSIVA ESTRICTA DE COMPATIBILIDAD (Bloque 4 / Nivel 2 de protección):
+  // En D: NO puede tener servicio U.G. titular en D (24h).
+  // En D: NO puede ser saliente de guardia de 24h del día anterior (D-1).
   // NO puede tener imaginaria U.G. en D-1, D, o D+1.
   const excluidos = await obtenerEfectivosEnServicioOImaginaria(params.fecha);
   if (excluidos.todosExcluidosIds.includes(persona.id)) {
     const det = excluidos.detalles.find((d) => d.id === persona.id);
     let motivo = `Incompatibilidad detectada: ${persona.nombre} (${persona.empleo}) no puede realizar patrulla el ${params.fecha}`;
-    if (det) {
+    if (det && det.rol === 'SALIENTE_GUARDIA') {
+      motivo += ' por ser saliente de guardia de 24 horas del día anterior.';
+    } else if (excluidos.salientesGuardiaIds?.includes(persona.id)) {
+      motivo += ' por ser saliente de guardia de 24 horas del día anterior.';
+    } else if (det) {
       motivo += ` (${det.puesto}).`;
     } else if (excluidos.titularesIds.includes(persona.id)) {
       motivo += ' por estar asignado/a como servicio titular de guardia (24h) en esta fecha (D).';
@@ -723,12 +728,16 @@ export const sustituirPatrulla = async (params: {
     throw new Error(`Persona sustituta con ID ${nuevaPersonaId} no encontrada.`);
   }
 
-  // VALIDACIÓN DEFENSIVA ESTRICTA DE COMPATIBILIDAD (Bloque 4):
+  // VALIDACIÓN DEFENSIVA ESTRICTA DE COMPATIBILIDAD (Bloque 4 / Nivel 2 de protección):
   const excluidos = await obtenerEfectivosEnServicioOImaginaria(patrulla.fecha);
   if (excluidos.todosExcluidosIds.includes(nuevaPersona.id)) {
     const det = excluidos.detalles.find((d) => d.id === nuevaPersona.id);
     let motivoExclusion = `Incompatibilidad en sustitución: ${nuevaPersona.nombre} no puede realizar la patrulla el ${patrulla.fecha}`;
-    if (det) {
+    if (det && det.rol === 'SALIENTE_GUARDIA') {
+      motivoExclusion += ' por ser saliente de guardia de 24 horas del día anterior.';
+    } else if (excluidos.salientesGuardiaIds?.includes(nuevaPersona.id)) {
+      motivoExclusion += ' por ser saliente de guardia de 24 horas del día anterior.';
+    } else if (det) {
       motivoExclusion += ` (${det.puesto}).`;
     } else if (excluidos.titularesIds.includes(nuevaPersona.id)) {
       motivoExclusion += ' por tener servicio titular de guardia (24h) en esa fecha (D).';
