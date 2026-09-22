@@ -13,14 +13,15 @@ export const ADMIN_1_DATA: Cuenta = {
   uid: 'admin-1-uid',
   personaId: null,
   username: 'admin1',
-  password: 'arquero1234',
   email: 'admin1@grupo.local',
   nombre: 'Administrador 1',
   rol: 'ADMIN',
   activo: true,
+  passwordHash: '4d6db663dffc2ed1e1ee82f2b2cf0e104c7a2056b92a7adabb439bace1d8e0c5',
+  passwordSalt: 'sal_admin_1_ug_2026',
   requiereCambioCredenciales: false,
   fechaCreacion: '2026-01-01T09:00:00.000Z',
-  ultimoAcceso: new Date().toISOString(),
+  ultimoAcceso: '2026-01-01T09:00:00.000Z',
 };
 
 export const ADMIN_2_DATA: Cuenta = {
@@ -28,14 +29,15 @@ export const ADMIN_2_DATA: Cuenta = {
   uid: 'admin-2-uid',
   personaId: null,
   username: 'admin2',
-  password: 'ortega1234',
   email: 'admin2@grupo.local',
   nombre: 'Administrador 2',
   rol: 'ADMIN',
   activo: true,
+  passwordHash: 'e454b0dabc0a4116f10d04944b07073c9bf350b5e75e50d45eee9b84712f5e76',
+  passwordSalt: 'sal_admin_2_ug_2026',
   requiereCambioCredenciales: false,
   fechaCreacion: '2026-01-01T09:00:00.000Z',
-  ultimoAcceso: new Date().toISOString(),
+  ultimoAcceso: '2026-01-01T09:00:00.000Z',
 };
 
 export const APELLIDOS_ROL1: string[] = [

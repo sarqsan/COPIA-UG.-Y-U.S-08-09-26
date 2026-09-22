@@ -133,16 +133,9 @@ export const calcularBalanceDiasPersona = (
         const esFinSemana = esFinDeSemanaUS(f) || finesSemanaExcluidosSet.has(f);
 
         // REGLA FUNCIONAL DEFINITIVA U.S.:
-        // - VACACIONES: Rige por días naturales descontando festivos oficiales
-        // - PERMISO y ASUNTOS PROPIOS: Rige por días laborables (Lunes a Viernes no festivos)
-        //   Sábados y domingos NO computan ni consumen saldo de permiso.
-        let computaSaldo = false;
-        if (sol.tipoAusencia === 'VACACIONES') {
-          computaSaldo = !esFestivo;
-        } else {
-          // PERMISO o ASUNTOS_PROPIOS
-          computaSaldo = !esFestivo && !esFinSemana;
-        }
+        // - VACACIONES, PERMISO y ASUNTOS PROPIOS: Rigen por días laborables (Lunes a Viernes no festivos).
+        //   Sábados, domingos y festivos no consumibles NO descuentan días de la bolsa.
+        const computaSaldo = !esFestivo && !esFinSemana;
 
         const item: ConsumoDiaItem = {
           fecha: f,

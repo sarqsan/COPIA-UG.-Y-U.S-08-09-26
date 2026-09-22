@@ -178,22 +178,22 @@ export const esFinDeSemanaUS = (fechaStr: string): boolean => {
  * Determina si un día dentro de un periodo solicitado es computable para el consumo de saldo en U.S.
  * 
  * REGLA FUNCIONAL DEFINITIVA PARA U.S.:
- * Un día de permiso es consumible si y solo si:
+ * Para VACACIONES, ASUNTOS PROPIOS y PERMISOS:
+ * Un día de ausencia es consumible si y solo si:
  * 1. Es día laborable de lunes a viernes.
  * 2. No es festivo excluido.
  * 3. No está clasificado como día no laborable/especial por la lógica oficial de calendario de U.S.
  * 
  * Por tanto:
- * - Sábado = NO consumible.
- * - Domingo = NO consumible.
- * - Festivo excluido = NO consumible.
+ * - Sábado = NO consumible (excluido de la bolsa).
+ * - Domingo = NO consumible (excluido de la bolsa).
+ * - Festivo excluido = NO consumible (no descuenta saldo).
  * - Lunes-viernes laborable y no festivo = SÍ consumible.
- * 
- * Excepción: Si el tipo es explícitamente 'VACACIONES', rige por cómputo de días naturales menos festivos oficiales.
+ * - Si un festivo coincide con fin de semana, computa una sola vez como no consumible (sin doble exclusión).
  */
 export const esDiaConsumiblePermisoUS = (
   fechaStr: string,
-  tipoAusencia?: string
+  _tipoAusencia?: string
 ): boolean => {
   if (!fechaStr) return false;
 
@@ -202,13 +202,8 @@ export const esDiaConsumiblePermisoUS = (
     return false;
   }
 
-  // Vacaciones rige por días naturales no festivos
-  if (tipoAusencia === 'VACACIONES') {
-    return true;
-  }
-
-  // Permisos y Asuntos Propios (y regla general estricta de permisos U.S.):
-  // Sábado y domingo NO consumen saldo
+  // Para todos los tipos de ausencia U.S. (Vacaciones, Asuntos Propios y Permisos):
+  // Sábado y domingo NO consumen saldo de la bolsa
   if (esFinDeSemanaUS(fechaStr)) {
     return false;
   }
@@ -227,14 +222,17 @@ export const esDiaConsumiblePermisoUS = (
  * 
  * Clasifica cada fecha en:
  * - total/natural
- * - festivo excluido
- * - fin de semana/no laborable
- * - otro día no computable si existe
- * - consumible
+ * - festivo excluido (no computa saldo)
+ * - fin de semana/no laborable (no computa saldo)
+ * - otro día no computable si existe (no computa saldo)
+ * - consumible (lunes a viernes laborable no festivo)
+ * 
+ * Aplica idéntica regla a VACACIONES, ASUNTOS PROPIOS y PERMISO.
+ * Un festivo que caiga en fin de semana se computa una sola vez como excluido (no produce doble exclusión).
  */
 export const desglosarPeriodoPermisoUS = (
   fechas: string[],
-  tipoAusencia?: string
+  _tipoAusencia?: string
 ): DesglosePeriodoPermisoUS => {
   const fechasTotales = fechas || [];
   const fechasConsumibles: string[] = [];
@@ -242,42 +240,27 @@ export const desglosarPeriodoPermisoUS = (
   const fechasFinesSemana: string[] = [];
   const fechasOtrasNoComputables: string[] = [];
 
-  // Determinación de modo de cómputo:
-  // Si tipoAusencia es VACACIONES: regla de vacaciones (naturales menos festivos oficiales).
-  // Si tipoAusencia es undefined: para mantener compatibilidad con pruebas unitarias
-  // de periodos festivos ya probados (30/03/2026 a 05/04/2026 y 12/10/2026 a 18/10/2026),
-  // detectamos si corresponde a esos periodos donde los fines de semana formaban parte del cómputo vacacional.
-  const esRangoFestivoPruebaAnterior =
-    !tipoAusencia &&
-    fechasTotales.length === 7 &&
-    (
-      (fechasTotales[0] === '2026-03-30' && fechasTotales[6] === '2026-04-05') ||
-      (fechasTotales[0] === '2026-10-12' && fechasTotales[6] === '2026-10-18')
-    );
-
-  const esModoVacaciones = tipoAusencia === 'VACACIONES' || esRangoFestivoPruebaAnterior;
-
   fechasTotales.forEach((fecha) => {
     const info = getFestivoInfoUS(fecha);
     const esFinSemana = esFinDeSemanaUS(fecha);
 
     if (info.esFestivo) {
+      // 1. Festivo oficial excluido: no descuenta saldo
+      // Si además cae en sábado o domingo, se registra como festivo y no se duplica en fines de semana
       fechasFestivas.push({
         fecha,
         nombre: info.nombre || 'Día Festivo Oficial',
       });
-    } else if (esModoVacaciones) {
-      // En vacaciones, los fines de semana forman parte del periodo natural computable
-      fechasConsumibles.push(fecha);
     } else if (esFinSemana) {
-      // En permisos y AP (regla definitiva U.S.), los fines de semana NO son consumibles
+      // 2. Fin de semana (sábado/domingo): excluido de la bolsa para Vacaciones, Asuntos Propios y Permisos
       fechasFinesSemana.push(fecha);
     } else {
-      // Día de lunes a viernes: verificar si es otro día especial no computable
+      // 3. Día de lunes a viernes: verificar si es otro día especial no computable
       const config = getDiaEspecialConfig(fecha);
       if (config && config.activo && config.categoria === 'FESTIVO') {
         fechasOtrasNoComputables.push(fecha);
       } else {
+        // 4. Día laborable normal: SÍ consumible
         fechasConsumibles.push(fecha);
       }
     }

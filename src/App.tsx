@@ -41,15 +41,6 @@ const AppContent: React.FC = () => {
     return false;
   });
 
-  const [forceReady, setForceReady] = useState<boolean>(false);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setForceReady(true);
-    }, 2000);
-    return () => clearTimeout(timer);
-  }, []);
-
   useEffect(() => {
     const handleHashChange = () => {
       setIsAltaRoute(window.location.hash.startsWith('#alta') || window.location.search.includes('alta=true'));
@@ -69,7 +60,7 @@ const AppContent: React.FC = () => {
     return <AltaPublicaView onComplete={() => setIsAltaRoute(false)} />;
   }
 
-  if (loading && !forceReady) {
+  if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-950 text-white">
         <div className="text-center space-y-3">
@@ -77,13 +68,6 @@ const AppContent: React.FC = () => {
           <p className="text-xs font-semibold text-slate-400">
             Cargando Portal U.G....
           </p>
-          <button
-            type="button"
-            onClick={() => setForceReady(true)}
-            className="text-[11px] text-blue-400/80 hover:text-blue-300 underline cursor-pointer pt-2"
-          >
-            Entrar al portal
-          </button>
         </div>
       </div>
     );

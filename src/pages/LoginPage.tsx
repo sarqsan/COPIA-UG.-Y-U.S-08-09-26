@@ -4,7 +4,6 @@ import { Persona, Cuenta } from '../types';
 import { getPersonas, getPersonaById } from '../services/personasService';
 import {
   getCuentas,
-  asegurarCuentasParaPersonas,
   autenticarUsuarioPorCredenciales,
   actualizarCredencialesUsuario,
 } from '../services/cuentasService';
@@ -53,7 +52,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginComplete }) => {
     const cargarDatos = async () => {
       try {
         const pers = await getPersonas({ activoOnly: false });
-        await asegurarCuentasParaPersonas(pers);
         setPersonas(pers);
 
         // Detectar si se accede mediante enlace personalizado con parámetros (?p=, #acceso?p=, ?user=, etc.)

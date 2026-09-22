@@ -1706,7 +1706,7 @@ export const UserPortalPage: React.FC = () => {
                               {sol.tipoAusencia === 'VACACIONES' ? 'Vacaciones (V)' : sol.tipoAusencia === 'PERMISO' ? 'Permiso (P)' : 'Asuntos Propios (A.P.)'}
                             </span>
                             <span className="text-xs font-mono font-bold text-slate-500">
-                              {sol.fechasAfectadas?.length || 1} día(s)
+                              {sol.fechasAfectadas?.length || 1} días naturales {typeof sol.diasConsumibles === 'number' && `(${sol.diasConsumibles} consumibles)`}
                             </span>
                           </div>
 

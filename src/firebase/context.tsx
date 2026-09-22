@@ -12,7 +12,6 @@ import { auth, db } from './config';
 import { Cuenta, Persona, RolUsuario } from '../types';
 import { getCuentaByUid, actualizarUltimoAcceso } from '../services/cuentasService';
 import { getPersonaById, getPersonas, getPersonasPublicas } from '../services/personasService';
-import { ADMIN_1_DATA, ADMIN_2_DATA } from '../services/seedService';
 import { desregistrarDispositivoFCM } from '../services/fcmTokenService';
 import { initFCMClient } from '../services/pushNotificationService';
 
@@ -111,29 +110,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   useEffect(() => {
-    const savedSimUid = localStorage.getItem('app_active_uid');
+    const savedSimUid = typeof window !== 'undefined' ? localStorage.getItem('app_active_uid') : null;
     let isMounted = true;
 
-    // Timeout absoluto de seguridad: nunca dejar la app congelada en la pantalla de carga si no hay conexión
-    const hardTimeout = setTimeout(() => {
+    // Timeout de seguridad amplio para emergencias de conectividad (10 segundos)
+    const safetyTimeout = setTimeout(() => {
       if (isMounted) {
         setLoading(false);
       }
-    }, 4000);
+    }, 10000);
 
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       try {
         if (user) {
           setFirebaseUser(user);
-          await Promise.race([
-            loadUserData(user.uid),
-            new Promise((res) => setTimeout(res, 3500)),
-          ]);
+          await loadUserData(user.uid);
         } else if (savedSimUid) {
-          await Promise.race([
-            loadUserData(savedSimUid),
-            new Promise((res) => setTimeout(res, 3500)),
-          ]);
+          await loadUserData(savedSimUid);
         } else {
           setFirebaseUser(null);
           setCurrentCuenta(null);
@@ -151,7 +144,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       isMounted = false;
       unsubscribe();
-      clearTimeout(hardTimeout);
+      clearTimeout(safetyTimeout);
     };
   }, []);
 

@@ -349,6 +349,8 @@ export const DetalleDiasConsumidosModal: React.FC<DetalleDiasConsumidosModalProp
                         className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${
                           item.esFestivo
                             ? 'bg-purple-100 text-purple-900 dark:bg-purple-950 dark:text-purple-300 border border-purple-300 dark:border-purple-800'
+                            : item.esFinSemana
+                            ? 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-300 dark:border-slate-700'
                             : item.tipoAusencia === 'VACACIONES'
                             ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
                             : item.tipoAusencia === 'PERMISO'
@@ -356,7 +358,7 @@ export const DetalleDiasConsumidosModal: React.FC<DetalleDiasConsumidosModalProp
                             : 'bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300 border border-teal-300 dark:border-teal-800'
                         }`}
                       >
-                        {item.esFestivo ? 'FEST' : item.tipoCodigo}
+                        {item.esFestivo ? 'FEST' : item.esFinSemana ? 'F.S.' : item.tipoCodigo}
                       </div>
 
                       <div className="space-y-0.5">
@@ -368,6 +370,8 @@ export const DetalleDiasConsumidosModal: React.FC<DetalleDiasConsumidosModalProp
                             className={`px-2 py-0.5 rounded-md text-[10px] font-black ${
                               item.esFestivo
                                 ? 'bg-purple-100 text-purple-900 dark:bg-purple-950/80 dark:text-purple-300 border border-purple-200 dark:border-purple-800'
+                                : item.esFinSemana
+                                ? 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
                                 : item.tipoAusencia === 'VACACIONES'
                                 ? 'bg-amber-50 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
                                 : item.tipoAusencia === 'PERMISO'
@@ -375,13 +379,21 @@ export const DetalleDiasConsumidosModal: React.FC<DetalleDiasConsumidosModalProp
                                 : 'bg-teal-50 text-teal-800 dark:bg-teal-950/60 dark:text-teal-300'
                             }`}
                           >
-                            {item.esFestivo ? `FESTIVO: ${item.nombreFestivo || 'Festivo Oficial'}` : item.tipoLabel}
+                            {item.esFestivo
+                              ? `FESTIVO: ${item.nombreFestivo || 'Festivo Oficial'}`
+                              : item.esFinSemana
+                              ? `${item.tipoLabel} - Fin de semana`
+                              : item.tipoLabel}
                           </span>
-                          {item.esFestivo && (
+                          {item.esFestivo ? (
                             <span className="text-[10px] text-purple-700 dark:text-purple-400 font-bold">
                               (Excluido de cómputo)
                             </span>
-                          )}
+                          ) : item.esFinSemana ? (
+                            <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">
+                              (Excluido - Fin de semana)
+                            </span>
+                          ) : null}
                         </div>
 
                         {item.motivo && (
@@ -397,11 +409,19 @@ export const DetalleDiasConsumidosModal: React.FC<DetalleDiasConsumidosModalProp
                         className={`px-2 py-1 rounded-lg border text-xs font-mono font-bold ${
                           item.esFestivo
                             ? 'bg-purple-50 dark:bg-purple-950/50 border-purple-200 dark:border-purple-800 text-purple-800 dark:text-purple-300'
+                            : item.esFinSemana
+                            ? 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400'
                             : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
                         }`}
-                        title={item.esFestivo ? 'Día festivo oficial: No consume saldo de la bolsa' : 'Día laborable computable'}
+                        title={
+                          item.esFestivo
+                            ? 'Día festivo oficial: No consume saldo de la bolsa'
+                            : item.esFinSemana
+                            ? 'Fin de semana: No consume saldo de la bolsa'
+                            : 'Día laborable computable'
+                        }
                       >
-                        {item.esFestivo ? '0h (Festivo)' : `+${item.horasComputadas}h`}
+                        {item.esFestivo ? '0h (Festivo)' : item.esFinSemana ? '0h (Fin de semana)' : `+${item.horasComputadas}h`}
                       </span>
 
                       <span
