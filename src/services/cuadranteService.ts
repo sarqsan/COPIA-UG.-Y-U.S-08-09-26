@@ -52,6 +52,7 @@ export const normalizeCuadrante = (c: any): CuadranteMaestro => ({
 });
 
 const loadLocalCache = () => {
+  if (typeof window === 'undefined' || !window.localStorage) return;
   try {
     const rawC = localStorage.getItem(CUADRANTES_STORAGE_KEY);
     if (rawC) {
@@ -71,6 +72,7 @@ const loadLocalCache = () => {
 };
 
 const saveLocalCache = () => {
+  if (typeof window === 'undefined' || !window.localStorage) return;
   try {
     localStorage.setItem(CUADRANTES_STORAGE_KEY, JSON.stringify(memoryCuadrantesCache));
     const obj: Record<string, ServicioDia[]> = {};

@@ -1,5 +1,6 @@
 import { ServicioDiaUS, MetricasCuadranteUS, MetricasIndividualesUS } from '../types/usTypes';
 import { Persona } from '../types';
+import { clasificarDiaUS } from './cuadranteUSCalendarHelper';
 
 /**
  * Cuenta los días laborables (Lunes a Viernes no festivos estándar) en un rango de fechas.
@@ -37,6 +38,10 @@ export const calcularMetricasCuadranteUS = (
       serviciosSabado: 0,
       serviciosDomingo: 0,
       totalFinDeSemana: 0,
+      serviciosFestivo: 0,
+      serviciosDiaEspecial: 0,
+      puntosEspeciales: 0,
+      serviciosLaborables: 0,
       totalImaginarias: 0,
       totalPresentes: 0,
       diasVacaciones: 0,
@@ -74,6 +79,8 @@ export const calcularMetricasCuadranteUS = (
   personasUS.forEach((p) => (diasConServicioPorPersona[p.id] = []));
 
   servicios.forEach((s, diaIdx) => {
+    const infoDia = clasificarDiaUS(s.fecha);
+
     // 1. DIURNO (2 efectivos)
     s.diurno.titulares.forEach((t) => {
       const pId = resolvePersonaId(t.personaIdReal || (t as any).personaId, (t as any).nombre);
@@ -82,12 +89,23 @@ export const calcularMetricasCuadranteUS = (
         detallePorPersona[pId].totalDiurnos += 1;
         detallePorPersona[pId].horasServicios += 12;
 
-        if (s.diaSemana === 6) {
+        if (infoDia.esSabado) {
           detallePorPersona[pId].serviciosSabado += 1;
           detallePorPersona[pId].totalFinDeSemana += 1;
-        } else if (s.diaSemana === 0) {
+        } else if (infoDia.esDomingo) {
           detallePorPersona[pId].serviciosDomingo += 1;
           detallePorPersona[pId].totalFinDeSemana += 1;
+        }
+
+        if (infoDia.esFestivo) {
+          detallePorPersona[pId].serviciosFestivo = (detallePorPersona[pId].serviciosFestivo || 0) + 1;
+        }
+        if (infoDia.esDiaEspecial) {
+          detallePorPersona[pId].serviciosDiaEspecial = (detallePorPersona[pId].serviciosDiaEspecial || 0) + 1;
+          detallePorPersona[pId].puntosEspeciales = (detallePorPersona[pId].puntosEspeciales || 0) + infoDia.puntosEspeciales;
+        }
+        if (infoDia.esLaborable) {
+          detallePorPersona[pId].serviciosLaborables = (detallePorPersona[pId].serviciosLaborables || 0) + 1;
         }
 
         if (!diasConServicioPorPersona[pId]) diasConServicioPorPersona[pId] = [];
@@ -108,12 +126,23 @@ export const calcularMetricasCuadranteUS = (
         }
         detallePorPersona[pId].horasServicios += horasNocturno;
 
-        if (s.diaSemana === 6) {
+        if (infoDia.esSabado) {
           detallePorPersona[pId].serviciosSabado += 1;
           detallePorPersona[pId].totalFinDeSemana += 1;
-        } else if (s.diaSemana === 0) {
+        } else if (infoDia.esDomingo) {
           detallePorPersona[pId].serviciosDomingo += 1;
           detallePorPersona[pId].totalFinDeSemana += 1;
+        }
+
+        if (infoDia.esFestivo) {
+          detallePorPersona[pId].serviciosFestivo = (detallePorPersona[pId].serviciosFestivo || 0) + 1;
+        }
+        if (infoDia.esDiaEspecial) {
+          detallePorPersona[pId].serviciosDiaEspecial = (detallePorPersona[pId].serviciosDiaEspecial || 0) + 1;
+          detallePorPersona[pId].puntosEspeciales = (detallePorPersona[pId].puntosEspeciales || 0) + infoDia.puntosEspeciales;
+        }
+        if (infoDia.esLaborable) {
+          detallePorPersona[pId].serviciosLaborables = (detallePorPersona[pId].serviciosLaborables || 0) + 1;
         }
 
         if (!diasConServicioPorPersona[pId]) diasConServicioPorPersona[pId] = [];
@@ -138,19 +167,23 @@ export const calcularMetricasCuadranteUS = (
       }
     });
 
-    // 5. AUSENCIAS (V, P, AP - 7.5h cada una)
+    // 5. AUSENCIAS (V, P, AP - 7.5h cada una, excluyendo festivos oficiales)
     (s.ausencias || []).forEach((aus) => {
       const pId = resolvePersonaId(aus.personaId, (aus as any).personaNombre || (aus as any).nombre);
       if (pId && detallePorPersona[pId]) {
-        if (aus.tipo === 'V') {
-          detallePorPersona[pId].diasVacaciones += 1;
-          detallePorPersona[pId].horasVacaciones += 7.5;
-        } else if (aus.tipo === 'P') {
-          detallePorPersona[pId].diasPermiso += 1;
-          detallePorPersona[pId].horasPermiso += 7.5;
-        } else if (aus.tipo === 'AP') {
-          detallePorPersona[pId].diasAsuntosPropios += 1;
-          detallePorPersona[pId].horasAsuntosPropios += 7.5;
+        // En U.S., los festivos oficiales NO se contabilizan como días de permiso disfrutado ni descuentan saldo
+        const infoDia = clasificarDiaUS(s.fecha);
+        if (!infoDia.esFestivo) {
+          if (aus.tipo === 'V') {
+            detallePorPersona[pId].diasVacaciones += 1;
+            detallePorPersona[pId].horasVacaciones += 7.5;
+          } else if (aus.tipo === 'P') {
+            detallePorPersona[pId].diasPermiso += 1;
+            detallePorPersona[pId].horasPermiso += 7.5;
+          } else if (aus.tipo === 'AP') {
+            detallePorPersona[pId].diasAsuntosPropios += 1;
+            detallePorPersona[pId].horasAsuntosPropios += 7.5;
+          }
         }
       }
     });
@@ -192,16 +225,16 @@ export const calcularMetricasCuadranteUS = (
   const finesSemanaArray = listaMetricas.map((m) => m.totalFinDeSemana);
   const horasArray = listaMetricas.map((m) => m.totalHorasComputables);
 
-  const serviciosMin = Math.min(...serviciosArray, 0);
-  const serviciosMax = Math.max(...serviciosArray, 0);
-  const diurnosMin = Math.min(...diurnosArray, 0);
-  const diurnosMax = Math.max(...diurnosArray, 0);
-  const nocturnosMin = Math.min(...nocturnosArray, 0);
-  const nocturnosMax = Math.max(...nocturnosArray, 0);
-  const finesSemanaMin = Math.min(...finesSemanaArray, 0);
-  const finesSemanaMax = Math.max(...finesSemanaArray, 0);
-  const horasMin = Math.min(...horasArray, 0);
-  const horasMax = Math.max(...horasArray, 0);
+  const serviciosMin = serviciosArray.length > 0 ? Math.min(...serviciosArray) : 0;
+  const serviciosMax = serviciosArray.length > 0 ? Math.max(...serviciosArray) : 0;
+  const diurnosMin = diurnosArray.length > 0 ? Math.min(...diurnosArray) : 0;
+  const diurnosMax = diurnosArray.length > 0 ? Math.max(...diurnosArray) : 0;
+  const nocturnosMin = nocturnosArray.length > 0 ? Math.min(...nocturnosArray) : 0;
+  const nocturnosMax = nocturnosArray.length > 0 ? Math.max(...nocturnosArray) : 0;
+  const finesSemanaMin = finesSemanaArray.length > 0 ? Math.min(...finesSemanaArray) : 0;
+  const finesSemanaMax = finesSemanaArray.length > 0 ? Math.max(...finesSemanaArray) : 0;
+  const horasMin = horasArray.length > 0 ? Math.min(...horasArray) : 0;
+  const horasMax = horasArray.length > 0 ? Math.max(...horasArray) : 0;
 
   const diffServicios = serviciosMax - serviciosMin;
   const diffDiurnos = diurnosMax - diurnosMin;

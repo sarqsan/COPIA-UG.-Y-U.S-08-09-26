@@ -42,6 +42,7 @@ const notifyLocalListeners = () => {
 };
 
 const loadNotifStorage = () => {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
   try {
     const raw = localStorage.getItem(NOTIFICACIONES_STORAGE_KEY);
     if (raw) {
@@ -56,6 +57,7 @@ const loadNotifStorage = () => {
 };
 
 const saveNotifStorage = (notify: boolean = true) => {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
   try {
     localStorage.setItem(NOTIFICACIONES_STORAGE_KEY, JSON.stringify(memoryNotificacionesCache));
   } catch (e) {

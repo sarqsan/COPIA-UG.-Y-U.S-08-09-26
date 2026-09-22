@@ -251,7 +251,12 @@ export const DetalleDiasConsumidosModal: React.FC<DetalleDiasConsumidosModalProp
             <div className="flex items-center gap-2">
               <Clock className="w-4 h-4 text-teal-600 shrink-0" />
               <span className="text-slate-700 dark:text-slate-300 font-medium">
-                Total acumulado en el año: <strong>{balance.totalConsumidos} días disfrutados</strong> equivalentes a <strong>{totalHorasConsumidas} horas</strong> de cómputo reglamentario ({HORAS_POR_DIA_AUSENCIA_O_PRESENTE}h por día laborable).
+                Total acumulado en el año: <strong>{balance.totalConsumidos} días computables disfrutados</strong> ({totalHorasConsumidas} horas reglamentarias, {HORAS_POR_DIA_AUSENCIA_O_PRESENTE}h por día laborable).
+                {balance.totalFestivosExcluidos > 0 && (
+                  <span className="block sm:inline text-purple-700 dark:text-purple-300 font-bold sm:ml-1">
+                    • {balance.totalFestivosExcluidos} festivo(s) oficial(es) excluido(s) de cómputo.
+                  </span>
+                )}
               </span>
             </div>
 
@@ -342,32 +347,41 @@ export const DetalleDiasConsumidosModal: React.FC<DetalleDiasConsumidosModalProp
                     <div className="flex items-center gap-3">
                       <div
                         className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${
-                          item.tipoAusencia === 'VACACIONES'
+                          item.esFestivo
+                            ? 'bg-purple-100 text-purple-900 dark:bg-purple-950 dark:text-purple-300 border border-purple-300 dark:border-purple-800'
+                            : item.tipoAusencia === 'VACACIONES'
                             ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
                             : item.tipoAusencia === 'PERMISO'
                             ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border border-blue-300 dark:border-blue-800'
                             : 'bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300 border border-teal-300 dark:border-teal-800'
                         }`}
                       >
-                        {item.tipoCodigo}
+                        {item.esFestivo ? 'FEST' : item.tipoCodigo}
                       </div>
 
                       <div className="space-y-0.5">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className="font-mono font-bold text-xs text-slate-900 dark:text-white">
                             {formatFecha(item.fecha)} ({item.fecha})
                           </span>
                           <span
                             className={`px-2 py-0.5 rounded-md text-[10px] font-black ${
-                              item.tipoAusencia === 'VACACIONES'
+                              item.esFestivo
+                                ? 'bg-purple-100 text-purple-900 dark:bg-purple-950/80 dark:text-purple-300 border border-purple-200 dark:border-purple-800'
+                                : item.tipoAusencia === 'VACACIONES'
                                 ? 'bg-amber-50 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
                                 : item.tipoAusencia === 'PERMISO'
                                 ? 'bg-blue-50 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300'
                                 : 'bg-teal-50 text-teal-800 dark:bg-teal-950/60 dark:text-teal-300'
                             }`}
                           >
-                            {item.tipoLabel}
+                            {item.esFestivo ? `FESTIVO: ${item.nombreFestivo || 'Festivo Oficial'}` : item.tipoLabel}
                           </span>
+                          {item.esFestivo && (
+                            <span className="text-[10px] text-purple-700 dark:text-purple-400 font-bold">
+                              (Excluido de cómputo)
+                            </span>
+                          )}
                         </div>
 
                         {item.motivo && (
@@ -379,8 +393,15 @@ export const DetalleDiasConsumidosModal: React.FC<DetalleDiasConsumidosModalProp
                     </div>
 
                     <div className="flex items-center gap-3 self-end sm:self-auto shrink-0">
-                      <span className="px-2 py-1 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-mono font-bold text-slate-700 dark:text-slate-300">
-                        +{item.horasComputadas}h
+                      <span
+                        className={`px-2 py-1 rounded-lg border text-xs font-mono font-bold ${
+                          item.esFestivo
+                            ? 'bg-purple-50 dark:bg-purple-950/50 border-purple-200 dark:border-purple-800 text-purple-800 dark:text-purple-300'
+                            : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+                        }`}
+                        title={item.esFestivo ? 'Día festivo oficial: No consume saldo de la bolsa' : 'Día laborable computable'}
+                      >
+                        {item.esFestivo ? '0h (Festivo)' : `+${item.horasComputadas}h`}
                       </span>
 
                       <span

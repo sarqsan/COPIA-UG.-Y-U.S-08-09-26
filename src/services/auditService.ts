@@ -10,6 +10,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { AuditLog, TipoAccionAudit } from '../types';
+import { sanitizeForFirestore } from '../utils/firestoreSanitizer';
 
 const AUDIT_COLLECTION = 'auditLogs';
 
@@ -52,7 +53,7 @@ export const registrarAuditLog = async (params: {
 
   try {
     const logRef = doc(db, AUDIT_COLLECTION, logId);
-    await setDoc(logRef, logData);
+    await setDoc(logRef, sanitizeForFirestore(logData));
   } catch (error) {
     console.warn('Error guardando audit log en Firestore:', error);
   }

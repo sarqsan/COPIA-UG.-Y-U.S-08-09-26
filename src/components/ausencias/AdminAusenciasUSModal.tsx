@@ -6,6 +6,8 @@ import {
   resolverSolicitudAusenciaUS,
   solicitarAusenciaUS,
   expandirRangoFechas,
+  subscribeAusenciasUS,
+  limpiarTodasSolicitudesAusenciaUS,
 } from '../../services/ausenciasUSService';
 import {
   calcularBalanceDiasPersona,
@@ -13,6 +15,7 @@ import {
   actualizarBolsaDiasPersona,
   HORAS_POR_DIA_AUSENCIA_O_PRESENTE,
 } from '../../services/bolsaDiasService';
+import { desglosarPeriodoPermisoUS } from '../../services/festivosUSService';
 import { DetalleDiasConsumidosModal } from './DetalleDiasConsumidosModal';
 import {
   X,
@@ -30,6 +33,7 @@ import {
   Edit2,
   Calendar,
   Eye,
+  Trash2,
 } from 'lucide-react';
 
 interface AdminAusenciasUSModalProps {
@@ -78,6 +82,11 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
 
   useEffect(() => {
     cargarSolicitudes();
+    const unsubscribe = subscribeAusenciasUS((data) => {
+      setSolicitudes(data);
+      setLoading(false);
+    });
+    return () => unsubscribe();
   }, []);
 
   // Verificar saldo al seleccionar fechas o persona en asignación directa
@@ -161,6 +170,24 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
       setActiveTab('TODAS');
       await cargarSolicitudes();
       onUpdate();
+    }
+    setActionLoading(false);
+  };
+
+  const handleLimpiarTodasLasSolicitudes = async () => {
+    const confirm = window.confirm(
+      '¿Estás seguro de que deseas eliminar todas las solicitudes de permisos y vacaciones de U.S.? Esta acción reiniciará todas las pruebas a cero y liberará los saldos consumidos.'
+    );
+    if (!confirm) return;
+
+    setActionLoading(true);
+    const res = await limpiarTodasSolicitudesAusenciaUS(adminInfo);
+    if (res.success) {
+      alert(res.message);
+      await cargarSolicitudes();
+      onUpdate();
+    } else {
+      alert(res.message);
     }
     setActionLoading(false);
   };
@@ -475,6 +502,33 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
                 </div>
               </div>
 
+              {fechaInicioDirecta && fechaFinDirecta && (() => {
+                const fechas = expandirRangoFechas(fechaInicioDirecta, fechaFinDirecta);
+                const desglose = desglosarPeriodoPermisoUS(fechas, tipoDirecto);
+                return (
+                  <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 text-xs space-y-1.5">
+                    <div className="flex items-center justify-between font-bold text-slate-700 dark:text-slate-300">
+                      <span>Cómputo reglamentario:</span>
+                      <span className="text-teal-700 dark:text-teal-300 font-mono">
+                        {desglose.totalDiasConsumibles} día(s) computables ({desglose.totalDiasConsumibles * HORAS_POR_DIA_AUSENCIA_O_PRESENTE}h)
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Periodo de {desglose.totalDiasSolicitados} días naturales.
+                      {desglose.totalDiasNoConsumibles > 0 ? (
+                        <span className="text-purple-700 dark:text-purple-300 font-medium ml-1">
+                          Se excluyen {desglose.totalDiasNoConsumibles} día(s) no computables
+                          {desglose.totalFinesSemanaExcluidos > 0 && ` (${desglose.totalFinesSemanaExcluidos} fin(es) de semana)`}
+                          {desglose.totalFestivosExcluidos > 0 && ` (${desglose.totalFestivosExcluidos} festivos oficiales)`}.
+                        </span>
+                      ) : (
+                        <span> Sin festivos ni días no computables.</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
               {advertenciaSaldoDirecta && (
                 <div className="p-3 bg-amber-50 dark:bg-amber-950/40 rounded-2xl border border-amber-300 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2.5">
                   <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
@@ -516,16 +570,29 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
           {/* 3. PESTAÑA: PENDIENTES / TODAS */}
           {(activeTab === 'PENDIENTES' || activeTab === 'TODAS') && (
             <div className="space-y-3">
-              {/* Buscador */}
-              <div className="relative">
-                <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Buscar por efectivo o tipo..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
-                />
+              {/* Buscador y Reinicio de Pruebas */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Buscar por efectivo o tipo..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
+                  />
+                </div>
+                {solicitudes.length > 0 && (
+                  <button
+                    onClick={handleLimpiarTodasLasSolicitudes}
+                    disabled={actionLoading}
+                    className="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
+                    title="Elimina todas las solicitudes existentes para reiniciar las pruebas desde cero"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                    <span>Reiniciar Solicitudes (Pruebas a Cero)</span>
+                  </button>
+                )}
               </div>
 
               {filtradas.length === 0 ? (
@@ -568,9 +635,29 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
                           </span>
                         </div>
 
-                        <div className="text-[11px] text-slate-500 font-mono">
-                          Periodo: <strong>{s.fechaInicio}</strong> al <strong>{s.fechaFin}</strong> ({s.fechasAfectadas.length} días = {s.fechasAfectadas.length * HORAS_POR_DIA_AUSENCIA_O_PRESENTE}h)
-                        </div>
+                        {(() => {
+                          const desglose = desglosarPeriodoPermisoUS(s.fechasAfectadas, s.tipoAusencia);
+                          const consumibles = s.diasConsumibles ?? desglose.totalDiasConsumibles;
+                          const noConsumibles = s.diasNoConsumibles ?? desglose.totalDiasNoConsumibles;
+                          const festivos = s.festivosExcluidos ?? desglose.fechasFestivas;
+                          return (
+                            <div className="space-y-1">
+                              <div className="text-[11px] text-slate-600 dark:text-slate-400 font-mono">
+                                Periodo: <strong>{s.fechaInicio}</strong> al <strong>{s.fechaFin}</strong> ({s.fechasAfectadas.length} días naturales • <span className="text-teal-700 dark:text-teal-300 font-bold">{consumibles} días consumibles</span> = {consumibles * HORAS_POR_DIA_AUSENCIA_O_PRESENTE}h)
+                              </div>
+                              {noConsumibles > 0 && (
+                                <div className="text-[10px] text-purple-700 dark:text-purple-300 font-medium flex items-center gap-1">
+                                  <span>📅 {noConsumibles} día(s) no computables excluidos de cómputo (0h).</span>
+                                </div>
+                              )}
+                              {festivos && festivos.length > 0 && (
+                                <div className="text-[10px] text-purple-700 dark:text-purple-300 font-medium flex items-center gap-1">
+                                  <span>🎉 {festivos.length} festivo(s) oficial(es): {festivos.map((f) => f.nombre).join(', ')}</span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
 
                         {s.motivo && (
                           <div className="text-[11px] text-slate-600 dark:text-slate-400 italic">

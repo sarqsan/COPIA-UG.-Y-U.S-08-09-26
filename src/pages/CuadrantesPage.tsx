@@ -165,8 +165,8 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
   const [deleting, setDeleting] = useState(false);
 
   const adminInfo = {
-    uid: currentCuenta?.uid || 'admin-system',
-    nombre: currentCuenta?.nombre || 'Administrador',
+    uid: currentCuenta?.uid || '',
+    nombre: currentCuenta?.nombre || currentCuenta?.username || '',
   };
 
   // Cargar lista de cuadrantes filtrados por grupo activa

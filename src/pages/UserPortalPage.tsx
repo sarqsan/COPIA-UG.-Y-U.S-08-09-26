@@ -39,7 +39,7 @@ import { CuadranteUSMensualView } from '../components/cuadrante/CuadranteUSMensu
 import { ServicioDiaUS, SolicitudAusenciaUS } from '../types/usTypes';
 import { SolicitarAusenciaUSModal } from '../components/ausencias/SolicitarAusenciaUSModal';
 import { DetalleDiasConsumidosModal } from '../components/ausencias/DetalleDiasConsumidosModal';
-import { getSolicitudesAusenciaUS } from '../services/ausenciasUSService';
+import { getSolicitudesAusenciaUS, subscribeAusenciasUS } from '../services/ausenciasUSService';
 import {
   calcularBalanceDiasPersona,
   HORAS_POR_DIA_AUSENCIA_O_PRESENTE,
@@ -188,6 +188,10 @@ export const UserPortalPage: React.FC = () => {
       false
     );
 
+    const unsubscribeAusenciasUS = subscribeAusenciasUS((aus) => {
+      setSolicitudesAusenciaUS(aus);
+    });
+
     const handleUpdate = async () => {
       if (currentPersona?.id || currentCuenta?.uid) {
         const notifs = await getNotificaciones(currentPersona?.id, currentCuenta?.uid, false);
@@ -234,6 +238,7 @@ export const UserPortalPage: React.FC = () => {
     return () => {
       unsubscribeSolicitudes();
       unsubscribeNotificaciones();
+      unsubscribeAusenciasUS();
       window.removeEventListener('notificaciones_updated', handleUpdate);
       window.removeEventListener('patrullas_updated', handlePatrullasUpdate);
       if (typeof navigator !== 'undefined' && navigator.serviceWorker) {

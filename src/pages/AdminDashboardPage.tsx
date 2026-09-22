@@ -23,6 +23,13 @@ import {
   getIncidenciasAusencia,
   ratificarCoberturaAdmin,
 } from '../services/ausenciasService';
+import {
+  getSolicitudesAusenciaUS,
+  subscribeAusenciasUS,
+  resolverSolicitudAusenciaUS,
+} from '../services/ausenciasUSService';
+import { SolicitudAusenciaUS } from '../types/usTypes';
+import { AdminAusenciasUSModal } from '../components/ausencias/AdminAusenciasUSModal';
 import { DetalleAprobacionCambioModal } from '../components/cambios/DetalleAprobacionCambioModal';
 import { OrdenRotacionModal } from '../components/rotacion/OrdenRotacionModal';
 import { NuevoCicloModal } from '../components/ciclos/NuevoCicloModal';
@@ -40,6 +47,7 @@ import {
   ShieldAlert,
   Calendar,
   FileText,
+  Palmtree,
 } from 'lucide-react';
 import { AdminTab } from '../components/common/Sidebar';
 import {
@@ -75,6 +83,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   const [cuadranteActivo, setCuadranteActivo] = useState<CuadranteMaestro | null>(null);
   const [servicios, setServicios] = useState<ServicioDia[]>([]);
   const [solicitudes, setSolicitudes] = useState<SolicitudCambio[]>([]);
+  const [solicitudesUS, setSolicitudesUS] = useState<SolicitudAusenciaUS[]>([]);
   const [incidencias, setIncidencias] = useState<IncidenciaAusencia[]>([]);
   const [loadingAcciones, setLoadingAcciones] = useState(false);
   const [modalSolicitudAdmin, setModalSolicitudAdmin] = useState<SolicitudCambio | null>(null);
@@ -82,6 +91,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   // Modales
   const [isRotacionModalOpen, setIsRotacionModalOpen] = useState(false);
   const [isNuevoCicloModalOpen, setIsNuevoCicloModalOpen] = useState(false);
+  const [isAdminAusenciasUSOpen, setIsAdminAusenciasUSOpen] = useState(false);
 
   const cargarDatosOperativos = async () => {
     setLoadingAcciones(true);
@@ -100,6 +110,10 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
       // Solicitudes de Guardia (única fuente de verdad)
       const sols = await getSolicitudesCambio(undefined, 'GUARDIA');
       setSolicitudes(sols);
+
+      // Solicitudes de Permisos / Ausencias U.S.
+      const solsUS = await getSolicitudesAusenciaUS();
+      setSolicitudesUS(solsUS);
 
       const incs = activo ? await getIncidenciasAusencia(activo.id) : await getIncidenciasAusencia();
       setIncidencias(incs);
@@ -121,18 +135,25 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
       'GUARDIA'
     );
 
+    const unsubscribeAusenciasUS = subscribeAusenciasUS((aus) => {
+      setSolicitudesUS(aus);
+    });
+
     const handleActualizacion = () => {
       cargarDatosOperativos();
     };
 
     window.addEventListener('cambios_updated', handleActualizacion);
     window.addEventListener('notificaciones_updated', handleActualizacion);
+    window.addEventListener('ausencias_us_updated', handleActualizacion);
     window.addEventListener('focus', handleActualizacion);
 
     return () => {
       unsubscribeSolicitudes();
+      unsubscribeAusenciasUS();
       window.removeEventListener('cambios_updated', handleActualizacion);
       window.removeEventListener('notificaciones_updated', handleActualizacion);
+      window.removeEventListener('ausencias_us_updated', handleActualizacion);
       window.removeEventListener('focus', handleActualizacion);
     };
   }, []);
@@ -225,6 +246,38 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     cargarDatosOperativos();
   };
 
+  // Ausencias U.S. pendientes de resolución
+  const ausenciasUSPendientes = (solicitudesUS || []).filter(
+    (s) => s.estado === 'PENDIENTE_ADMIN'
+  );
+
+  const handleAprobarAusenciaUS = async (sol: SolicitudAusenciaUS) => {
+    const res = await resolverSolicitudAusenciaUS({
+      solicitudId: sol.id,
+      aprobada: true,
+      adminInfo,
+    });
+    if (res.success) {
+      await cargarDatosOperativos();
+    } else {
+      alert(`No se pudo autorizar el permiso: ${res.message}`);
+    }
+  };
+
+  const handleRechazarAusenciaUS = async (sol: SolicitudAusenciaUS) => {
+    const motivo =
+      prompt('Motivo de denegación del permiso U.S.:') ||
+      'Denegado por necesidades del servicio';
+    const res = await resolverSolicitudAusenciaUS({
+      solicitudId: sol.id,
+      aprobada: false,
+      motivoRechazo: motivo,
+      adminInfo,
+    });
+    alert(res.message);
+    await cargarDatosOperativos();
+  };
+
   return (
     <div id="admin-dashboard-page" className="space-y-6">
       {/* Top Banner: Dynamic Group Composition Notice */}
@@ -275,6 +328,20 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
           </button>
 
           <button
+            onClick={() => setIsAdminAusenciasUSOpen(true)}
+            className="flex items-center gap-1.5 rounded-xl bg-teal-600 px-3.5 py-2 text-xs font-bold text-white shadow-md hover:bg-teal-700 transition cursor-pointer relative"
+            title="Gestión y Asignación de Permisos de la Unidad de Seguridad (U.S.)"
+          >
+            <Palmtree className="h-4 w-4" />
+            <span>Permisos U.S.</span>
+            {ausenciasUSPendientes.length > 0 && (
+              <span className="ml-0.5 px-1.5 py-0.2 rounded-full bg-amber-400 text-slate-900 text-[10px] font-black animate-pulse">
+                {ausenciasUSPendientes.length}
+              </span>
+            )}
+          </button>
+
+          <button
             onClick={() => onSelectTab('cuadrantes')}
             className="flex items-center gap-1.5 rounded-xl bg-white/10 px-3.5 py-2 text-xs font-bold text-white border border-white/20 hover:bg-white/20 transition cursor-pointer"
           >
@@ -292,6 +359,45 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         </div>
       </div>
 
+      {/* BANNER / ACCESO DIRECTO A GESTIÓN DE PERMISOS U.S. */}
+      <div className="rounded-3xl border border-teal-200 bg-teal-50/60 p-5 shadow-sm dark:border-teal-900/60 dark:bg-teal-950/30 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 bg-teal-600 text-white rounded-2xl shadow-sm">
+            <Palmtree className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">
+                Permisos y Ausencias — Unidad de Seguridad (U.S.)
+              </h3>
+              {ausenciasUSPendientes.length > 0 ? (
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-white animate-pulse shadow-xs">
+                  {ausenciasUSPendientes.length} Pendiente{ausenciasUSPendientes.length > 1 ? 's' : ''} de Aprobación
+                </span>
+              ) : (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-100 text-teal-800 dark:bg-teal-900/60 dark:text-teal-300">
+                  Al día
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
+              Control de cupos diarios, saldos (Vacaciones, A.P., Permisos) y asignación directa por la Administración sin requerir solicitud previa.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 w-full md:w-auto">
+          <button
+            type="button"
+            onClick={() => setIsAdminAusenciasUSOpen(true)}
+            className="flex-1 md:flex-initial flex items-center justify-center gap-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white px-4 py-2.5 text-xs font-black shadow transition cursor-pointer"
+          >
+            <Palmtree className="w-4 h-4" />
+            <span>Gestionar Permisos & Bolsas U.S.</span>
+          </button>
+        </div>
+      </div>
+
       {/* ACCIONES PENDIENTES DE APROBACIÓN */}
       <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900 space-y-4">
         <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
@@ -304,28 +410,118 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                 Panel de Acciones Pendientes de Aprobación
               </h3>
               <p className="text-xs text-slate-500">
-                Resolución de solicitudes de cambio e incidencias de guardia ({NOMBRE_GRUPO_UG})
+                Resolución de solicitudes de cambio e incidencias ({NOMBRE_GRUPO_UG}) y permisos de servicio (U.S.)
               </p>
             </div>
           </div>
           <span
             className={`px-3 py-1 rounded-full text-xs font-black ${
-              solicitudesPendientesAdmin.length + incidenciasActivas.length > 0
+              solicitudesPendientesAdmin.length + incidenciasActivas.length + ausenciasUSPendientes.length > 0
                 ? 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300'
                 : 'bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-300'
             }`}
           >
-            {solicitudesPendientesAdmin.length + incidenciasActivas.length} Pendientes
+            {solicitudesPendientesAdmin.length + incidenciasActivas.length + ausenciasUSPendientes.length} Pendientes
           </span>
         </div>
 
-        {solicitudesPendientesAdmin.length === 0 && incidenciasActivas.length === 0 ? (
+        {solicitudesPendientesAdmin.length === 0 && incidenciasActivas.length === 0 && ausenciasUSPendientes.length === 0 ? (
           <div className="text-center py-6 text-slate-400 text-xs flex items-center justify-center gap-2">
             <CheckCircle className="w-4 h-4 text-emerald-500" />
-            Todo al día. No hay solicitudes ni incidencias pendientes de resolución en la {NOMBRE_GRUPO_UG}.
+            Todo al día. No hay solicitudes ni incidencias pendientes de resolución.
           </div>
         ) : (
           <div className="space-y-4">
+            {/* Solicitudes de Permisos / Ausencias U.S. */}
+            {ausenciasUSPendientes.map((aus) => {
+              const tipoLabel =
+                aus.tipoAusencia === 'VACACIONES'
+                  ? 'Vacaciones'
+                  : aus.tipoAusencia === 'PERMISO'
+                  ? 'Permiso'
+                  : 'Asuntos Propios (A.P.)';
+              return (
+                <div
+                  key={aus.id}
+                  className="p-4 rounded-2xl border border-teal-400 bg-teal-50/80 dark:bg-teal-950/40 dark:border-teal-700/80 flex flex-col gap-3 shadow-xs"
+                >
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 border-b border-teal-200/60 dark:border-teal-800/60 pb-2.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="px-2 py-0.5 bg-teal-700 text-white rounded text-[10px] font-bold flex items-center gap-1">
+                        <Palmtree className="w-3 h-3" />
+                        PERMISO U.S.
+                      </span>
+                      <h4 className="text-xs font-bold text-slate-900 dark:text-white">
+                        {tipoLabel} — {aus.personaNombre}
+                      </h4>
+                      <span className="text-[11px] font-black px-2.5 py-0.5 rounded-full bg-amber-200 text-amber-900 dark:bg-amber-900/80 dark:text-amber-200">
+                        ★ SOLICITUD DE EFECTIVO — PENDIENTE RESOLUCIÓN ADMINISTRATIVA
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-slate-500 font-mono">
+                      Solicitado:{' '}
+                      {new Date(aus.fechaSolicitud).toLocaleString('es-ES', {
+                        dateStyle: 'short',
+                        timeStyle: 'short',
+                      })}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                    <div className="p-2.5 rounded-xl bg-white/70 dark:bg-slate-900/70 border border-teal-200/50 dark:border-slate-800 space-y-1">
+                      <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+                        Efectivo Solicitante (U.S.)
+                      </p>
+                      <p className="text-slate-900 dark:text-white font-bold text-sm">
+                        {aus.personaNombre}
+                      </p>
+                      {aus.motivo && (
+                        <p className="text-xs text-slate-600 dark:text-slate-400 italic">
+                          "{aus.motivo}"
+                        </p>
+                      )}
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-white/70 dark:bg-slate-900/70 border border-teal-200/50 dark:border-slate-800 space-y-1">
+                      <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+                        Período y Días Afectados
+                      </p>
+                      <p className="text-slate-900 dark:text-white font-bold text-sm">
+                        {aus.fechaInicio} al {aus.fechaFin} ({aus.fechasAfectadas.length} días)
+                      </p>
+                      <p className="text-[11px] text-teal-700 dark:text-teal-300">
+                        Días: {aus.fechasAfectadas.slice(0, 5).join(', ')}
+                        {aus.fechasAfectadas.length > 5 ? ` y ${aus.fechasAfectadas.length - 5} más` : ''}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setIsAdminAusenciasUSOpen(true)}
+                      className="px-3 py-1.5 rounded-xl border border-teal-300 bg-white text-teal-800 hover:bg-teal-50 dark:border-teal-800 dark:bg-slate-800 dark:text-teal-300 text-xs font-bold transition cursor-pointer"
+                    >
+                      Ver Saldos y Cupos
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRechazarAusenciaUS(aus)}
+                      className="px-3 py-1.5 rounded-xl bg-rose-600 text-white hover:bg-rose-700 text-xs font-bold transition cursor-pointer"
+                    >
+                      Denegar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleAprobarAusenciaUS(aus)}
+                      className="px-3.5 py-1.5 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-sm"
+                    >
+                      <CheckCircle className="w-3.5 h-3.5" />
+                      Autorizar Permiso
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
             {/* Solicitudes de Cambio de Guardia */}
             {solicitudesPendientesAdmin.map((sol, index) => (
               <div
@@ -719,6 +915,18 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
           await cargarDatosOperativos();
         }}
       />
+
+      {/* Modal de Gestión Administrativa de Ausencias y Permisos U.S. */}
+      {isAdminAusenciasUSOpen && (
+        <AdminAusenciasUSModal
+          personasUS={personas.filter(
+            (p) => (p.tipoServicio || (p.grupo === 'US_SEGURIDAD' ? 'US' : 'GUARDIA')) === 'US'
+          )}
+          adminInfo={adminInfo}
+          onClose={() => setIsAdminAusenciasUSOpen(false)}
+          onUpdate={cargarDatosOperativos}
+        />
+      )}
     </div>
   );
 };

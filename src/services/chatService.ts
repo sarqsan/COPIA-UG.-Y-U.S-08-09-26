@@ -73,6 +73,7 @@ const INITIAL_MESSAGES: MensajeChat[] = [
 let memoryChatCache: MensajeChat[] = [...INITIAL_MESSAGES];
 
 const loadChatFromStorage = () => {
+  if (typeof window === 'undefined' || !window.localStorage) return;
   try {
     const raw = localStorage.getItem(CHAT_STORAGE_KEY);
     if (raw) {
@@ -87,6 +88,7 @@ const loadChatFromStorage = () => {
 };
 
 const saveChatToStorage = () => {
+  if (typeof window === 'undefined' || !window.localStorage) return;
   try {
     localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(memoryChatCache));
   } catch (e) {

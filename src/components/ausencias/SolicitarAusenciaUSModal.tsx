@@ -65,6 +65,19 @@ export const SolicitarAusenciaUSModal: FC<SolicitarAusenciaUSModalProps> = ({
     { fecha: string; cupoOcupado: number; cupoMaximo: number; personasNombres: string[]; disponible: boolean }[]
   >([]);
   const [advertenciaSaldo, setAdvertenciaSaldo] = useState<string | null>(null);
+  const [desgloseCómputo, setDesgloseCómputo] = useState<{
+    diasConsumibles: number;
+    diasTotales: number;
+    diasNoConsumibles: number;
+    diasFinesSemanaExcluidos: number;
+    diasSolicitados: number;
+    diasSolicitadosTotales: number;
+    diasFestivosExcluidos: number;
+    festivosDetectados: Array<{ fecha: string; nombre: string }>;
+    fechasFinesSemana?: string[];
+    saldoDisponible: number;
+    suficiente: boolean;
+  } | null>(null);
 
   // Cargar balance de días de la persona
   useEffect(() => {
@@ -89,6 +102,7 @@ export const SolicitarAusenciaUSModal: FC<SolicitarAusenciaUSModalProps> = ({
     if (!fechaInicio || !fechaFin) {
       setFechasAfectadasInfo([]);
       setAdvertenciaSaldo(null);
+      setDesgloseCómputo(null);
       return;
     }
 
@@ -109,7 +123,8 @@ export const SolicitarAusenciaUSModal: FC<SolicitarAusenciaUSModalProps> = ({
       });
       setFechasAfectadasInfo(resultado);
 
-      // 2. Verificación de saldo personal de días asignados
+      // 2. Verificación de saldo personal de días asignados con exclusión de festivos
+      // REGLA ÚNICA: La validación exige ÚNICAMENTE diasConsumibles, NUNCA diasTotales
       const validacion = validarDisponibilidadDias({
         persona,
         tipoAusencia,
@@ -117,6 +132,21 @@ export const SolicitarAusenciaUSModal: FC<SolicitarAusenciaUSModalProps> = ({
         solicitudes: todas,
       });
 
+      setDesgloseCómputo({
+        diasConsumibles: validacion.diasConsumibles,
+        diasTotales: validacion.diasTotales,
+        diasNoConsumibles: validacion.diasNoConsumibles,
+        diasFinesSemanaExcluidos: validacion.diasFinesSemanaExcluidos,
+        diasSolicitados: validacion.diasConsumibles,
+        diasSolicitadosTotales: validacion.diasTotales,
+        diasFestivosExcluidos: validacion.diasFestivosExcluidos,
+        festivosDetectados: validacion.festivosDetectados,
+        fechasFinesSemana: validacion.fechasFinesSemana,
+        saldoDisponible: validacion.diasDisponibles,
+        suficiente: validacion.suficiente,
+      });
+
+      // El aviso de saldo insuficiente solo debe mostrarse si: diasConsumibles > saldoDisponible
       if (!validacion.suficiente) {
         setAdvertenciaSaldo(validacion.mensajeAdvertencia || null);
       } else {
@@ -131,6 +161,11 @@ export const SolicitarAusenciaUSModal: FC<SolicitarAusenciaUSModalProps> = ({
     e.preventDefault();
     if (!fechaInicio || !fechaFin) {
       setErrorMsg('Selecciona las fechas de inicio y fin.');
+      return;
+    }
+
+    if (advertenciaSaldo) {
+      setErrorMsg(advertenciaSaldo);
       return;
     }
 
@@ -342,7 +377,80 @@ export const SolicitarAusenciaUSModal: FC<SolicitarAusenciaUSModalProps> = ({
             </div>
           </div>
 
-          {/* Advertencia de Saldo Excedido si aplica */}
+          {/* Información del Cómputo del Periodo y Festivos Excluidos */}
+          {desgloseCómputo && (
+            <div className="p-3.5 bg-slate-50 dark:bg-slate-800/70 rounded-2xl border border-slate-200 dark:border-slate-700 text-xs space-y-3">
+              <div className="flex items-center justify-between font-bold">
+                <span className="text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                  <Info className="w-4 h-4 text-teal-600 shrink-0" />
+                  <span>Cómputo de Saldo para este Periodo:</span>
+                </span>
+                <span className="text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60 px-2.5 py-1 rounded-xl font-mono font-black text-xs">
+                  {desgloseCómputo.diasConsumibles} día(s) a descontar
+                </span>
+              </div>
+
+              {/* Bloque explícito de 3 métricas reglamentarias */}
+              <div className="grid grid-cols-3 gap-2">
+                <div className="p-2.5 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 text-center shadow-2xs">
+                  <div className="text-[10px] text-slate-500 font-medium leading-tight">Días naturales</div>
+                  <div className="text-base font-black text-slate-800 dark:text-slate-200 font-mono mt-1">
+                    {desgloseCómputo.diasTotales}
+                  </div>
+                </div>
+
+                <div className="p-2.5 bg-white dark:bg-slate-900 rounded-xl border border-purple-200 dark:border-purple-800/60 text-center shadow-2xs">
+                  <div className="text-[10px] text-purple-700 dark:text-purple-300 font-medium leading-tight">Días no computables</div>
+                  <div className="text-base font-black text-purple-700 dark:text-purple-300 font-mono mt-1">
+                    {desgloseCómputo.diasNoConsumibles}
+                  </div>
+                </div>
+
+                <div className="p-2.5 bg-white dark:bg-slate-900 rounded-xl border border-teal-300 dark:border-teal-700 text-center shadow-2xs">
+                  <div className="text-[10px] text-teal-800 dark:text-teal-300 font-bold leading-tight">Días a descontar</div>
+                  <div className="text-base font-black text-teal-700 dark:text-teal-300 font-mono mt-1">
+                    {desgloseCómputo.diasConsumibles}
+                  </div>
+                </div>
+              </div>
+
+              <div className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                {desgloseCómputo.diasNoConsumibles > 0 ? (
+                  <span className="text-purple-700 dark:text-purple-300 font-medium">
+                    Se excluyen <strong>{desgloseCómputo.diasNoConsumibles} día(s) no computables</strong>
+                    {desgloseCómputo.diasFinesSemanaExcluidos > 0 && ` (${desgloseCómputo.diasFinesSemanaExcluidos} fin(es) de semana)`}
+                    {desgloseCómputo.diasFestivosExcluidos > 0 && ` (${desgloseCómputo.diasFestivosExcluidos} festivo(s) oficiales)`}
+                    {' '}de este periodo (0h / 0 días consumidos de saldo).
+                  </span>
+                ) : (
+                  <span>Periodo sin festivos ni días no computables: todos los días seleccionados consumen saldo con normalidad.</span>
+                )}
+              </div>
+
+              {/* Lista de Festivos Detectados */}
+              {desgloseCómputo.diasFestivosExcluidos > 0 && (
+                <div className="p-2.5 bg-purple-50 dark:bg-purple-950/40 rounded-xl border border-purple-200 dark:border-purple-900/60 space-y-1.5">
+                  <div className="text-[10px] font-black uppercase tracking-wider text-purple-800 dark:text-purple-300 flex items-center gap-1">
+                    <span>Festivos Oficiales Incluidos (0h de consumo de saldo):</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {desgloseCómputo.festivosDetectados.map((fest) => (
+                      <span
+                        key={fest.fecha}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white dark:bg-purple-900/60 text-purple-900 dark:text-purple-200 border border-purple-200 dark:border-purple-800 text-[10px] font-bold"
+                      >
+                        <span className="font-mono">{fest.fecha.split('-')[2]}/{fest.fecha.split('-')[1]}:</span>
+                        <span>{fest.nombre}</span>
+                        <span className="text-purple-600 dark:text-purple-400 font-normal">(Excluido)</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Advertencia de Saldo Excedido si aplica (solo si diasConsumibles > saldoDisponible) */}
           {advertenciaSaldo && (
             <div className="p-3 bg-amber-50 dark:bg-amber-950/40 rounded-2xl border border-amber-300 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2.5">
               <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
@@ -350,7 +458,7 @@ export const SolicitarAusenciaUSModal: FC<SolicitarAusenciaUSModalProps> = ({
                 <span className="font-bold">Aviso de Saldo Insuficiente:</span>
                 <p className="text-[11px] leading-relaxed">{advertenciaSaldo}</p>
                 <p className="text-[10px] text-amber-800 dark:text-amber-300 font-medium">
-                  Si envías la solicitud, quedará sujeta a revisión especial y autorización por el Administrador.
+                  El sistema exige disponer de saldo suficiente para cubrir los días consumibles del periodo ({desgloseCómputo?.diasConsumibles} día(s)).
                 </p>
               </div>
             </div>
@@ -460,10 +568,23 @@ export const SolicitarAusenciaUSModal: FC<SolicitarAusenciaUSModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={loading || hayDiasCompletos || !fechaInicio || !fechaFin || (infoPlazo ? !infoPlazo.esValidaHoy : false)}
+              disabled={
+                loading ||
+                hayDiasCompletos ||
+                !fechaInicio ||
+                !fechaFin ||
+                (infoPlazo ? !infoPlazo.esValidaHoy : false) ||
+                (desgloseCómputo ? !desgloseCómputo.suficiente : false)
+              }
               className="px-5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-xs font-bold transition shadow-xs cursor-pointer"
             >
-              {loading ? 'Enviando...' : (infoPlazo && !infoPlazo.esValidaHoy) ? 'Plazo Cerrado' : 'Registrar Solicitud'}
+              {loading
+                ? 'Enviando...'
+                : infoPlazo && !infoPlazo.esValidaHoy
+                ? 'Plazo Cerrado'
+                : desgloseCómputo && !desgloseCómputo.suficiente
+                ? 'Saldo Insuficiente'
+                : 'Registrar Solicitud'}
             </button>
           </div>
         </form>

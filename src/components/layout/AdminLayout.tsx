@@ -89,8 +89,8 @@ export const AdminLayout: React.FC = () => {
   }, []);
 
   const adminInfo = {
-    uid: currentCuenta?.uid || 'admin-system',
-    nombre: currentCuenta?.nombre || 'Administrador',
+    uid: currentCuenta?.uid || '',
+    nombre: currentCuenta?.nombre || currentCuenta?.username || '',
   };
 
   // Filtrar según grupo activa

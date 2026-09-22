@@ -12,6 +12,11 @@ export interface SolicitudAusenciaUS {
   fechaInicio: string; // YYYY-MM-DD
   fechaFin: string; // YYYY-MM-DD
   fechasAfectadas: string[]; // Lista de días YYYY-MM-DD
+  diasConsumibles?: number; // Días computables que descuentan saldo (excluyendo festivos y fines de semana según aplique)
+  diasTotales?: number; // Total de días naturales del rango solicitado
+  diasNoConsumibles?: number; // Total de días no computables (fines de semana, festivos oficiales)
+  festivosExcluidos?: Array<{ fecha: string; nombre: string }>; // Días festivos incluidos en el rango que no descuentan saldo
+  finesSemanaExcluidos?: string[]; // Fechas de fines de semana excluidas
   motivo?: string;
   estado: 'PENDIENTE_ADMIN' | 'APROBADA' | 'RECHAZADA';
   fechaSolicitud: string; // ISO
@@ -92,6 +97,10 @@ export interface MetricasIndividualesUS {
   serviciosSabado: number;
   serviciosDomingo: number;
   totalFinDeSemana: number;
+  serviciosFestivo?: number;
+  serviciosDiaEspecial?: number;
+  puntosEspeciales?: number;
+  serviciosLaborables?: number;
   
   // Imaginarias y Presentes
   totalImaginarias: number;
@@ -187,7 +196,12 @@ export interface EstadoContinuidadUS {
       totalServicios?: number;
       diurnos?: number;
       nocturnos?: number;
+      sabados?: number;
+      domingos?: number;
       finesDeSemana?: number;
+      festivos?: number;
+      diasEspeciales?: number;
+      puntosEspeciales?: number;
       imaginarias?: number;
       horasComputables?: number;
     }
