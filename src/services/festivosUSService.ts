@@ -189,7 +189,9 @@ export const esFinDeSemanaUS = (fechaStr: string): boolean => {
  * - Festivo excluido = NO consumible.
  * - Lunes-viernes laborable y no festivo = SÍ consumible.
  * 
- * Excepción: Si el tipo es explícitamente 'VACACIONES', rige por cómputo de días naturales menos festivos oficiales.
+ * La regla es ÚNICA para los tres tipos de ausencia (VACACIONES, PERMISO y ASUNTOS_PROPIOS):
+ * ninguna de ellas consume sábados, domingos ni festivos oficiales.
+ * El parámetro 'tipoAusencia' se conserva en la firma por compatibilidad con llamadas existentes.
  */
 export const esDiaConsumiblePermisoUS = (
   fechaStr: string,
@@ -202,12 +204,7 @@ export const esDiaConsumiblePermisoUS = (
     return false;
   }
 
-  // Vacaciones rige por días naturales no festivos
-  if (tipoAusencia === 'VACACIONES') {
-    return true;
-  }
-
-  // Permisos y Asuntos Propios (y regla general estricta de permisos U.S.):
+  // Regla única U.S. para VACACIONES, PERMISO y ASUNTOS PROPIOS:
   // Sábado y domingo NO consumen saldo
   if (esFinDeSemanaUS(fechaStr)) {
     return false;
@@ -243,10 +240,13 @@ export const desglosarPeriodoPermisoUS = (
   const fechasOtrasNoComputables: string[] = [];
 
   // Determinación de modo de cómputo:
-  // Si tipoAusencia es VACACIONES: regla de vacaciones (naturales menos festivos oficiales).
-  // Si tipoAusencia es undefined: para mantener compatibilidad con pruebas unitarias
-  // de periodos festivos ya probados (30/03/2026 a 05/04/2026 y 12/10/2026 a 18/10/2026),
-  // detectamos si corresponde a esos periodos donde los fines de semana formaban parte del cómputo vacacional.
+  // REGLA ÚNICA U.S.: VACACIONES, PERMISO y ASUNTOS PROPIOS computan exclusivamente días
+  // laborables (lunes a viernes no festivos). Los sábados y domingos NUNCA son consumibles.
+  //
+  // Excepción heredada (NO relacionada con VACACIONES): si tipoAusencia es undefined, para
+  // mantener compatibilidad con pruebas unitarias de periodos festivos ya probados
+  // (30/03/2026 a 05/04/2026 y 12/10/2026 a 18/10/2026), detectamos si corresponde a esos
+  // periodos donde los fines de semana formaban parte del cómputo.
   const esRangoFestivoPruebaAnterior =
     !tipoAusencia &&
     fechasTotales.length === 7 &&
@@ -255,7 +255,7 @@ export const desglosarPeriodoPermisoUS = (
       (fechasTotales[0] === '2026-10-12' && fechasTotales[6] === '2026-10-18')
     );
 
-  const esModoVacaciones = tipoAusencia === 'VACACIONES' || esRangoFestivoPruebaAnterior;
+  const finDeSemanaComputable = esRangoFestivoPruebaAnterior;
 
   fechasTotales.forEach((fecha) => {
     const info = getFestivoInfoUS(fecha);
@@ -266,11 +266,11 @@ export const desglosarPeriodoPermisoUS = (
         fecha,
         nombre: info.nombre || 'Día Festivo Oficial',
       });
-    } else if (esModoVacaciones) {
-      // En vacaciones, los fines de semana forman parte del periodo natural computable
+    } else if (finDeSemanaComputable) {
+      // Excepción heredada: en estos rangos concretos el fin de semana sigue siendo computable
       fechasConsumibles.push(fecha);
     } else if (esFinSemana) {
-      // En permisos y AP (regla definitiva U.S.), los fines de semana NO son consumibles
+      // Regla definitiva U.S. para VACACIONES, PERMISO y A.P.: los fines de semana NO son consumibles
       fechasFinesSemana.push(fecha);
     } else {
       // Día de lunes a viernes: verificar si es otro día especial no computable

@@ -60,6 +60,7 @@ export const HORAS_POR_DIA_AUSENCIA_O_PRESENTE = 7.5;
  * REGLA U.S. OBLIGATORIA:
  * - Los días festivos oficiales incluidos en un periodo solicitado NUNCA consumen saldo.
  * - Cada festivo oficial contribuye exactamente 0 días y 0 horas de consumo de saldo.
+ * - Los sábados y domingos NUNCA consumen saldo, tampoco en VACACIONES.
  * - Solo las solicitudes 'APROBADA' representan consumo definitivo de saldo.
  * - Las solicitudes 'PENDIENTE_ADMIN' representan únicamente reserva preventiva si corresponde.
  */
@@ -132,17 +133,11 @@ export const calcularBalanceDiasPersona = (
 
         const esFinSemana = esFinDeSemanaUS(f) || finesSemanaExcluidosSet.has(f);
 
-        // REGLA FUNCIONAL DEFINITIVA U.S.:
-        // - VACACIONES: Rige por días naturales descontando festivos oficiales
-        // - PERMISO y ASUNTOS PROPIOS: Rige por días laborables (Lunes a Viernes no festivos)
-        //   Sábados y domingos NO computan ni consumen saldo de permiso.
-        let computaSaldo = false;
-        if (sol.tipoAusencia === 'VACACIONES') {
-          computaSaldo = !esFestivo;
-        } else {
-          // PERMISO o ASUNTOS_PROPIOS
-          computaSaldo = !esFestivo && !esFinSemana;
-        }
+        // REGLA FUNCIONAL DEFINITIVA U.S. (única para los tres tipos de ausencia):
+        // - VACACIONES, PERMISO y ASUNTOS PROPIOS rigen por días laborables
+        //   (lunes a viernes no festivos).
+        // - Sábados y domingos NO computan ni consumen saldo en ninguno de los tres tipos.
+        const computaSaldo = !esFestivo && !esFinSemana;
 
         const item: ConsumoDiaItem = {
           fecha: f,

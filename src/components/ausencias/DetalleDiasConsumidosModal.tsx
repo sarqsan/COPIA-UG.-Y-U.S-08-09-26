@@ -377,9 +377,9 @@ export const DetalleDiasConsumidosModal: React.FC<DetalleDiasConsumidosModalProp
                           >
                             {item.esFestivo ? `FESTIVO: ${item.nombreFestivo || 'Festivo Oficial'}` : item.tipoLabel}
                           </span>
-                          {item.esFestivo && (
+                          {(item.esFestivo || item.esFinSemana) && (
                             <span className="text-[10px] text-purple-700 dark:text-purple-400 font-bold">
-                              (Excluido de cómputo)
+                              (Excluido de cómputo{item.esFinSemana && !item.esFestivo ? ': fin de semana' : ''})
                             </span>
                           )}
                         </div>
@@ -395,13 +395,23 @@ export const DetalleDiasConsumidosModal: React.FC<DetalleDiasConsumidosModalProp
                     <div className="flex items-center gap-3 self-end sm:self-auto shrink-0">
                       <span
                         className={`px-2 py-1 rounded-lg border text-xs font-mono font-bold ${
-                          item.esFestivo
+                          item.esFestivo || item.esFinSemana
                             ? 'bg-purple-50 dark:bg-purple-950/50 border-purple-200 dark:border-purple-800 text-purple-800 dark:text-purple-300'
                             : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
                         }`}
-                        title={item.esFestivo ? 'Día festivo oficial: No consume saldo de la bolsa' : 'Día laborable computable'}
+                        title={
+                          item.esFestivo
+                            ? 'Día festivo oficial: No consume saldo de la bolsa'
+                            : item.esFinSemana
+                            ? 'Sábado o domingo: No consume saldo de la bolsa'
+                            : 'Día laborable computable'
+                        }
                       >
-                        {item.esFestivo ? '0h (Festivo)' : `+${item.horasComputadas}h`}
+                        {item.esFestivo
+                          ? '0h (Festivo)'
+                          : item.esFinSemana
+                          ? '0h (Fin de semana)'
+                          : `+${item.horasComputadas}h`}
                       </span>
 
                       <span
