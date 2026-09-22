@@ -2,6 +2,8 @@ import * as XLSX from 'xlsx';
 import { CuadranteMaestro, Persona } from '../types';
 import { ServicioDiaUS } from '../types/usTypes';
 import { VisualExcelSheet, VisualExcelCell } from './excelCuadranteExport';
+import { calcularMetricasCuadranteUS } from './cuadranteUSMetricsService';
+import { clasificarDiaUS } from './cuadranteUSCalendarHelper';
 
 /**
  * Obtiene el código de estado de un efectivo en un día de servicio de la U.S.
@@ -16,9 +18,12 @@ export const getEstadoEnDiaUS = (servicio: ServicioDiaUS, personaId: string, per
       (a) => a.personaId === personaId || (pNombreNorm && (a as any).nombre?.trim().toUpperCase() === pNombreNorm)
     );
     if (aus) {
-      if (aus.tipo === 'V') return { codigo: 'V', horas: 7 };
-      if (aus.tipo === 'P') return { codigo: 'PER', horas: 7 };
-      if (aus.tipo === 'AP') return { codigo: 'AP', horas: 7 };
+      const infoDia = clasificarDiaUS(servicio.fecha);
+      const esLaborable = infoDia.esLaborable;
+      const horasAusencia = esLaborable ? 7.5 : 0;
+      if (aus.tipo === 'V') return { codigo: 'V', horas: horasAusencia };
+      if (aus.tipo === 'P' || (aus.tipo as string) === 'PER') return { codigo: 'PER', horas: horasAusencia };
+      if (aus.tipo === 'AP') return { codigo: 'AP', horas: horasAusencia };
       if (aus.tipo === 'BAJA_MEDICA' || (aus as any).tipo === 'BAJA' || (aus as any).tipo === 'B') {
         return { codigo: 'B', horas: 0 };
       }
@@ -105,7 +110,7 @@ export const getEstadoEnDiaUS = (servicio: ServicioDiaUS, personaId: string, per
     (pr) => pr.personaIdReal === personaId || (pr as any).personaId === personaId || (pNombreNorm && (pr as any).nombre?.trim().toUpperCase() === pNombreNorm)
   );
   if (esPresente) {
-    return { codigo: 'PR', horas: 7 };
+    return { codigo: 'PR', horas: 7.5 };
   }
 
   // 6. Descanso / Libre
@@ -116,55 +121,35 @@ export const getEstadoEnDiaUS = (servicio: ServicioDiaUS, personaId: string, per
  * Calcula métricas acumuladas de una persona en los servicios de la U.S.
  */
 export const calcularMetricasPersonaUS = (p: Persona, serviciosUS: ServicioDiaUS[]) => {
-  let d = 0;
-  let n = 0;
-  let fs = 0;
-  let imag = 0;
-  let pr = 0;
-  let v = 0;
-  let per = 0;
-  let ap = 0;
-  let horasTot = 0;
-
-  (serviciosUS || []).forEach((s) => {
-    const est = getEstadoEnDiaUS(s, p.id, p.nombre);
-    if (est.codigo === 'D') {
-      d++;
-      horasTot += 12;
-      if (s.esFinDeSemana) fs++;
-    } else if (est.codigo === 'N') {
-      n++;
-      const h = s.esNocturnoProlongado ? 12.75 : 12;
-      horasTot += h;
-      if (s.esFinDeSemana) fs++;
-    } else if (est.codigo === 'I') {
-      imag++;
-    } else if (est.codigo === 'PR') {
-      pr++;
-      horasTot += 7;
-    } else if (est.codigo === 'V') {
-      v++;
-      horasTot += 7;
-    } else if (est.codigo === 'PER') {
-      per++;
-      horasTot += 7;
-    } else if (est.codigo === 'AP') {
-      ap++;
-      horasTot += 7;
-    }
-  });
+  const metricas = calcularMetricasCuadranteUS(serviciosUS || [], [p]);
+  const met = metricas.detallePorPersona[p.id];
+  if (met) {
+    return {
+      totalServicios: met.totalServicios,
+      totalDiurnos: met.totalDiurnos,
+      totalNocturnos: met.totalNocturnos,
+      totalFinDeSemana: met.totalFinDeSemana,
+      totalImaginarias: met.totalImaginarias,
+      totalPresentes: met.totalPresentes,
+      diasVacaciones: met.diasVacaciones,
+      diasPermiso: met.diasPermiso,
+      diasAsuntosPropios: met.diasAsuntosPropios,
+      totalHorasComputables: met.totalHorasComputables,
+      horasMaximasAsignables: met.horasMaximasAsignables,
+    };
+  }
 
   return {
-    totalServicios: d + n,
-    totalDiurnos: d,
-    totalNocturnos: n,
-    totalFinDeSemana: fs,
-    totalImaginarias: imag,
-    totalPresentes: pr,
-    diasVacaciones: v,
-    diasPermiso: per,
-    diasAsuntosPropios: ap,
-    totalHorasComputables: horasTot,
+    totalServicios: 0,
+    totalDiurnos: 0,
+    totalNocturnos: 0,
+    totalFinDeSemana: 0,
+    totalImaginarias: 0,
+    totalPresentes: 0,
+    diasVacaciones: 0,
+    diasPermiso: 0,
+    diasAsuntosPropios: 0,
+    totalHorasComputables: 0,
     horasMaximasAsignables: 160,
   };
 };
@@ -203,10 +188,10 @@ export const generarWorkbookCuadranteUS = (
     row['Nocturnos (12h/12.75h)'] = met.totalNocturnos;
     row['Fines de Semana'] = met.totalFinDeSemana;
     row['Imaginarias'] = met.totalImaginarias;
-    row['Presentes (7h)'] = met.totalPresentes;
-    row['Vacaciones (7h)'] = met.diasVacaciones;
-    row['Permisos (7h)'] = met.diasPermiso;
-    row['Asuntos Propios (7h)'] = met.diasAsuntosPropios;
+    row['Presentes (7.5h)'] = met.totalPresentes;
+    row['Vacaciones (7.5h)'] = met.diasVacaciones;
+    row['Permisos (7.5h)'] = met.diasPermiso;
+    row['Asuntos Propios (7.5h)'] = met.diasAsuntosPropios;
     row['Horas Computables'] = met.totalHorasComputables;
     row['Horas Máximas'] = met.horasMaximasAsignables;
 

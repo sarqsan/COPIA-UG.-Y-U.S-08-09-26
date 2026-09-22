@@ -2,6 +2,7 @@ import { useState, useMemo, FC } from 'react';
 import { ServicioDiaUS, MetricasCuadranteUS, MetricasIndividualesUS } from '../../types/usTypes';
 import { Persona, CuadranteMaestro } from '../../types';
 import { calcularMetricasCuadranteUS } from '../../services/cuadranteUSMetricsService';
+import { clasificarDiaUS } from '../../services/cuadranteUSCalendarHelper';
 import {
   Calendar,
   Search,
@@ -119,31 +120,34 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
       (a) => a.personaId === personaId || (pNombreNorm && (a as any).personaNombre?.trim().toUpperCase() === pNombreNorm)
     );
     if (aus) {
+      const infoDia = clasificarDiaUS(servicio.fecha);
+      const esLaborable = infoDia.esLaborable;
+      const horasAusencia = esLaborable ? 7.5 : 0;
       if (aus.tipo === 'V') {
         return {
           codigo: 'V',
           label: 'Vacaciones',
-          horas: 7,
+          horas: horasAusencia,
           badgeClass: 'bg-cyan-500 text-white font-bold',
-          tooltip: 'Vacaciones (7h)',
+          tooltip: esLaborable ? 'Vacaciones (7.5h)' : 'Vacaciones (0h - Fin de semana/Festivo)',
         };
       }
-      if (aus.tipo === 'P') {
+      if (aus.tipo === 'P' || (aus.tipo as string) === 'PER') {
         return {
           codigo: 'PER',
           label: 'Permiso',
-          horas: 7,
+          horas: horasAusencia,
           badgeClass: 'bg-rose-500 text-white font-bold',
-          tooltip: 'Permiso Oficial (7h)',
+          tooltip: esLaborable ? 'Permiso Oficial (7.5h)' : 'Permiso Oficial (0h - Fin de semana/Festivo)',
         };
       }
       if (aus.tipo === 'AP') {
         return {
           codigo: 'AP',
           label: 'Asuntos Propios',
-          horas: 7,
+          horas: horasAusencia,
           badgeClass: 'bg-teal-600 text-white font-bold',
-          tooltip: 'Asuntos Propios (7h)',
+          tooltip: esLaborable ? 'Asuntos Propios (7.5h)' : 'Asuntos Propios (0h - Fin de semana/Festivo)',
         };
       }
       if (aus.tipo === 'BAJA_MEDICA' || (aus as any).tipo === 'BAJA' || (aus as any).tipo === 'B') {
@@ -303,9 +307,9 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
       return {
         codigo: 'PR',
         label: 'Presente',
-        horas: 7,
+        horas: 7.5,
         badgeClass: 'bg-emerald-600 text-white font-bold',
-        tooltip: 'Jornada de Presente (7h)',
+        tooltip: 'Jornada de Presente (7.5h)',
       };
     }
 
@@ -319,17 +323,34 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
     };
   };
 
-  // Métricas calculadas reactivas en tiempo real
-  const metricasCalculadas = useMemo(() => {
+  // Métricas globales para todo el periodo (usadas cuando selectedMesKey === 'TODOS')
+  const metricasGlobales = useMemo(() => {
+    const ajuste = (cuadrante as any)?.configuracionUS?.ajusteHoras ?? (cuadrante as any)?.ajusteHoras ?? 14;
+    return (
+      metricasUS ||
+      calcularMetricasCuadranteUS(
+        serviciosUS || [],
+        personasUS || [],
+        ajuste
+      )
+    );
+  }, [metricasUS, serviciosUS, personasUS, (cuadrante as any)?.configuracionUS?.ajusteHoras, (cuadrante as any)?.ajusteHoras]);
+
+  // Métricas calculadas para el mes seleccionado
+  const metricasMesSeleccionado = useMemo(() => {
+    if (selectedMesKey === 'TODOS') return null;
     const ajuste = (cuadrante as any)?.configuracionUS?.ajusteHoras ?? (cuadrante as any)?.ajusteHoras ?? 14;
     return calcularMetricasCuadranteUS(
-      serviciosUS || [],
+      serviciosFiltradosPorMes || [],
       personasUS || [],
       ajuste
     );
-  }, [serviciosUS, personasUS, (cuadrante as any)?.configuracionUS?.ajusteHoras, (cuadrante as any)?.ajusteHoras]);
+  }, [selectedMesKey, serviciosFiltradosPorMes, personasUS, (cuadrante as any)?.configuracionUS?.ajusteHoras, (cuadrante as any)?.ajusteHoras]);
 
-  const metricasFinales = metricasUS || metricasCalculadas;
+  // FILTRO MENSUAL CRÍTICO:
+  // Cuando selectedMesKey !== 'TODOS', las métricas se obtienen EXCLUSIVAMENTE de los servicios del mes seleccionado.
+  // Cuando selectedMesKey === 'TODOS', se utiliza el acumulado global del periodo completo.
+  const metricasFinales = selectedMesKey === 'TODOS' ? metricasGlobales : metricasMesSeleccionado;
 
   // Función para obtener las métricas de una persona específica con cálculo en vivo si hace falta
   const getMetricasPersona = (p: Persona): MetricasIndividualesUS => {
@@ -337,80 +358,18 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
     if (!m) {
       const pNorm = p.nombre.trim().toUpperCase();
       const matchKey = Object.keys(metricasFinales?.detallePorPersona || {}).find(
-        (k) => metricasFinales.detallePorPersona[k]?.nombre?.trim().toUpperCase() === pNorm
+        (k) => metricasFinales?.detallePorPersona[k]?.nombre?.trim().toUpperCase() === pNorm
       );
       if (matchKey) {
-        m = metricasFinales.detallePorPersona[matchKey];
+        m = metricasFinales?.detallePorPersona[matchKey];
       }
     }
 
     if (!m) {
-      let d = 0;
-      let n = 0;
-      let fs = 0;
-      let imag = 0;
-      let pr = 0;
-      let v = 0;
-      let per = 0;
-      let ap = 0;
-      let horasTot = 0;
-
-      (serviciosUS || []).forEach((s) => {
-        const est = getEstadoEnDia(s, p.id);
-        if (est.codigo === 'D') {
-          d++;
-          horasTot += 12;
-          if (s.esFinDeSemana) fs++;
-        } else if (est.codigo === 'N') {
-          n++;
-          const h = s.esNocturnoProlongado ? 12.75 : 12;
-          horasTot += h;
-          if (s.esFinDeSemana) fs++;
-        } else if (est.codigo === 'I') {
-          imag++;
-        } else if (est.codigo === 'PR') {
-          pr++;
-          horasTot += 7;
-        } else if (est.codigo === 'V') {
-          v++;
-          horasTot += 7;
-        } else if (est.codigo === 'PER') {
-          per++;
-          horasTot += 7;
-        } else if (est.codigo === 'AP') {
-          ap++;
-          horasTot += 7;
-        }
-      });
-
-      m = {
-        personaId: p.id,
-        nombre: p.nombre,
-        empleo: p.empleo,
-        grupo: p.grupo,
-        totalServicios: d + n,
-        totalDiurnos: d,
-        totalNocturnos: n,
-        totalNocturnosProlongados: 0,
-        serviciosSabado: 0,
-        serviciosDomingo: 0,
-        totalFinDeSemana: fs,
-        totalImaginarias: imag,
-        totalPresentes: pr,
-        diasVacaciones: v,
-        diasPermiso: per,
-        diasAsuntosPropios: ap,
-        horasServicios: (d * 12) + (n * 12),
-        horasPresentes: pr * 7,
-        horasVacaciones: v * 7,
-        horasPermiso: per * 7,
-        horasAsuntosPropios: ap * 7,
-        totalHorasComputables: horasTot,
-        horasMaximasAsignables: metricasCalculadas?.horasMaximasReferencia || 160,
-        diferenciaHorasRespectoMaximo: 0,
-        descansoMedioDias: 0,
-        descansoMinimoDias: 0,
-      };
+      const ajuste = (cuadrante as any)?.configuracionUS?.ajusteHoras ?? (cuadrante as any)?.ajusteHoras ?? 14;
+      const serviciosContexto = selectedMesKey === 'TODOS' ? (serviciosUS || []) : (serviciosFiltradosPorMes || []);
+      const res = calcularMetricasCuadranteUS(serviciosContexto, [p], ajuste);
+      m = res.detallePorPersona[p.id];
     }
     return m;
   };
@@ -418,6 +377,7 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
   // Exportar a Excel
   const handleExportExcel = () => {
     const rows: any[] = [];
+    const serviciosAExportar = selectedMesKey === 'TODOS' ? serviciosUS : serviciosFiltradosPorMes;
 
     personasUS.forEach((p) => {
       const row: Record<string, any> = {
@@ -426,7 +386,7 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
         DNI: p.dni,
       };
 
-      serviciosUS.forEach((s) => {
+      serviciosAExportar.forEach((s) => {
         const est = getEstadoEnDia(s, p.id);
         row[s.fecha] = est.codigo;
       });
@@ -438,10 +398,10 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
         row['Nocturnos (12h/12.75h)'] = met.totalNocturnos;
         row['Fines de Semana'] = met.totalFinDeSemana;
         row['Imaginarias'] = met.totalImaginarias;
-        row['Presentes (7h)'] = met.totalPresentes;
-        row['Vacaciones (7h)'] = met.diasVacaciones;
-        row['Permisos (7h)'] = met.diasPermiso;
-        row['Asuntos Propios (7h)'] = met.diasAsuntosPropios;
+        row['Presentes (7.5h)'] = met.totalPresentes;
+        row['Vacaciones (7.5h)'] = met.diasVacaciones;
+        row['Permisos (7.5h)'] = met.diasPermiso;
+        row['Asuntos Propios (7.5h)'] = met.diasAsuntosPropios;
         row['Horas Computables'] = met.totalHorasComputables;
         row['Horas Máximas'] = met.horasMaximasAsignables;
       }
@@ -451,8 +411,9 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
 
     const worksheet = XLSX.utils.json_to_sheet(rows);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Cuadrante U.S.');
-    XLSX.writeFile(workbook, `${cuadrante.nombre.replace(/\s+/g, '_')}_US_Matriz.xlsx`);
+    const tituloSheet = selectedMesKey === 'TODOS' ? 'Cuadrante U.S. Completo' : `Cuadrante U.S. ${selectedMesKey}`;
+    XLSX.utils.book_append_sheet(workbook, worksheet, tituloSheet);
+    XLSX.writeFile(workbook, `${cuadrante.nombre.replace(/\s+/g, '_')}_US_${selectedMesKey}.xlsx`);
   };
 
   return (

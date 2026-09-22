@@ -134,7 +134,7 @@ export const CuadranteUSMetricasPanel: FC<CuadranteUSMetricasPanelProps> = ({
       <div className="p-3.5 bg-blue-50/60 dark:bg-blue-950/30 rounded-2xl border border-blue-200/60 dark:border-blue-900/40 text-xs flex items-start gap-2.5">
         <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
         <div className="text-slate-700 dark:text-slate-300 leading-relaxed">
-          <strong>Cómputo Horario Oficial U.S.:</strong> Horas Máximas = ({totalDiasLaborables} días laborables × 7) − {ajusteHorasAplicado}h ajuste = <strong>{horasMaximasReferencia} horas</strong>. Cada Turno Diurno computa <strong>12h</strong>, cada Turno Nocturno computa <strong>12h</strong> (o <strong>12.75h</strong> si el día posterior es laborable), los Presentes computan <strong>7h</strong>, y los días de Vacaciones (V), Permiso (PER) o Asuntos Propios (AP) computan <strong>7h</strong>.
+          <strong>Cómputo Horario Oficial U.S.:</strong> Horas Máximas = ({totalDiasLaborables} días laborables × 7.5) − {ajusteHorasAplicado}h ajuste = <strong>{horasMaximasReferencia} horas</strong>. Cada Turno Diurno computa <strong>12h</strong>, cada Turno Nocturno computa <strong>12h</strong> (o <strong>12.75h</strong> si el día posterior es laborable), los Presentes computan <strong>7.5h</strong>, y los días laborables de Vacaciones (V), Permiso (PER) o Asuntos Propios (AP) computan <strong>7.5h</strong> (0h en fin de semana o festivo).
         </div>
       </div>
 
@@ -159,7 +159,7 @@ export const CuadranteUSMetricasPanel: FC<CuadranteUSMetricasPanelProps> = ({
                 <th className="p-3 text-center">Fines Sem.</th>
                 <th className="p-3 text-center">Total Serv.</th>
                 <th className="p-3 text-center">Imaginarias</th>
-                <th className="p-3 text-center">Presentes (7h)</th>
+                <th className="p-3 text-center">Presentes (7.5h)</th>
                 <th className="p-3 text-center">Ausencias (V/P/AP)</th>
                 <th className="p-3 text-center font-black">Horas Serv.</th>
                 <th className="p-3 text-center font-black text-emerald-700 dark:text-emerald-400">

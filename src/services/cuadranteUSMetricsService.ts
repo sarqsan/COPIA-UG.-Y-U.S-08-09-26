@@ -81,35 +81,51 @@ export const calcularMetricasCuadranteUS = (
   servicios.forEach((s, diaIdx) => {
     const infoDia = clasificarDiaUS(s.fecha);
 
+    // Conjunto de personas con ausencia computable (en día laborable) en este día.
+    // Regla de exclusión mutua: si existe ausencia computable para esa persona en día laborable,
+    // ese día computa únicamente 7,5h por la ausencia y no suma horas de servicio ni de presencia.
+    const personasConAusenciaLaborableHoy = new Set<string>();
+    if (infoDia.esLaborable) {
+      (s.ausencias || []).forEach((aus) => {
+        const pId = resolvePersonaId(aus.personaId, (aus as any).personaNombre || (aus as any).nombre);
+        if (pId && (aus.tipo === 'V' || aus.tipo === 'P' || (aus.tipo as string) === 'PER' || aus.tipo === 'AP')) {
+          personasConAusenciaLaborableHoy.add(pId);
+        }
+      });
+    }
+
     // 1. DIURNO (2 efectivos)
     s.diurno.titulares.forEach((t) => {
       const pId = resolvePersonaId(t.personaIdReal || (t as any).personaId, (t as any).nombre);
       if (pId && detallePorPersona[pId]) {
-        detallePorPersona[pId].totalServicios += 1;
-        detallePorPersona[pId].totalDiurnos += 1;
-        detallePorPersona[pId].horasServicios += 12;
+        // Exclusión mutua: si la persona tiene una ausencia computable este día, no suma servicio
+        if (!personasConAusenciaLaborableHoy.has(pId)) {
+          detallePorPersona[pId].totalServicios += 1;
+          detallePorPersona[pId].totalDiurnos += 1;
+          detallePorPersona[pId].horasServicios += 12;
 
-        if (infoDia.esSabado) {
-          detallePorPersona[pId].serviciosSabado += 1;
-          detallePorPersona[pId].totalFinDeSemana += 1;
-        } else if (infoDia.esDomingo) {
-          detallePorPersona[pId].serviciosDomingo += 1;
-          detallePorPersona[pId].totalFinDeSemana += 1;
-        }
+          if (infoDia.esSabado) {
+            detallePorPersona[pId].serviciosSabado += 1;
+            detallePorPersona[pId].totalFinDeSemana += 1;
+          } else if (infoDia.esDomingo) {
+            detallePorPersona[pId].serviciosDomingo += 1;
+            detallePorPersona[pId].totalFinDeSemana += 1;
+          }
 
-        if (infoDia.esFestivo) {
-          detallePorPersona[pId].serviciosFestivo = (detallePorPersona[pId].serviciosFestivo || 0) + 1;
-        }
-        if (infoDia.esDiaEspecial) {
-          detallePorPersona[pId].serviciosDiaEspecial = (detallePorPersona[pId].serviciosDiaEspecial || 0) + 1;
-          detallePorPersona[pId].puntosEspeciales = (detallePorPersona[pId].puntosEspeciales || 0) + infoDia.puntosEspeciales;
-        }
-        if (infoDia.esLaborable) {
-          detallePorPersona[pId].serviciosLaborables = (detallePorPersona[pId].serviciosLaborables || 0) + 1;
-        }
+          if (infoDia.esFestivo) {
+            detallePorPersona[pId].serviciosFestivo = (detallePorPersona[pId].serviciosFestivo || 0) + 1;
+          }
+          if (infoDia.esDiaEspecial) {
+            detallePorPersona[pId].serviciosDiaEspecial = (detallePorPersona[pId].serviciosDiaEspecial || 0) + 1;
+            detallePorPersona[pId].puntosEspeciales = (detallePorPersona[pId].puntosEspeciales || 0) + infoDia.puntosEspeciales;
+          }
+          if (infoDia.esLaborable) {
+            detallePorPersona[pId].serviciosLaborables = (detallePorPersona[pId].serviciosLaborables || 0) + 1;
+          }
 
-        if (!diasConServicioPorPersona[pId]) diasConServicioPorPersona[pId] = [];
-        diasConServicioPorPersona[pId].push(diaIdx);
+          if (!diasConServicioPorPersona[pId]) diasConServicioPorPersona[pId] = [];
+          diasConServicioPorPersona[pId].push(diaIdx);
+        }
       }
     });
 
@@ -117,36 +133,39 @@ export const calcularMetricasCuadranteUS = (
     s.nocturno.titulares.forEach((t) => {
       const pId = resolvePersonaId(t.personaIdReal || (t as any).personaId, (t as any).nombre);
       if (pId && detallePorPersona[pId]) {
-        detallePorPersona[pId].totalServicios += 1;
-        detallePorPersona[pId].totalNocturnos += 1;
+        // Exclusión mutua: si la persona tiene una ausencia computable este día, no suma servicio
+        if (!personasConAusenciaLaborableHoy.has(pId)) {
+          detallePorPersona[pId].totalServicios += 1;
+          detallePorPersona[pId].totalNocturnos += 1;
 
-        const horasNocturno = s.esNocturnoProlongado ? 12.75 : 12.0;
-        if (s.esNocturnoProlongado) {
-          detallePorPersona[pId].totalNocturnosProlongados += 1;
-        }
-        detallePorPersona[pId].horasServicios += horasNocturno;
+          const horasNocturno = s.esNocturnoProlongado ? 12.75 : 12.0;
+          if (s.esNocturnoProlongado) {
+            detallePorPersona[pId].totalNocturnosProlongados += 1;
+          }
+          detallePorPersona[pId].horasServicios += horasNocturno;
 
-        if (infoDia.esSabado) {
-          detallePorPersona[pId].serviciosSabado += 1;
-          detallePorPersona[pId].totalFinDeSemana += 1;
-        } else if (infoDia.esDomingo) {
-          detallePorPersona[pId].serviciosDomingo += 1;
-          detallePorPersona[pId].totalFinDeSemana += 1;
-        }
+          if (infoDia.esSabado) {
+            detallePorPersona[pId].serviciosSabado += 1;
+            detallePorPersona[pId].totalFinDeSemana += 1;
+          } else if (infoDia.esDomingo) {
+            detallePorPersona[pId].serviciosDomingo += 1;
+            detallePorPersona[pId].totalFinDeSemana += 1;
+          }
 
-        if (infoDia.esFestivo) {
-          detallePorPersona[pId].serviciosFestivo = (detallePorPersona[pId].serviciosFestivo || 0) + 1;
-        }
-        if (infoDia.esDiaEspecial) {
-          detallePorPersona[pId].serviciosDiaEspecial = (detallePorPersona[pId].serviciosDiaEspecial || 0) + 1;
-          detallePorPersona[pId].puntosEspeciales = (detallePorPersona[pId].puntosEspeciales || 0) + infoDia.puntosEspeciales;
-        }
-        if (infoDia.esLaborable) {
-          detallePorPersona[pId].serviciosLaborables = (detallePorPersona[pId].serviciosLaborables || 0) + 1;
-        }
+          if (infoDia.esFestivo) {
+            detallePorPersona[pId].serviciosFestivo = (detallePorPersona[pId].serviciosFestivo || 0) + 1;
+          }
+          if (infoDia.esDiaEspecial) {
+            detallePorPersona[pId].serviciosDiaEspecial = (detallePorPersona[pId].serviciosDiaEspecial || 0) + 1;
+            detallePorPersona[pId].puntosEspeciales = (detallePorPersona[pId].puntosEspeciales || 0) + infoDia.puntosEspeciales;
+          }
+          if (infoDia.esLaborable) {
+            detallePorPersona[pId].serviciosLaborables = (detallePorPersona[pId].serviciosLaborables || 0) + 1;
+          }
 
-        if (!diasConServicioPorPersona[pId]) diasConServicioPorPersona[pId] = [];
-        diasConServicioPorPersona[pId].push(diaIdx);
+          if (!diasConServicioPorPersona[pId]) diasConServicioPorPersona[pId] = [];
+          diasConServicioPorPersona[pId].push(diaIdx);
+        }
       }
     });
 
@@ -154,7 +173,9 @@ export const calcularMetricasCuadranteUS = (
     if (s.imaginaria && (s.imaginaria.personaIdReal || (s.imaginaria as any).personaId)) {
       const pId = resolvePersonaId(s.imaginaria.personaIdReal || (s.imaginaria as any).personaId, (s.imaginaria as any).nombre);
       if (pId && detallePorPersona[pId]) {
-        detallePorPersona[pId].totalImaginarias += 1;
+        if (!personasConAusenciaLaborableHoy.has(pId)) {
+          detallePorPersona[pId].totalImaginarias += 1;
+        }
       }
     }
 
@@ -162,22 +183,27 @@ export const calcularMetricasCuadranteUS = (
     (s.presentes || []).forEach((pr) => {
       const pId = resolvePersonaId(pr.personaIdReal || (pr as any).personaId, (pr as any).nombre);
       if (pId && detallePorPersona[pId]) {
-        detallePorPersona[pId].totalPresentes += 1;
-        detallePorPersona[pId].horasPresentes += 7.5;
+        // Exclusión mutua: si la persona tiene una ausencia computable este día, no suma presencia
+        if (!personasConAusenciaLaborableHoy.has(pId)) {
+          detallePorPersona[pId].totalPresentes += 1;
+          detallePorPersona[pId].horasPresentes += 7.5;
+        }
       }
     });
 
-    // 5. AUSENCIAS (V, P, AP - 7.5h cada una, excluyendo festivos oficiales)
+    // 5. AUSENCIAS (V, P, AP - 7.5h cada una en días laborables; 0h sábados, domingos y festivos)
+    const ausenciasProcesadasHoy = new Set<string>();
     (s.ausencias || []).forEach((aus) => {
       const pId = resolvePersonaId(aus.personaId, (aus as any).personaNombre || (aus as any).nombre);
-      if (pId && detallePorPersona[pId]) {
-        // En U.S., los festivos oficiales NO se contabilizan como días de permiso disfrutado ni descuentan saldo
-        const infoDia = clasificarDiaUS(s.fecha);
-        if (!infoDia.esFestivo) {
+      if (pId && detallePorPersona[pId] && !ausenciasProcesadasHoy.has(pId)) {
+        ausenciasProcesadasHoy.add(pId);
+        // Regla funcional: únicamente cada DÍA LABORABLE (lunes a viernes no festivos) computa 7,5 horas.
+        // Sábados, domingos y festivos oficiales computan 0 horas.
+        if (infoDia.esLaborable) {
           if (aus.tipo === 'V') {
             detallePorPersona[pId].diasVacaciones += 1;
             detallePorPersona[pId].horasVacaciones += 7.5;
-          } else if (aus.tipo === 'P') {
+          } else if (aus.tipo === 'P' || (aus.tipo as string) === 'PER') {
             detallePorPersona[pId].diasPermiso += 1;
             detallePorPersona[pId].horasPermiso += 7.5;
           } else if (aus.tipo === 'AP') {
