@@ -95,14 +95,103 @@ export const generarSimulacionCuadranteUS = (params: {
   const cuadranteId = `cuadrante-us-${Date.now()}`;
   const totalDias = fechas.length;
 
-  // Mapa de ausencias por día (V, P, AP)
-  const ausenciasPorDia: Record<string, AusenciaDiaUS[]> = mapaAusenciasPrecalculadas || {};
+  // Normalizador robusto de cadenas para comparar identificadores y nombres
+  const limpiarTexto = (t?: string): string => {
+    if (!t) return '';
+    return t
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, ' ')
+      .trim()
+      .replace(/\s+/g, ' ');
+  };
+
+  const resolvePersonaPlantilla = (rawId?: string, rawNombre?: string): Persona | null => {
+    if (rawId) {
+      const matchId = plantillaUS.find((p) => p.id === rawId);
+      if (matchId) return matchId;
+    }
+    const nBuscado = limpiarTexto(rawNombre);
+    if (!nBuscado) return null;
+
+    // 1. Coincidencia exacta de nombre limpio
+    const matchExacto = plantillaUS.find((p) => limpiarTexto(p.nombre) === nBuscado);
+    if (matchExacto) return matchExacto;
+
+    // 2. Coincidencia si el nombre de la plantilla contiene el buscado o viceversa
+    const matchContiene = plantillaUS.find((p) => {
+      const nP = limpiarTexto(p.nombre);
+      return nP.includes(nBuscado) || nBuscado.includes(nP);
+    });
+    if (matchContiene) return matchContiene;
+
+    // 3. Coincidencia por palabras/apellidos individuales (ej. "SOLIVELLA")
+    const palabrasBuscadas = nBuscado.split(' ').filter((w) => w.length >= 3);
+    for (const p of plantillaUS) {
+      const nP = limpiarTexto(p.nombre);
+      for (const w of palabrasBuscadas) {
+        if (nP.includes(w)) return p;
+      }
+    }
+
+    return null;
+  };
+
+  // Normalizar el mapa de ausencias vinculando inequívocamente cada ausencia al ID exacto en plantillaUS
+  const ausenciasPorDia: Record<string, AusenciaDiaUS[]> = {};
+  const rawMapa = mapaAusenciasPrecalculadas || {};
+
+  fechas.forEach((fecha) => {
+    const lista = rawMapa[fecha] || [];
+    ausenciasPorDia[fecha] = lista.map((aus) => {
+      const pMatch = resolvePersonaPlantilla(aus.personaId, (aus as any).personaNombre || (aus as any).nombre);
+      return {
+        ...aus,
+        personaId: pMatch ? pMatch.id : aus.personaId,
+        personaNombre: pMatch ? pMatch.nombre : (aus as any).personaNombre || (aus as any).nombre,
+      };
+    });
+  });
+
+  // Cómputo normativo de días laborables y tope máximo de horas de referencia
+  const totalDiasLaborables = fechas.filter(esFechaLaborable).length;
+  const horasMaximasReferencia = Math.max(0, totalDiasLaborables * 7.5 - ajusteHoras);
+
+  // Pre-computar horas por ausencias concedidas en días laborables del mes
+  // (7,5h por cada día laborable; 0h en fines de semana y festivos oficiales)
+  const horasAusenciasPorPersona: Record<string, number> = {};
+  plantillaUS.forEach((p) => {
+    horasAusenciasPorPersona[p.id] = 0;
+  });
+
+  fechas.forEach((fecha) => {
+    const infoDia = clasificarDiaUS(fecha);
+    const esRealmenteLaborable = infoDia.esLaborable && !infoDia.esFestivo && !infoDia.esFinDeSemana;
+    if (!esRealmenteLaborable) return;
+
+    const ausenciasHoy = ausenciasPorDia[fecha] || [];
+    const ausenciasProcesadasHoy = new Set<string>();
+
+    ausenciasHoy.forEach((aus) => {
+      const pId = aus.personaId;
+      if (pId && !ausenciasProcesadasHoy.has(pId)) {
+        ausenciasProcesadasHoy.add(pId);
+        if (aus.tipo === 'V' || aus.tipo === 'P' || (aus.tipo as string) === 'PER' || aus.tipo === 'AP') {
+          if (horasAusenciasPorPersona[pId] !== undefined) {
+            horasAusenciasPorPersona[pId] += 7.5;
+          }
+        }
+      }
+    });
+  });
 
   // Estado de seguimiento por persona para balanceo inteligente y equidad
   const tracks: Record<string, PersonaTrackUS> = {};
   plantillaUS.forEach((p) => {
     const contP = estadoContinuidadMesAnterior?.diasDesdeUltimoServicioOriginal?.[p.id];
     const acumP = estadoContinuidadMesAnterior?.totalesAcumulados?.[p.id];
+    const horasAusMes = horasAusenciasPorPersona[p.id] || 0;
     tracks[p.id] = {
       persona: p,
       serviciosMesActual: 0,
@@ -119,7 +208,10 @@ export const generarSimulacionCuadranteUS = (params: {
       laborables: 0,
       imaginarias: acumP?.imaginarias || 0,
       presentes: 0,
-      horasComputables: acumP?.horasComputables || 0,
+      horasComputables: (acumP?.horasComputables || 0) + horasAusMes,
+      horasComputablesMesActual: horasAusMes,
+      horasAusenciasMes: horasAusMes,
+      horasMaximasReferencia,
       ultimoServicioDiaIdx: contP ? -contP.dias : -99,
       ultimoTipoServicio: contP ? contP.tipo : null,
       ultimosFinesSemanaTrabajados: [],
@@ -190,7 +282,7 @@ export const generarSimulacionCuadranteUS = (params: {
     for (const origId of nocturnosOriginales) {
       if (idsEnAusenciaHoy.has(origId)) {
         // Buscar sustituto equitativo para cubrir la ausencia en Nocturno
-        const candidatosSustitutos = plantillaUS.filter((p) => {
+        const candidatosSustitutosBase = plantillaUS.filter((p) => {
           if (idsEnAusenciaHoy.has(p.id)) return false;
           if (idsOcupadosHoy.has(p.id)) return false;
           if (salientesHoy.includes(p.id)) return false;
@@ -200,9 +292,18 @@ export const generarSimulacionCuadranteUS = (params: {
           return true;
         });
 
+        // Priorizar sustitutos que no excedan las horas máximas al sumar este turno nocturno
+        const sustitutosConHoras = candidatosSustitutosBase.filter(
+          (p) => tracks[p.id].horasComputablesMesActual + horasNocturno <= tracks[p.id].horasMaximasReferencia
+        );
+        const candidatosSustitutos = sustitutosConHoras.length > 0 ? sustitutosConHoras : candidatosSustitutosBase;
+
         candidatosSustitutos.sort((a, b) => {
           const tA = tracks[a.id];
           const tB = tracks[b.id];
+          if (tA.horasComputablesMesActual !== tB.horasComputablesMesActual) {
+            return tA.horasComputablesMesActual - tB.horasComputablesMesActual;
+          }
           if (tA.totalServicios !== tB.totalServicios) return tA.totalServicios - tB.totalServicios;
           if (tA.nocturnos !== tB.nocturnos) return tA.nocturnos - tB.nocturnos;
           return (tA.persona.ordenRotacion ?? 99) - (tB.persona.ordenRotacion ?? 99);
@@ -225,6 +326,7 @@ export const generarSimulacionCuadranteUS = (params: {
         t.nocturnosMesActual++;
         t.totalServicios++;
         t.nocturnos++;
+        t.horasComputablesMesActual += horasNocturno;
         t.horasComputables += horasNocturno;
         t.ultimoServicioDiaIdx = diaIdx;
         t.ultimoTipoServicio = 'NOCTURNO';
@@ -253,10 +355,15 @@ export const generarSimulacionCuadranteUS = (params: {
 
     // 2.2 ASIGNAR DIURNOS HOY (Selección de candidatos mediante función de coste de equidad)
     const ocupadosParaDiurno = new Set([...nocturnosReales, ...salientesHoy]);
+    const horasCicloHoy = 12.0 + (infoManana?.esNocturnoProlongado ? 12.75 : 12.0);
 
-    const candidatosDiurno = plantillaUS.filter((p) => {
+    const candidatosDiurnoBase = plantillaUS.filter((p) => {
       if (idsEnAusenciaHoy.has(p.id)) return false;
       if (ocupadosParaDiurno.has(p.id)) return false;
+      // No iniciar Diurno hoy si mañana tiene ausencia concedida (no podría completar D -> N)
+      if (fechaManana && (ausenciasPorDia[fechaManana] || []).some((aus) => aus.personaId === p.id)) {
+        return false;
+      }
       const t = tracks[p.id];
       // Descanso estricto post-nocturno: Saliente + mínimo 1 día libre completo (mínimo 3 días entre nocturno e inicio de diurno)
       if (t.ultimoTipoServicio === 'NOCTURNO' && diaIdx - t.ultimoServicioDiaIdx < 3) return false;
@@ -264,8 +371,33 @@ export const generarSimulacionCuadranteUS = (params: {
       return true;
     });
 
-    // Ordenar candidatos por función de coste de equidad
+    // REGLA FUNDAMENTAL DE TOPE DE HORAS:
+    // Un efectivo NO puede iniciar un nuevo ciclo si la suma de sus horas de ausencia
+    // más sus servicios asignados más este ciclo (~24h/24.75h) supera el tope mensual de horas.
+    const candidatosConHorasDisponibles = candidatosDiurnoBase.filter((p) => {
+      const t = tracks[p.id];
+      return t.horasMaximasReferencia > 0
+        ? t.horasComputablesMesActual + horasCicloHoy <= t.horasMaximasReferencia
+        : true;
+    });
+
+    const candidatosDiurno =
+      candidatosConHorasDisponibles.length >= 2 ? candidatosConHorasDisponibles : candidatosDiurnoBase;
+
+    // Ordenar candidatos por función de coste de equidad y penalizar estrictamente a los que sobrepasen el tope
     candidatosDiurno.sort((a, b) => {
+      const tA = tracks[a.id];
+      const tB = tracks[b.id];
+      const excedeA =
+        tA.horasMaximasReferencia > 0 && tA.horasComputablesMesActual + horasCicloHoy > tA.horasMaximasReferencia
+          ? 1
+          : 0;
+      const excedeB =
+        tB.horasMaximasReferencia > 0 && tB.horasComputablesMesActual + horasCicloHoy > tB.horasMaximasReferencia
+          ? 1
+          : 0;
+      if (excedeA !== excedeB) return excedeA - excedeB;
+
       const ausMananaA = fechaManana
         ? (ausenciasPorDia[fechaManana] || []).some((aus) => aus.personaId === a.id)
         : false;
@@ -274,7 +406,7 @@ export const generarSimulacionCuadranteUS = (params: {
         : false;
 
       const costA = calcularCosteCandidatoDiurno({
-        track: tracks[a.id],
+        track: tA,
         diaIdx,
         finDeSemanaIdx: currentFDSIdx,
         infoHoy,
@@ -282,7 +414,7 @@ export const generarSimulacionCuadranteUS = (params: {
         tieneAusenciaManana: ausMananaA,
       });
       const costB = calcularCosteCandidatoDiurno({
-        track: tracks[b.id],
+        track: tB,
         diaIdx,
         finDeSemanaIdx: currentFDSIdx,
         infoHoy,
@@ -315,6 +447,7 @@ export const generarSimulacionCuadranteUS = (params: {
         t.serviciosMesActual++;
         t.totalServicios++;
         t.diurnos++;
+        t.horasComputablesMesActual += 12;
         t.horasComputables += 12;
         t.ultimoServicioDiaIdx = diaIdx;
         t.ultimoTipoServicio = 'DIURNO';
@@ -439,20 +572,8 @@ export const generarSimulacionCuadranteUS = (params: {
   }
 
   // FASE 4: ASIGNACIÓN DE PRESENTES (7.5H ÚNICAMENTE EN DÍAS LABORABLES OFICIALES)
-  const totalDiasLaborables = fechas.filter(esFechaLaborable).length;
-  const horasMaximasReferencia = Math.max(0, totalDiasLaborables * 7.5 - ajusteHoras);
-
-  // Computar horas iniciales por ausencias concedidas en días laborables (7.5h cada una)
-  for (let diaIdx = 0; diaIdx < totalDias; diaIdx++) {
-    const asig = asignacionesDias[diaIdx];
-    if (!asig.esLaborable) continue;
-    asig.ausencias.forEach((aus) => {
-      if (tracks[aus.personaId]) {
-        tracks[aus.personaId].horasComputables += 7.5;
-      }
-    });
-  }
-
+  // Nota: Las ausencias concedidas en días laborables (7.5h cada una) ya fueron pre-computadas
+  // al inicio en tracks[p.id].horasComputablesMesActual.
   let huboAsignacion = true;
   let iteracionesMaximas = 500;
 
@@ -461,19 +582,24 @@ export const generarSimulacionCuadranteUS = (params: {
     huboAsignacion = false;
 
     // Candidatos con déficit horario respecto al máximo de referencia
+    // Efectivos con permisos extensos (ej. 105h) no deben recibir presentes adicionales
     const candidatos = plantillaUS
-      .filter((p) => tracks[p.id].horasComputables + 7.5 <= horasMaximasReferencia)
+      .filter(
+        (p) =>
+          tracks[p.id].horasComputablesMesActual + 7.5 <= horasMaximasReferencia &&
+          tracks[p.id].horasAusenciasMes < 70
+      )
       .sort((a, b) => {
         const tA = tracks[a.id];
         const tB = tracks[b.id];
-        if (tA.horasComputables !== tB.horasComputables) {
-          return tA.horasComputables - tB.horasComputables;
+        if (tA.horasComputablesMesActual !== tB.horasComputablesMesActual) {
+          return tA.horasComputablesMesActual - tB.horasComputablesMesActual;
         }
         return tA.presentes - tB.presentes;
       });
 
     for (const p of candidatos) {
-      if (tracks[p.id].horasComputables + 7.5 > horasMaximasReferencia) continue;
+      if (tracks[p.id].horasComputablesMesActual + 7.5 > horasMaximasReferencia) continue;
 
       const diasDisponibles: { diaIdx: number; score: number }[] = [];
 
@@ -509,6 +635,7 @@ export const generarSimulacionCuadranteUS = (params: {
 
         asignacionesDias[mejorDia.diaIdx].presentes.push(p.id);
         tracks[p.id].presentes += 1;
+        tracks[p.id].horasComputablesMesActual += 7.5;
         tracks[p.id].horasComputables += 7.5;
         huboAsignacion = true;
         break;
@@ -571,6 +698,7 @@ export const generarSimulacionCuadranteUS = (params: {
       diaSemana: asig.diaSemana,
       esFinDeSemana: asig.esFinDeSemana,
       esLaborable: asig.esLaborable,
+      esFestivo: asig.infoDia.esFestivo,
       esNocturnoProlongado: asig.esNocturnoProlongado,
       diurno: {
         horaInicio: '07:00',

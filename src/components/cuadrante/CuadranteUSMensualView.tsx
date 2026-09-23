@@ -18,8 +18,9 @@ import {
   FileText,
   HeartHandshake,
   CheckCircle2,
+  Loader2,
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import { descargarCuadranteUSExcel } from '../../services/excelUSCuadranteExport';
 
 interface CuadranteUSMensualViewProps {
   cuadrante: CuadranteMaestro;
@@ -374,46 +375,24 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
     return m;
   };
 
-  // Exportar a Excel
-  const handleExportExcel = () => {
-    const rows: any[] = [];
-    const serviciosAExportar = selectedMesKey === 'TODOS' ? serviciosUS : serviciosFiltradosPorMes;
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
 
-    personasUS.forEach((p) => {
-      const row: Record<string, any> = {
-        Efectivo: p.nombre,
-        Empleo: p.empleo,
-        DNI: p.dni,
-      };
-
-      serviciosAExportar.forEach((s) => {
-        const est = getEstadoEnDia(s, p.id);
-        row[s.fecha] = est.codigo;
-      });
-
-      const met = getMetricasPersona(p);
-      if (met) {
-        row['Total Servicios'] = met.totalServicios;
-        row['Diurnos (12h)'] = met.totalDiurnos;
-        row['Nocturnos (12h/12.75h)'] = met.totalNocturnos;
-        row['Fines de Semana'] = met.totalFinDeSemana;
-        row['Imaginarias'] = met.totalImaginarias;
-        row['Presentes (7.5h)'] = met.totalPresentes;
-        row['Vacaciones (7.5h)'] = met.diasVacaciones;
-        row['Permisos (7.5h)'] = met.diasPermiso;
-        row['Asuntos Propios (7.5h)'] = met.diasAsuntosPropios;
-        row['Horas Computables'] = met.totalHorasComputables;
-        row['Horas Máximas'] = met.horasMaximasAsignables;
-      }
-
-      rows.push(row);
-    });
-
-    const worksheet = XLSX.utils.json_to_sheet(rows);
-    const workbook = XLSX.utils.book_new();
-    const tituloSheet = selectedMesKey === 'TODOS' ? 'Cuadrante U.S. Completo' : `Cuadrante U.S. ${selectedMesKey}`;
-    XLSX.utils.book_append_sheet(workbook, worksheet, tituloSheet);
-    XLSX.writeFile(workbook, `${cuadrante.nombre.replace(/\s+/g, '_')}_US_${selectedMesKey}.xlsx`);
+  // Exportar a Excel oficial con formato enriquecido idéntico a la app
+  const handleExportExcel = async () => {
+    if (isExportingExcel) return;
+    try {
+      setIsExportingExcel(true);
+      await descargarCuadranteUSExcel(
+        cuadrante,
+        serviciosUS,
+        personasUS,
+        selectedMesKey
+      );
+    } catch (err) {
+      console.error('Error al exportar Excel oficial de U.S.:', err);
+    } finally {
+      setIsExportingExcel(false);
+    }
   };
 
   return (
@@ -445,10 +424,15 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
 
           <button
             onClick={handleExportExcel}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-xs cursor-pointer"
+            disabled={isExportingExcel}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-xs font-bold transition shadow-xs cursor-pointer"
           >
-            <Download className="w-3.5 h-3.5" />
-            <span>Descargar Excel Oficial</span>
+            {isExportingExcel ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Download className="w-3.5 h-3.5" />
+            )}
+            <span>{isExportingExcel ? 'Generando Excel...' : 'Descargar Excel Oficial'}</span>
           </button>
         </div>
       </div>

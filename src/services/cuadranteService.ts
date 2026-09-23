@@ -17,7 +17,10 @@ import {
   Persona,
   SlotServicioTipo,
   TipoServicio,
+  DocumentoCambioFirmado,
 } from '../types';
+import { registrarDocumentoFirmadoDirecto } from './cambiosService';
+import { enviarDocumentoCambioPorGmail } from './emailCambioEnvioService';
 import { CuadranteSimulacionUSResult } from '../types/usTypes';
 import { registrarAuditLog } from './auditService';
 import { validarCuadrante } from './cuadranteValidatorService';
@@ -934,6 +937,64 @@ export const modificarServicioUSManual = async (params: {
     });
   } catch (e) {
     console.warn('Audit log diferido:', e);
+  }
+
+  // Notificación oficial por correo a Personal con Excel del cambio (mismo flujo que UG)
+  try {
+    const codigoVerificacion = `US-MOD-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+    const documentoId = `doc-mod-us-${Date.now()}`;
+    const nowIso = new Date().toISOString();
+
+    const docModUS: DocumentoCambioFirmado = {
+      id: documentoId,
+      solicitudId: `mod-us-${servicioActualizado.fecha}`,
+      codigoVerificacion,
+      tipoCambio: 'SERVICIO',
+      tipoServicio: 'US',
+      slotTipoA: 'diurno_1',
+      cuadranteId,
+      fechaEmision: nowIso,
+      fechaServicioA: servicioActualizado.fecha,
+      personaA: {
+        id: 'US_ADMIN',
+        nombre: 'Administración U.S.',
+        empleo: 'ROL 1' as any,
+        grupo: 'US_SEGURIDAD',
+        firma: 'MODIFICACION_ADMIN_REGISTRADA',
+        fechaFirma: nowIso,
+      },
+      personaB: {
+        id: 'US_PERSONAL',
+        nombre: 'Efectivos U.S. Afectados',
+        empleo: 'ROL 2' as any,
+        grupo: 'US_SEGURIDAD',
+        firma: 'NOTIFICACION_OFICIAL_EMITIDA',
+        fechaFirma: nowIso,
+      },
+      autorizacionAdmin: {
+        adminUid: adminInfo.uid,
+        adminNombre: adminInfo.nombre,
+        firma: 'FIRMA_OFICIAL_ADMINISTRADOR',
+        fechaAutorizacion: nowIso,
+        resolucion: 'AUTORIZADO',
+      },
+      detalles: `Modificación oficial del cuadrante U.S. en fecha ${servicioActualizado.fecha}. ${motivo || 'Ajuste operativo autorizado por administración.'}`,
+      motivo: motivo || 'Modificación oficial del servicio U.S.',
+    };
+
+    await registrarDocumentoFirmadoDirecto(docModUS);
+
+    enviarDocumentoCambioPorGmail({
+      doc: docModUS,
+      tipoEnvio: 'AUTOMATICO',
+      cuadranteProp: cuadrante,
+      serviciosProp: servicios as any,
+      personasProp: personasUS,
+    }).catch((err) => {
+      console.warn('[CuadranteUS] Envío automático a Personal diferido:', err?.message || err);
+    });
+  } catch (errEmail) {
+    console.warn('[CuadranteUS] Error iniciando envío por correo a Personal:', errEmail);
   }
 
   return {

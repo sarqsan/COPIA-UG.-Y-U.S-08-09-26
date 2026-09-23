@@ -38,37 +38,30 @@ const cacheFestivosMovilesPorAnio = new Map<number, Map<string, string>>();
 const pad = (n: number) => n.toString().padStart(2, '0');
 
 /**
- * Obtiene el mapa de festivos móviles oficiales nacionales para un año dado.
+ * Nombres oficiales de los festivos fijos nacionales y autonómicos
  */
-const getFestivosMovilesAnio = (year: number): Map<string, string> => {
-  if (cacheFestivosMovilesPorAnio.has(year)) {
-    return cacheFestivosMovilesPorAnio.get(year)!;
-  }
-
-  const mapa = new Map<string, string>();
-  const pascua = calcularDomingoPascua(year);
-  const fechaPascua = new Date(year, pascua.month - 1, pascua.day);
-
-  // Jueves Santo = Pascua - 3 días (Festivo oficial en la administración pública)
-  const fechaJuevesSanto = new Date(fechaPascua);
-  fechaJuevesSanto.setDate(fechaPascua.getDate() - 3);
-  const juevesSantoStr = `${year}-${pad(fechaJuevesSanto.getMonth() + 1)}-${pad(fechaJuevesSanto.getDate())}`;
-  mapa.set(juevesSantoStr, 'Jueves Santo');
-
-  // Viernes Santo = Pascua - 2 días (Festivo nacional oficial)
-  const fechaViernesSanto = new Date(fechaPascua);
-  fechaViernesSanto.setDate(fechaPascua.getDate() - 2);
-  const viernesSantoStr = `${year}-${pad(fechaViernesSanto.getMonth() + 1)}-${pad(fechaViernesSanto.getDate())}`;
-  mapa.set(viernesSantoStr, 'Viernes Santo');
-
-  cacheFestivosMovilesPorAnio.set(year, mapa);
-  return mapa;
+const FESTIVOS_FIJOS_NACIONALES: Record<string, string> = {
+  '01-01': 'Año Nuevo',
+  '01-06': 'Epifanía del Señor / Reyes Magos',
+  '03-19': 'San José',
+  '05-01': 'Fiesta del Trabajo',
+  '05-02': 'Fiesta de la Comunidad de Madrid',
+  '07-25': 'Santiago Apóstol',
+  '08-15': 'Asunción de la Virgen',
+  '10-12': 'Fiesta Nacional de España / Virgen del Pilar',
+  '11-01': 'Todos los Santos',
+  '11-09': 'Nuestra Señora de la Almudena',
+  '12-06': 'Día de la Constitución Española',
+  '12-08': 'Inmaculada Concepción',
+  '12-24': 'Nochebuena',
+  '12-25': 'Natividad del Señor / Navidad',
+  '12-31': 'Nochevieja',
 };
 
 /**
- * Nombres oficiales de los festivos fijos nacionales
+ * Festivos nacionales que se trasladan al lunes si caen en domingo
  */
-const FESTIVOS_FIJOS_NACIONALES: Record<string, string> = {
+const FESTIVOS_TRASLADABLES_DOMINGO: Record<string, string> = {
   '01-01': 'Año Nuevo',
   '01-06': 'Epifanía del Señor / Reyes Magos',
   '05-01': 'Fiesta del Trabajo',
@@ -78,6 +71,61 @@ const FESTIVOS_FIJOS_NACIONALES: Record<string, string> = {
   '12-06': 'Día de la Constitución Española',
   '12-08': 'Inmaculada Concepción',
   '12-25': 'Natividad del Señor / Navidad',
+};
+
+/**
+ * Obtiene festivos trasladados al lunes para un año específico
+ */
+const getFestivosTrasladadosAnio = (year: number): Map<string, string> => {
+  const mapa = new Map<string, string>();
+  Object.entries(FESTIVOS_TRASLADABLES_DOMINGO).forEach(([mmdd, nombre]) => {
+    const [mesStr, diaStr] = mmdd.split('-');
+    const m = parseInt(mesStr, 10);
+    const d = parseInt(diaStr, 10);
+    const f = new Date(Date.UTC(year, m - 1, d, 12, 0, 0));
+    // Si cae en domingo (0)
+    if (f.getUTCDay() === 0) {
+      const lunes = new Date(Date.UTC(year, m - 1, d + 1, 12, 0, 0));
+      const lunesStr = `${year}-${pad(lunes.getUTCMonth() + 1)}-${pad(lunes.getUTCDate())}`;
+      mapa.set(lunesStr, `Lunes siguiente a ${nombre} (Festivo trasladado)`);
+    }
+  });
+  return mapa;
+};
+
+/**
+ * Calcula las fechas de Jueves Santo y Viernes Santo para cualquier año dado.
+ */
+const getFestivosMovilesAnio = (year: number): Map<string, string> => {
+  const map = new Map<string, string>();
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const mesPascua = Math.floor((h + l - 7 * m + 114) / 31);
+  const diaPascua = ((h + l - 7 * m + 114) % 31) + 1;
+
+  const pascua = new Date(Date.UTC(year, mesPascua - 1, diaPascua));
+
+  const juevesSanto = new Date(pascua);
+  juevesSanto.setUTCDate(pascua.getUTCDate() - 3);
+  const jsStr = juevesSanto.toISOString().split('T')[0];
+  map.set(jsStr, 'Jueves Santo');
+
+  const viernesSanto = new Date(pascua);
+  viernesSanto.setUTCDate(pascua.getUTCDate() - 2);
+  const vsStr = viernesSanto.toISOString().split('T')[0];
+  map.set(vsStr, 'Viernes Santo');
+
+  return map;
 };
 
 /**
@@ -93,14 +141,17 @@ export const getFestivoInfoUS = (fechaStr: string): FestivoInfoUS => {
   if (partes.length !== 3) return { esFestivo: false };
 
   const year = parseInt(partes[0], 10);
-  const mesDia = `${partes[1]}-${partes[2]}`;
+  const mes = partes[1].padStart(2, '0');
+  const dia = partes[2].padStart(2, '0');
+  const mesDia = `${mes}-${dia}`;
+  const fechaNormalizada = `${year}-${mes}-${dia}`;
 
   if (isNaN(year)) return { esFestivo: false };
 
   // 1. Consultar configuración de días especiales / festivos del sistema
-  const config = getDiaEspecialConfig(fechaStr);
+  const config = getDiaEspecialConfig(fechaNormalizada);
   if (config && config.activo) {
-    // Si tiene categoría 'FESTIVO' explícita
+    // Si tiene categoría 'FESTIVO', 'NAVIDAD' o 'FAMILIAR'
     if (config.categoria === 'FESTIVO') {
       return {
         esFestivo: true,
@@ -109,8 +160,7 @@ export const getFestivoInfoUS = (fechaStr: string): FestivoInfoUS => {
       };
     }
 
-    // Si es uno de los festivos nacionales oficiales dentro de NAVIDAD o FAMILIAR
-    const descLower = config.descripcion.toLowerCase();
+    const descLower = (config.descripcion || '').toLowerCase();
     if (
       descLower.includes('año nuevo') ||
       descLower.includes('reyes magos') ||
@@ -125,6 +175,8 @@ export const getFestivoInfoUS = (fechaStr: string): FestivoInfoUS => {
       descLower.includes('fiesta del trabajo') ||
       descLower.includes('fiesta nacional') ||
       descLower.includes('asunción') ||
+      descLower.includes('san josé') ||
+      descLower.includes('almudena') ||
       descLower.includes('festivo')
     ) {
       return {
@@ -144,12 +196,22 @@ export const getFestivoInfoUS = (fechaStr: string): FestivoInfoUS => {
     };
   }
 
-  // 3. Comprobar festivos móviles (Jueves y Viernes Santo)
-  const festivosMoviles = getFestivosMovilesAnio(year);
-  if (festivosMoviles.has(fechaStr)) {
+  // 3. Comprobar festivos trasladados al lunes cuando el festivo oficial cae en domingo
+  const trasladados = getFestivosTrasladadosAnio(year);
+  if (trasladados.has(fechaNormalizada)) {
     return {
       esFestivo: true,
-      nombre: festivosMoviles.get(fechaStr)!,
+      nombre: trasladados.get(fechaNormalizada)!,
+      categoria: 'FESTIVO',
+    };
+  }
+
+  // 4. Comprobar festivos móviles (Jueves y Viernes Santo)
+  const festivosMoviles = getFestivosMovilesAnio(year);
+  if (festivosMoviles.has(fechaNormalizada)) {
+    return {
+      esFestivo: true,
+      nombre: festivosMoviles.get(fechaNormalizada)!,
       categoria: 'FESTIVO',
     };
   }

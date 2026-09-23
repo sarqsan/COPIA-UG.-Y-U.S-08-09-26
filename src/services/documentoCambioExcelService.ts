@@ -7,6 +7,9 @@ import { getDiaEspecialConfig } from './diasEspecialesService';
 import { getRolUG, getApellidoUG, NOMBRE_GRUPO_UG } from '../utils/ugNomenclatura';
 import { getEstadoPersonaEnServicio, MESES_OFICIALES } from './excelCuadranteExport';
 import { Patrulla } from '../types/patrullaTypes';
+import { getEstadoEnDiaUS, calcularMetricasPersonaUS } from './excelUSCuadranteExport';
+import { clasificarDiaUS } from './cuadranteUSCalendarHelper';
+import { getFestivoInfoUS } from './festivosUSService';
 
 const BORDER_THIN_GRAY: Partial<ExcelJS.Borders> = {
   top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
@@ -115,6 +118,266 @@ export const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
 };
 
 /**
+ * Construye la Hoja 2 oficial del Cuadrante Mensual de la U.S. tras una modificación o cambio,
+ * destacando con borde y color ámbar oficial las celdas afectadas por la resolución.
+ */
+function generarHojaCuadranteUSParaDocumento(
+  wsCuadrante: ExcelJS.Worksheet,
+  cuadrante: CuadranteMaestro,
+  servicios: any[],
+  personas: Persona[],
+  documento: DocumentoCambioFirmado,
+  mesInfo: any
+) {
+  let personalUS = personas.filter(
+    (p) => p.tipoServicio === 'US' || p.grupo === 'US_SEGURIDAD' || p.id === documento.personaA?.id || p.id === documento.personaB?.id
+  );
+  if (personalUS.length === 0) {
+    personalUS = personas;
+  }
+  const personalOrdenado = [...personalUS].sort(
+    (a, b) => (a.ordenRotacion ?? 999) - (b.ordenRotacion ?? 999) || a.nombre.localeCompare(b.nombre)
+  );
+
+  const serviciosMes = servicios
+    .filter((s) => s.fecha && s.fecha.startsWith(mesInfo.key))
+    .sort((a, b) => a.fecha.localeCompare(b.fecha));
+
+  const numDias = mesInfo.dias;
+  const totalCols = 4 + numDias + 12;
+
+  wsCuadrante.getColumn(1).width = 5;
+  wsCuadrante.getColumn(2).width = 28;
+  wsCuadrante.getColumn(3).width = 12;
+  wsCuadrante.getColumn(4).width = 13;
+
+  for (let d = 0; d < numDias; d++) {
+    wsCuadrante.getColumn(5 + d).width = 4.5;
+  }
+
+  const colTotalesStart = 5 + numDias;
+  for (let t = 0; t < 12; t++) {
+    wsCuadrante.getColumn(colTotalesStart + t).width = t >= 8 ? 12 : 8.5;
+  }
+
+  // FILA 1: TÍTULO PRINCIPAL
+  wsCuadrante.mergeCells(1, 1, 1, totalCols);
+  const rowTitle = wsCuadrante.getRow(1);
+  rowTitle.height = 28;
+  const cellTitle = wsCuadrante.getCell(1, 1);
+  cellTitle.value = `UNIDAD DE SEGURIDAD (U.S.) — CUADRANTE DE SERVICIOS — ${mesInfo.nombre.toUpperCase()} (MODIFICACIÓN: ${documento.codigoVerificacion})`;
+  cellTitle.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FFFFFFFF' } };
+  cellTitle.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F172A' } };
+  cellTitle.alignment = { vertical: 'middle', horizontal: 'center' };
+
+  // FILA 2: SUBTÍTULO
+  wsCuadrante.mergeCells(2, 1, 2, totalCols);
+  const rowSub = wsCuadrante.getRow(2);
+  rowSub.height = 20;
+  const cellSub = wsCuadrante.getCell(2, 1);
+  cellSub.value = `Ciclo: ${cuadrante.nombre} | Versión oficial tras modificación en fecha ${formatearFechaEspanol(documento.fechaServicioA)} | Celdas modificadas resaltadas con recuadro ámbar`;
+  cellSub.font = { name: 'Calibri', size: 9, italic: true, color: { argb: 'FFE2E8F0' } };
+  cellSub.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
+  cellSub.alignment = { vertical: 'middle', horizontal: 'center' };
+
+  // FILA 3: Separador
+  wsCuadrante.getRow(3).height = 6;
+
+  // FILA 4 & 5: CABECERAS
+  wsCuadrante.getRow(4).height = 18;
+  wsCuadrante.getRow(5).height = 18;
+
+  const headersFijos = [
+    { col: 1, label: 'Nº' },
+    { col: 2, label: 'EFECTIVO / APELLIDOS Y NOMBRE' },
+    { col: 3, label: 'EMPLEO' },
+    { col: 4, label: 'DNI' },
+  ];
+
+  headersFijos.forEach((h) => {
+    wsCuadrante.mergeCells(4, h.col, 5, h.col);
+    const c = wsCuadrante.getCell(4, h.col);
+    c.value = h.label;
+    c.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FFFFFFFF' } };
+    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF334155' } };
+    c.alignment = { vertical: 'middle', horizontal: h.col === 2 ? 'left' : 'center', indent: h.col === 2 ? 1 : 0 };
+    c.border = BORDER_HEADER;
+    wsCuadrante.getCell(5, h.col).border = BORDER_HEADER;
+  });
+
+  const nombresDiasSemana = ['D', 'L', 'M', 'X', 'J', 'V', 'S'];
+
+  for (let d = 1; d <= numDias; d++) {
+    const colIdx = 4 + d;
+    const fechaStr = `${mesInfo.key}-${d.toString().padStart(2, '0')}`;
+    const dateObj = new Date(fechaStr);
+    const diaSemana = dateObj.getDay();
+    const letraDia = nombresDiasSemana[diaSemana];
+
+    const info = clasificarDiaUS(fechaStr);
+    const esFestivo = info.esFestivo;
+    const esFinSemana = info.esFinDeSemana;
+
+    let headerBg = 'FF334155';
+    let headerFg = 'FFFFFFFF';
+    if (esFestivo) {
+      headerBg = 'FFFEF3C7';
+      headerFg = 'FFB45309';
+    } else if (esFinSemana) {
+      headerBg = 'FFFFE4E6';
+      headerFg = 'FF9F1239';
+    }
+
+    const c4 = wsCuadrante.getCell(4, colIdx);
+    c4.value = letraDia;
+    c4.font = { name: 'Calibri', size: 9, bold: true, color: { argb: headerFg } };
+    c4.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: headerBg } };
+    c4.alignment = { vertical: 'middle', horizontal: 'center' };
+    c4.border = BORDER_HEADER;
+
+    const c5 = wsCuadrante.getCell(5, colIdx);
+    c5.value = d;
+    c5.font = { name: 'Calibri', size: 10, bold: true, color: { argb: headerFg } };
+    c5.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: headerBg } };
+    c5.alignment = { vertical: 'middle', horizontal: 'center' };
+    c5.border = BORDER_HEADER;
+
+    if (esFestivo) {
+      const festInfo = getFestivoInfoUS(fechaStr);
+      if (festInfo.nombre) c5.note = `Festivo Oficial: ${festInfo.nombre}`;
+    }
+  }
+
+  const cabecerasTotales = [
+    { label: 'D (12h)', bg: 'FF2563EB', fg: 'FFFFFFFF' },
+    { label: 'N (12h)', bg: 'FF1E1B4B', fg: 'FFFFFFFF' },
+    { label: 'F.S.', bg: 'FF9F1239', fg: 'FFFFFFFF' },
+    { label: 'I (24h)', bg: 'FFD97706', fg: 'FFFFFFFF' },
+    { label: 'PR (7.5h)', bg: 'FF059669', fg: 'FFFFFFFF' },
+    { label: 'V (7.5h)', bg: 'FF06B6D4', fg: 'FFFFFFFF' },
+    { label: 'PER (7.5h)', bg: 'FFF43F5E', fg: 'FFFFFFFF' },
+    { label: 'AP (7.5h)', bg: 'FF0D9488', fg: 'FFFFFFFF' },
+    { label: 'TOTAL SERV.', bg: 'FF0F172A', fg: 'FFFFFFFF' },
+    { label: 'HORAS COMP.', bg: 'FF047857', fg: 'FFFFFFFF' },
+    { label: 'HORAS MÁX.', bg: 'FF475569', fg: 'FFFFFFFF' },
+    { label: 'DIFERENCIA', bg: 'FF334155', fg: 'FFFFFFFF' },
+  ];
+
+  cabecerasTotales.forEach((ct, idx) => {
+    const colIdx = colTotalesStart + idx;
+    wsCuadrante.mergeCells(4, colIdx, 5, colIdx);
+    const c = wsCuadrante.getCell(4, colIdx);
+    c.value = ct.label;
+    c.font = { name: 'Calibri', size: 9, bold: true, color: { argb: ct.fg } };
+    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ct.bg } };
+    c.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+    c.border = BORDER_HEADER;
+    wsCuadrante.getCell(5, colIdx).border = BORDER_HEADER;
+  });
+
+  let filaActual = 6;
+  personalOrdenado.forEach((p, pIdx) => {
+    const row = wsCuadrante.getRow(filaActual);
+    row.height = 20;
+
+    const cNum = wsCuadrante.getCell(filaActual, 1);
+    cNum.value = p.ordenRotacion ?? pIdx + 1;
+    cNum.font = { name: 'Calibri', size: 9, color: { argb: 'FF64748B' } };
+    cNum.alignment = { vertical: 'middle', horizontal: 'center' };
+    cNum.border = BORDER_THIN_GRAY;
+
+    const cNom = wsCuadrante.getCell(filaActual, 2);
+    cNom.value = p.nombre;
+    cNom.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF0F172A' } };
+    cNom.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+    cNom.border = BORDER_THIN_GRAY;
+
+    const cEmp = wsCuadrante.getCell(filaActual, 3);
+    cEmp.value = p.empleo;
+    cEmp.font = { name: 'Calibri', size: 9, color: { argb: 'FF334155' } };
+    cEmp.alignment = { vertical: 'middle', horizontal: 'center' };
+    cEmp.border = BORDER_THIN_GRAY;
+
+    const cDni = wsCuadrante.getCell(filaActual, 4);
+    cDni.value = p.dni;
+    cDni.font = { name: 'Calibri', size: 9, color: { argb: 'FF64748B' } };
+    cDni.alignment = { vertical: 'middle', horizontal: 'center' };
+    cDni.border = BORDER_THIN_GRAY;
+
+    for (let d = 1; d <= numDias; d++) {
+      const colIdx = 4 + d;
+      const fechaStr = `${mesInfo.key}-${d.toString().padStart(2, '0')}`;
+      const srv = serviciosMes.find((s) => s.fecha === fechaStr) || { fecha: fechaStr, diaSemana: new Date(fechaStr).getDay() };
+      const est = getEstadoEnDiaUS(srv as any, p.id, p.nombre);
+
+      const cell = wsCuadrante.getCell(filaActual, colIdx);
+      cell.value = est.codigo;
+      cell.alignment = { vertical: 'middle', horizontal: 'center' };
+
+      const esDiaAfectado = fechaStr === documento.fechaServicioA || fechaStr === documento.fechaServicioB;
+      const esPersonaAfectada = p.id === documento.personaA?.id || p.id === documento.personaB?.id;
+      const esCeldaModificada = esDiaAfectado && (esPersonaAfectada || documento.personaA?.id === 'US_ADMIN');
+
+      if (esCeldaModificada) {
+        cell.border = BORDER_CAMBIO_DESTACADO;
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+        cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF92400E' } };
+        cell.note = `Modificación Oficial (${documento.codigoVerificacion}): ${documento.detalles || 'Cambio aplicado'}`;
+      } else {
+        cell.border = BORDER_THIN_GRAY;
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: est.bgColor } };
+        cell.font = { name: 'Calibri', size: 9, bold: est.isBold, color: { argb: est.textColor } };
+      }
+    }
+
+    const met = calcularMetricasPersonaUS(p, serviciosMes as any);
+    const valoresTotales = [
+      met.totalDiurnos,
+      met.totalNocturnos,
+      met.totalFinDeSemana,
+      met.totalImaginarias,
+      met.totalPresentes,
+      met.diasVacaciones,
+      met.diasPermiso,
+      met.diasAsuntosPropios,
+      met.totalServicios,
+      met.totalHorasComputables,
+      met.horasMaximasAsignables,
+      met.diferenciaHoras,
+    ];
+
+    valoresTotales.forEach((val, tIdx) => {
+      const colIdx = colTotalesStart + tIdx;
+      const cTot = wsCuadrante.getCell(filaActual, colIdx);
+      cTot.border = BORDER_THIN_GRAY;
+      cTot.alignment = { vertical: 'middle', horizontal: 'center' };
+
+      if (tIdx === 9) {
+        cTot.value = `${val}h`;
+        cTot.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF065F46' } };
+        cTot.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } };
+      } else if (tIdx === 10) {
+        cTot.value = `${val}h`;
+        cTot.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FF475569' } };
+        cTot.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+      } else if (tIdx === 11) {
+        const dif = Number(val);
+        const signo = dif > 0 ? '+' : '';
+        cTot.value = `${signo}${dif}h`;
+        cTot.font = { name: 'Calibri', size: 9, bold: true, color: { argb: dif >= 0 ? 'FF15803D' : 'FFB91C1C' } };
+        cTot.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: dif >= 0 ? 'FFDCFCE7' : 'FFFEE2E2' } };
+      } else {
+        cTot.value = val;
+        cTot.font = { name: 'Calibri', size: 9, bold: tIdx === 8, color: { argb: 'FF0F172A' } };
+        cTot.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
+      }
+    });
+
+    filaActual++;
+  });
+}
+
+/**
  * Genera los datos binarios y base64 del Excel oficial del cambio (Hoja Diligencia + Hoja Cuadrante del Mes).
  * NO recalcula ni altera nada: toma exactamente el estado vigente tras la autorización.
  */
@@ -157,6 +420,13 @@ export const generarDocumentoCambioExcelData = async (
     if (!personas || personas.length === 0) {
       personas = await getPersonas();
     }
+
+    const isUS =
+      (cuadrante as any).tipoServicio === 'US' ||
+      (documento as any).tipoServicio === 'US' ||
+      (cuadrante as any).configuracionUS !== undefined ||
+      (servicios[0] as any)?.diurno !== undefined ||
+      Boolean((cuadrante as any).id?.includes('-us-'));
 
     let patrullas: Patrulla[] = [];
     try {
@@ -206,7 +476,9 @@ export const generarDocumentoCambioExcelData = async (
     // Fila 1: TÍTULO SUPERIOR
     wsCambio.mergeCells('B2:E2');
     const cellT1 = wsCambio.getCell('B2');
-    cellT1.value = `${NOMBRE_GRUPO_UG} — GRUPO DE GUARDIA Y SEGURIDAD`;
+    cellT1.value = isUS
+      ? 'UNIDAD DE SEGURIDAD (U.S.) — SERVICIOS DE SEGURIDAD Y VIGILANCIA'
+      : `${NOMBRE_GRUPO_UG} — GRUPO DE GUARDIA Y SEGURIDAD`;
     cellT1.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
     cellT1.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F172A' } }; // Slate 900
     cellT1.alignment = { vertical: 'middle', horizontal: 'center' };
@@ -215,7 +487,9 @@ export const generarDocumentoCambioExcelData = async (
     // Fila 2: SUBTÍTULO DILIGENCIA
     wsCambio.mergeCells('B3:E3');
     const cellT2 = wsCambio.getCell('B3');
-    cellT2.value = 'DILIGENCIA OFICIAL DE AUTORIZACIÓN DE CAMBIO EN CUADRANTE';
+    cellT2.value = isUS
+      ? 'DILIGENCIA OFICIAL DE MODIFICACIÓN / CAMBIO EN CUADRANTE U.S.'
+      : 'DILIGENCIA OFICIAL DE AUTORIZACIÓN DE CAMBIO EN CUADRANTE';
     cellT2.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FFFFFFFF' } };
     cellT2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } }; // Slate 800
     cellT2.alignment = { vertical: 'middle', horizontal: 'center' };
@@ -524,11 +798,16 @@ export const generarDocumentoCambioExcelData = async (
       },
     });
 
-    // Ancho de columnas para cuadrante: Nº, ROL, APELLIDOS + días + 5 totales
-    const totalCols = 3 + mesInfo.dias + 5;
+    if (isUS) {
+      // HOJA 2 OFICIAL PARA UNIDAD DE SEGURIDAD (U.S.)
+      generarHojaCuadranteUSParaDocumento(wsCuadrante, cuadrante, servicios, personas, documento, mesInfo);
+    } else {
+      // HOJA 2 OFICIAL PARA UNIDAD DE GESTIÓN (UG) — PRESERVADA ÍNTEGRAMENTE
+      // Ancho de columnas para cuadrante: Nº, ROL, APELLIDOS + días + 5 totales
+      const totalCols = 3 + mesInfo.dias + 5;
 
-    // Mapa de patrullas
-    const patrullaPorFechaPersona = new Map<string, Patrulla>();
+      // Mapa de patrullas
+      const patrullaPorFechaPersona = new Map<string, Patrulla>();
     (patrullas || []).forEach((p) => {
       if (p.estado !== 'CANCELADA') {
         patrullaPorFechaPersona.set(`${p.fecha}_${p.personaId}`, p);
@@ -982,6 +1261,7 @@ export const generarDocumentoCambioExcelData = async (
     wsCuadrante.getColumn(total3Col).width = 7.5; // TOT. FDS
     wsCuadrante.getColumn(total4Col).width = 7.5; // TOT. PAT.
     wsCuadrante.getColumn(total5Col).width = 7.5; // PTS. ESP.
+    }
 
     // =========================================================================
     // 3. GENERAR BUFFER Y BASE64

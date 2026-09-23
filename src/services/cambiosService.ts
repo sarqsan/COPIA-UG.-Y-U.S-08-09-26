@@ -2055,3 +2055,18 @@ export const limpiarTodosCambiosUG = async () => {
     console.warn('Error limpiando solicitudes/documentos en Firestore:', e);
   }
 };
+
+/**
+ * Registra directamente un documento firmado oficial (ej. tras una modificación administrativa manual de la U.S.)
+ */
+export const registrarDocumentoFirmadoDirecto = async (docFirmado: DocumentoCambioFirmado): Promise<void> => {
+  loadLocalCache();
+  memoryDocumentosFirmadosCache.unshift(docFirmado);
+  saveLocalCache();
+  try {
+    await setDoc(doc(db, DOCUMENTOS_FIRMA_COLLECTION, docFirmado.id), sanitizeForFirestore(docFirmado));
+  } catch (err: any) {
+    console.warn('Persistencia diferida de documento firmado:', err?.message || err);
+  }
+};
+

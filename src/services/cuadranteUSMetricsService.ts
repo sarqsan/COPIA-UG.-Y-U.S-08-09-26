@@ -3,10 +3,15 @@ import { Persona } from '../types';
 import { clasificarDiaUS } from './cuadranteUSCalendarHelper';
 
 /**
- * Cuenta los días laborables (Lunes a Viernes no festivos estándar) en un rango de fechas.
+ * Cuenta los días laborables (Lunes a Viernes no festivos ni días especiales) en un rango de fechas.
  */
 export const contarDiasLaborables = (servicios: ServicioDiaUS[]): number => {
-  return servicios.filter((s) => s.esLaborable).length;
+  return servicios.filter((s) => {
+    const info = clasificarDiaUS(s.fecha);
+    const esFestivo = info.esFestivo || Boolean((s as any).esFestivo);
+    const esFinSemana = info.esFinDeSemana || Boolean(s.esFinDeSemana);
+    return !esFestivo && !esFinSemana && info.esLaborable;
+  }).length;
 };
 
 /**
@@ -80,12 +85,15 @@ export const calcularMetricasCuadranteUS = (
 
   servicios.forEach((s, diaIdx) => {
     const infoDia = clasificarDiaUS(s.fecha);
+    const esRealmenteFestivo = infoDia.esFestivo || Boolean((s as any).esFestivo);
+    const esRealmenteFinSemana = infoDia.esFinDeSemana || Boolean(s.esFinDeSemana);
+    const esRealmenteLaborable = !esRealmenteFestivo && !esRealmenteFinSemana && infoDia.esLaborable;
 
     // Conjunto de personas con ausencia computable (en día laborable) en este día.
     // Regla de exclusión mutua: si existe ausencia computable para esa persona en día laborable,
     // ese día computa únicamente 7,5h por la ausencia y no suma horas de servicio ni de presencia.
     const personasConAusenciaLaborableHoy = new Set<string>();
-    if (infoDia.esLaborable) {
+    if (esRealmenteLaborable) {
       (s.ausencias || []).forEach((aus) => {
         const pId = resolvePersonaId(aus.personaId, (aus as any).personaNombre || (aus as any).nombre);
         if (pId && (aus.tipo === 'V' || aus.tipo === 'P' || (aus.tipo as string) === 'PER' || aus.tipo === 'AP')) {
@@ -112,14 +120,14 @@ export const calcularMetricasCuadranteUS = (
             detallePorPersona[pId].totalFinDeSemana += 1;
           }
 
-          if (infoDia.esFestivo) {
+          if (esRealmenteFestivo) {
             detallePorPersona[pId].serviciosFestivo = (detallePorPersona[pId].serviciosFestivo || 0) + 1;
           }
           if (infoDia.esDiaEspecial) {
             detallePorPersona[pId].serviciosDiaEspecial = (detallePorPersona[pId].serviciosDiaEspecial || 0) + 1;
             detallePorPersona[pId].puntosEspeciales = (detallePorPersona[pId].puntosEspeciales || 0) + infoDia.puntosEspeciales;
           }
-          if (infoDia.esLaborable) {
+          if (esRealmenteLaborable) {
             detallePorPersona[pId].serviciosLaborables = (detallePorPersona[pId].serviciosLaborables || 0) + 1;
           }
 
@@ -152,14 +160,14 @@ export const calcularMetricasCuadranteUS = (
             detallePorPersona[pId].totalFinDeSemana += 1;
           }
 
-          if (infoDia.esFestivo) {
+          if (esRealmenteFestivo) {
             detallePorPersona[pId].serviciosFestivo = (detallePorPersona[pId].serviciosFestivo || 0) + 1;
           }
           if (infoDia.esDiaEspecial) {
             detallePorPersona[pId].serviciosDiaEspecial = (detallePorPersona[pId].serviciosDiaEspecial || 0) + 1;
             detallePorPersona[pId].puntosEspeciales = (detallePorPersona[pId].puntosEspeciales || 0) + infoDia.puntosEspeciales;
           }
-          if (infoDia.esLaborable) {
+          if (esRealmenteLaborable) {
             detallePorPersona[pId].serviciosLaborables = (detallePorPersona[pId].serviciosLaborables || 0) + 1;
           }
 
@@ -179,14 +187,17 @@ export const calcularMetricasCuadranteUS = (
       }
     }
 
-    // 4. PRESENTES (7.5h)
+    // 4. PRESENTES (7.5h ÚNICAMENTE en días laborables oficiales)
     (s.presentes || []).forEach((pr) => {
       const pId = resolvePersonaId(pr.personaIdReal || (pr as any).personaId, (pr as any).nombre);
       if (pId && detallePorPersona[pId]) {
         // Exclusión mutua: si la persona tiene una ausencia computable este día, no suma presencia
         if (!personasConAusenciaLaborableHoy.has(pId)) {
-          detallePorPersona[pId].totalPresentes += 1;
-          detallePorPersona[pId].horasPresentes += 7.5;
+          // REGLA CRÍTICA: Los presentes ÚNICAMENTE computan 7.5h en días laborables (nunca sábados, domingos ni festivos)
+          if (esRealmenteLaborable) {
+            detallePorPersona[pId].totalPresentes += 1;
+            detallePorPersona[pId].horasPresentes += 7.5;
+          }
         }
       }
     });
@@ -199,7 +210,7 @@ export const calcularMetricasCuadranteUS = (
         ausenciasProcesadasHoy.add(pId);
         // Regla funcional: únicamente cada DÍA LABORABLE (lunes a viernes no festivos) computa 7,5 horas.
         // Sábados, domingos y festivos oficiales computan 0 horas.
-        if (infoDia.esLaborable) {
+        if (esRealmenteLaborable) {
           if (aus.tipo === 'V') {
             detallePorPersona[pId].diasVacaciones += 1;
             detallePorPersona[pId].horasVacaciones += 7.5;

@@ -19,6 +19,9 @@ export interface PersonaTrackUS {
   imaginarias: number;
   presentes: number;
   horasComputables: number;
+  horasComputablesMesActual: number; // Horas mes actual (ausencias laborables + servicios + presentes)
+  horasAusenciasMes: number;         // Horas de ausencias (V, P, PER, AP) en días laborables del mes
+  horasMaximasReferencia: number;    // Tope máximo mensual de horas asignables
   ultimoServicioDiaIdx: number;
   ultimoTipoServicio: 'DIURNO' | 'NOCTURNO' | 'IMAGINARIA' | 'PRESENTE' | 'LIBRE' | null;
   ultimosFinesSemanaTrabajados: number[]; // índices de fin de semana (finDeSemanaIdx)
@@ -36,10 +39,20 @@ export const calcularCosteCandidatoDiurno = (params: {
 
   let cost = 0;
 
-  // 1. Si mañana tiene ausencia, penalizar porque no podrá completar D -> N naturalmente
+  // 1. Si mañana tiene ausencia aprobada, no puede hacer Diurno hoy para no romper el ciclo D -> N
   if (tieneAusenciaManana) {
-    cost += 300;
+    cost += 50000;
   }
+
+  // 1.1 Si iniciar un ciclo Diurno (12h) + Nocturno (~12-12.75h) hace superar el tope máximo de horas mensual
+  const horasCiclo = 12.0 + (infoManana?.esNocturnoProlongado ? 12.75 : 12.0);
+  if (track.horasMaximasReferencia > 0 && track.horasComputablesMesActual + horasCiclo > track.horasMaximasReferencia) {
+    const exceso = (track.horasComputablesMesActual + horasCiclo) - track.horasMaximasReferencia;
+    cost += 500000 + exceso * 10000;
+  }
+
+  // Ponderación directa y determinante de horas acumuladas del mes en curso para balanceo equitativo
+  cost += track.horasComputablesMesActual * 150;
 
   // 2. Evaluamos si entrar hoy a Diurno implica hacer turno en Sábado
   // El Diurno de hoy es sábado SI infoHoy.esSabado
