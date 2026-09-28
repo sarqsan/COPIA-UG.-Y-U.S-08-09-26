@@ -184,6 +184,40 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // 12. Catálogo de Matrículas Autorizadas (Document ID canónico = matriculaNormalizada)
+    match /matriculas_autorizadas/{matriculaNormalizada} {
+      // Lectura permitida para consulta de accesos, catálogo maestro y semáforo
+      allow read: if true;
+      // Creación y modificación con validación estricta de estructura canónica
+      allow create, update: if request.resource.data.matriculaNormalizada is string
+        && request.resource.data.matriculaOriginal is string
+        && request.resource.data.activo is bool;
+      // Eliminación física terminantemente prohibida (únicamente baja lógica activo: false)
+      allow delete: if false;
+    }
+
+    // 13. Registro Inmutable de Auditoría de Matrículas (Append-Only)
+    match /matriculas_auditoria/{logId} {
+      allow read: if true;
+      allow create: if request.resource.data.usuarioUid is string
+        && request.resource.data.accion is string
+        && request.resource.data.matriculaNormalizada is string;
+      // Prohibida cualquier modificación o eliminación física
+      allow update, delete: if false;
+    }
+
+    // 14. Respaldos del Sistema (Backups diarios, manuales y de emergencia pre-restauración)
+    match /respaldos_sistema/{backupId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() || (
+        request.resource.data.tipo == 'AUTOMATICO'
+        && request.resource.data.tipoServicio in ['GUARDIA', 'US']
+        && request.resource.data.fechaCreacion is string
+      );
+      allow update: if false; // Inmutable
+      allow delete: if isAdmin();
+    }
+
     // Bloqueo por defecto para cualquier otra ruta no especificada
     match /{document=**} {
       allow read, write: if false;

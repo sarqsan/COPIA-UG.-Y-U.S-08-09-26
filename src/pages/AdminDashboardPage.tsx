@@ -48,6 +48,7 @@ import {
   Calendar,
   FileText,
   Palmtree,
+  Database,
 } from 'lucide-react';
 import { AdminTab } from '../components/common/Sidebar';
 import {
@@ -355,6 +356,16 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
           >
             <FileText className="h-4 w-4" />
             <span>Diligencias Oficiales</span>
+          </button>
+
+          <button
+            id="btn-dashboard-respaldos"
+            onClick={() => onSelectTab('backups')}
+            className="flex items-center gap-1.5 rounded-xl bg-amber-500/20 px-3.5 py-2 text-xs font-bold text-amber-200 border border-amber-500/30 hover:bg-amber-500/30 transition cursor-pointer"
+            title="Copias de respaldo y restauración integral"
+          >
+            <Database className="h-4 w-4" />
+            <span>Respaldos & Retorno</span>
           </button>
         </div>
       </div>

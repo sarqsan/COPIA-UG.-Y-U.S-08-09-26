@@ -9,6 +9,8 @@ import {
   History,
   Settings,
   FileCheck,
+  Car,
+  Database,
 } from 'lucide-react';
 import { AdminTab } from './Sidebar';
 
@@ -21,12 +23,14 @@ export const MobileNav: React.FC<MobileNavProps> = ({ activeTab, onSelectTab }) 
   const items = [
     { id: 'inicio', label: 'Inicio', icon: LayoutDashboard },
     { id: 'cuadrantes', label: 'Cuadrante', icon: CalendarDays },
+    { id: 'matriculas', label: 'Matrículas', icon: Car },
     { id: 'patrullas', label: 'Patrullas', icon: Shield },
     { id: 'documentos', label: 'Diligencias', icon: FileCheck },
     { id: 'personal', label: 'Personal', icon: Users },
     { id: 'chat', label: 'Chat', icon: MessageSquare },
     { id: 'cuentas', label: 'Cuentas', icon: KeyRound },
     { id: 'historial', label: 'Auditoría', icon: History },
+    { id: 'backups', label: 'Respaldos', icon: Database },
     { id: 'config', label: 'Ajustes', icon: Settings },
   ];
 

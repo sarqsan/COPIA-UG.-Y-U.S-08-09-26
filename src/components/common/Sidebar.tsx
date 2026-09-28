@@ -14,17 +14,21 @@ import {
   ListOrdered,
   CalendarPlus,
   FileCheck,
+  Car,
+  Database,
 } from 'lucide-react';
 
 export type AdminTab =
   | 'inicio'
   | 'cuadrantes'
+  | 'matriculas'
   | 'patrullas'
   | 'documentos'
   | 'personal'
   | 'chat'
   | 'cuentas'
   | 'historial'
+  | 'backups'
   | 'excel'
   | 'config'
   | 'proximamente';
@@ -54,6 +58,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Cuadrante Maestro',
       icon: CalendarDays,
       desc: 'Generación, simulación y 24h',
+    },
+    {
+      id: 'matriculas',
+      label: 'Matrículas & OCR',
+      icon: Car,
+      desc: 'Base de datos U.S. • Control de accesos',
     },
     {
       id: 'patrullas',
@@ -91,6 +101,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Trazabilidad & Auditoría',
       icon: History,
       desc: 'Registro inmutable de acciones',
+    },
+    {
+      id: 'backups',
+      label: 'Respaldos & Restauración',
+      icon: Database,
+      desc: 'Puntos de restauración y retorno',
     },
     {
       id: 'excel',

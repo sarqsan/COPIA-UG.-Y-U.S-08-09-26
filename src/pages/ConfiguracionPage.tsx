@@ -16,13 +16,18 @@ import {
   Server,
   Trash2,
   Calendar,
+  RotateCcw,
 } from 'lucide-react';
 
 interface ConfiguracionPageProps {
   onRefreshAllData: () => Promise<void>;
+  onNavigateToBackups?: () => void;
 }
 
-export const ConfiguracionPage: React.FC<ConfiguracionPageProps> = ({ onRefreshAllData }) => {
+export const ConfiguracionPage: React.FC<ConfiguracionPageProps> = ({
+  onRefreshAllData,
+  onNavigateToBackups,
+}) => {
   const { currentCuenta } = useAuth();
   const [seeding, setSeeding] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -199,6 +204,54 @@ export const ConfiguracionPage: React.FC<ConfiguracionPageProps> = ({ onRefreshA
               <span>{seeding ? 'Restableciendo datos...' : 'Restablecer Datos de Prueba (11 ROL 1 + 11 ROL 2 + 2 Admins)'}</span>
             </button>
           </div>
+        </div>
+
+        {/* Module 3: Copias de Respaldo y Puntos de Retorno */}
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900 space-y-4 lg:col-span-2">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800">
+            <div className="flex items-center gap-2">
+              <Database className="h-5 w-5 text-amber-600" />
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                Copias de Respaldo y Restauración Integral
+              </h3>
+            </div>
+            <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+              Protección Activa
+            </span>
+          </div>
+
+          <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed max-w-3xl">
+            El sistema genera copias de seguridad automáticas diarias y bajo demanda para proteger cuadrantes, asignaciones, personal y configuraciones frente a errores humanos o eliminaciones accidentales. U.G. y U.S. mantienen aislamiento total y las auditorías son inmutables.
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+            <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700">
+              <span className="text-[11px] text-slate-500 block">Frecuencia Diaria:</span>
+              <span className="font-bold text-slate-900 dark:text-white">Automática al 1er acceso</span>
+            </div>
+            <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700">
+              <span className="text-[11px] text-slate-500 block">Aislamiento U.G. / U.S.:</span>
+              <span className="font-bold text-emerald-600 dark:text-emerald-400">Estricto al 100%</span>
+            </div>
+            <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700">
+              <span className="text-[11px] text-slate-500 block">Seguridad Reversible:</span>
+              <span className="font-bold text-purple-600 dark:text-purple-400">Snapshot de Emergencia Previo</span>
+            </div>
+          </div>
+
+          {onNavigateToBackups && (
+            <div className="pt-2 flex justify-start">
+              <button
+                type="button"
+                id="btn-config-abrir-respaldos"
+                onClick={onNavigateToBackups}
+                className="flex items-center gap-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white px-4 py-2.5 text-xs font-bold shadow transition cursor-pointer"
+              >
+                <RotateCcw className="w-4 h-4" />
+                <span>Abrir Centro de Respaldos y Restauración</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

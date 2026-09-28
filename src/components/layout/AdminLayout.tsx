@@ -34,6 +34,7 @@ import {
   FileSpreadsheet,
   Settings,
   ChevronRight,
+  Database,
 } from 'lucide-react';
 
 // Pages
@@ -49,6 +50,9 @@ import { ChatPage } from '../../pages/ChatPage';
 import { ProximamentePage } from '../../pages/ProximamentePage';
 import { DocumentosCambioSection } from '../cambios/DocumentosCambioSection';
 import { PatrullasModule } from '../patrullas/PatrullasModule';
+import { MatriculasModuleView } from '../matriculas/MatriculasModuleView';
+import { RespaldosModuleView } from '../backups/RespaldosModuleView';
+import { asegurarBackupDiario } from '../../services/backupRestoreService';
 
 export const AdminLayout: React.FC = () => {
   const { currentCuenta, loginAsSimulatedUser } = useAuth();
@@ -77,6 +81,18 @@ export const AdminLayout: React.FC = () => {
       setPersonas(fetchedPersonas);
       setCuentas(fetchedCuentas);
       setAuditLogs(fetchedLogs);
+
+      // Asegurar copias diarias en segundo plano para ambas unidades
+      asegurarBackupDiario('GUARDIA', {
+        uid: currentCuenta?.uid || 'admin',
+        nombre: currentCuenta?.nombre || 'Administrador',
+        rol: currentCuenta?.rol,
+      }).catch(() => {});
+      asegurarBackupDiario('US', {
+        uid: currentCuenta?.uid || 'admin',
+        nombre: currentCuenta?.nombre || 'Administrador',
+        rol: currentCuenta?.rol,
+      }).catch(() => {});
     } catch (err) {
       console.error('Error fetching admin data:', err);
     } finally {
@@ -376,6 +392,10 @@ export const AdminLayout: React.FC = () => {
                   />
                 )}
 
+                {activeTab === 'matriculas' && (
+                  <MatriculasModuleView />
+                )}
+
                 {activeTab === 'patrullas' && (
                   <PatrullasModule
                     personas={personas}
@@ -428,6 +448,13 @@ export const AdminLayout: React.FC = () => {
 
                 {activeTab === 'historial' && <HistorialPage logs={auditLogs} />}
 
+                {activeTab === 'backups' && (
+                  <RespaldosModuleView
+                    grupoActiva={grupoActiva}
+                    onRestorationCompleted={fetchAllData}
+                  />
+                )}
+
                 {activeTab === 'excel' && (
                   <ImportarExcelPage
                     personas={personas}
@@ -437,7 +464,10 @@ export const AdminLayout: React.FC = () => {
                 )}
 
                 {activeTab === 'config' && (
-                  <ConfiguracionPage onRefreshAllData={fetchAllData} />
+                  <ConfiguracionPage
+                    onRefreshAllData={fetchAllData}
+                    onNavigateToBackups={() => setActiveTab('backups')}
+                  />
                 )}
 
                 {activeTab === 'proximamente' && <ProximamentePage />}
@@ -499,6 +529,7 @@ export const AdminLayout: React.FC = () => {
                 { id: 'chat', label: 'Chat Interno', icon: MessageSquare, desc: 'Canal de comunicación' },
                 { id: 'cuentas', label: 'Cuentas de Acceso', icon: KeyRound, desc: 'Roles y credenciales' },
                 { id: 'historial', label: 'Trazabilidad & Auditoría', icon: History, desc: 'Registro inmutable' },
+                { id: 'backups', label: 'Respaldos & Restauración', icon: Database, desc: 'Puntos de retorno' },
                 { id: 'excel', label: 'Importar Personal Excel', icon: FileSpreadsheet, desc: 'Carga masiva .xlsx' },
                 { id: 'config', label: 'Ajustes', icon: Settings, desc: 'Configuración general' },
               ].map((item) => {

@@ -38,6 +38,7 @@ import { CuadranteMensualView } from '../components/cuadrante/CuadranteMensualVi
 import { CuadranteUSMensualView } from '../components/cuadrante/CuadranteUSMensualView';
 import { ServicioDiaUS, SolicitudAusenciaUS } from '../types/usTypes';
 import { SolicitarAusenciaUSModal } from '../components/ausencias/SolicitarAusenciaUSModal';
+import { asegurarBackupDiario } from '../services/backupRestoreService';
 import { DetalleDiasConsumidosModal } from '../components/ausencias/DetalleDiasConsumidosModal';
 import { getSolicitudesAusenciaUS, subscribeAusenciasUS } from '../services/ausenciasUSService';
 import {
@@ -75,7 +76,11 @@ import {
   Shield,
   Palmtree,
   FileSpreadsheet,
+  Car,
+  Camera,
 } from 'lucide-react';
+import { MatriculasModuleView } from '../components/matriculas/MatriculasModuleView';
+import { MatriculaScannerModal } from '../components/matriculas/MatriculaScannerModal';
 import {
   getRolUG,
   getApellidoUG,
@@ -99,9 +104,12 @@ export const UserPortalPage: React.FC = () => {
   const [notificaciones, setNotificaciones] = useState<Notificacion[]>([]);
 
   // Pestañas activas en el portal del usuario
-  const [activeTab, setActiveTab] = useState<'proximos' | 'imaginarias' | 'solicitudes' | 'documentos' | 'bajas' | 'calendario' | 'cuadranteGeneral' | 'chat' | 'ausenciasUS' | 'patrullas'>('proximos');
+  const [activeTab, setActiveTab] = useState<'proximos' | 'imaginarias' | 'solicitudes' | 'documentos' | 'bajas' | 'calendario' | 'cuadranteGeneral' | 'chat' | 'ausenciasUS' | 'patrullas' | 'matriculas'>('proximos');
   const [misPatrullas, setMisPatrullas] = useState<Patrulla[]>([]);
   const [todasLasPatrullas, setTodasLasPatrullas] = useState<Patrulla[]>([]);
+
+  // Scanner de matrículas para control de acceso móvil (U.S.)
+  const [isMatriculaScannerOpen, setIsMatriculaScannerOpen] = useState(false);
 
   // Modales
   const [isCambioModalOpen, setIsCambioModalOpen] = useState(false);
@@ -163,6 +171,9 @@ export const UserPortalPage: React.FC = () => {
 
       const notifs = await getNotificaciones(currentPersona?.id, currentCuenta?.uid, false);
       setNotificaciones(notifs);
+
+      // Garantizar la generación de la copia diaria del sistema incluso si solo accede un usuario
+      asegurarBackupDiario(userTipoServicio === 'US' ? 'US' : 'GUARDIA').catch(() => {});
     } catch (err) {
       console.error('Error cargando datos de usuario:', err);
     }
@@ -209,7 +220,11 @@ export const UserPortalPage: React.FC = () => {
     const handleFcmMessage = (event: MessageEvent) => {
       if (event.data && event.data.type === 'FCM_NAVIGATE') {
         const targetTab = event.data.linkTab;
-        if (targetTab && ['proximos', 'imaginarias', 'solicitudes', 'documentos', 'bajas', 'calendario', 'cuadranteGeneral', 'chat', 'ausenciasUS', 'patrullas'].includes(targetTab)) {
+        if (targetTab === 'matriculas') {
+          if (userTipoServicio === 'US') {
+            setActiveTab('matriculas');
+          }
+        } else if (targetTab && ['proximos', 'imaginarias', 'solicitudes', 'documentos', 'bajas', 'calendario', 'cuadranteGeneral', 'chat', 'ausenciasUS', 'patrullas'].includes(targetTab)) {
           setActiveTab(targetTab as any);
         } else if (targetTab === 'cuadrantes') {
           setActiveTab('calendario');
@@ -224,7 +239,14 @@ export const UserPortalPage: React.FC = () => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const urlTab = params.get('tab');
-      if (urlTab) {
+      if (urlTab === 'matriculas') {
+        if (userTipoServicio === 'US') {
+          setActiveTab('matriculas');
+        } else {
+          // Bloqueo estricto para UG: Redirigir a 'proximos'
+          setActiveTab('proximos');
+        }
+      } else if (urlTab) {
         if (['proximos', 'imaginarias', 'solicitudes', 'documentos', 'bajas', 'calendario', 'cuadranteGeneral', 'chat', 'ausenciasUS', 'patrullas'].includes(urlTab)) {
           setActiveTab(urlTab as any);
         } else if (urlTab === 'cuadrantes') {
@@ -1084,6 +1106,20 @@ export const UserPortalPage: React.FC = () => {
             <span className="text-xs font-bold text-slate-900 dark:text-white">Ver cuadrante general</span>
             <span className="text-[10px] text-slate-400">Excel oficial ({userTipoServicio === 'US' ? 'U.S.' : 'U.G.'})</span>
           </button>
+
+          {userTipoServicio === 'US' && (
+            <button
+              id="btn-portal-quick-scanner"
+              onClick={() => setIsMatriculaScannerOpen(true)}
+              className="flex flex-col items-center justify-center p-4 rounded-2xl bg-emerald-50 border border-emerald-300 dark:bg-emerald-950/40 dark:border-emerald-800 shadow-2xs hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition text-center gap-1.5 cursor-pointer col-span-2 sm:col-span-1"
+            >
+              <div className="p-2.5 bg-emerald-600 text-white rounded-xl shadow-xs">
+                <Camera className="w-5 h-5" />
+              </div>
+              <span className="text-xs font-black text-emerald-800 dark:text-emerald-300">Consultar Matrícula</span>
+              <span className="text-[10px] text-emerald-600 dark:text-emerald-400">Cámara rápida • Semáforo</span>
+            </button>
+          )}
         </div>
 
         {/* PESTAÑAS OPERATIVAS */}
@@ -1149,6 +1185,21 @@ export const UserPortalPage: React.FC = () => {
               >
                 <Palmtree className="w-4 h-4" />
                 Permisos / Vacaciones ({misSolicitudesAusenciaUS.length})
+              </button>
+            )}
+
+            {userTipoServicio === 'US' && (
+              <button
+                id="btn-portal-matriculas-us"
+                onClick={() => setActiveTab('matriculas')}
+                className={`px-4 py-2 rounded-xl transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                  activeTab === 'matriculas'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'
+                }`}
+              >
+                <Car className="w-4 h-4" />
+                🚘 Reconocimiento de matrículas
               </button>
             )}
 
@@ -1753,6 +1804,11 @@ export const UserPortalPage: React.FC = () => {
               </div>
             )}
 
+            {/* TAB RECONOCIMIENTO DE MATRÍCULAS (Solo U.S.) */}
+            {activeTab === 'matriculas' && userTipoServicio === 'US' && (
+              <MatriculasModuleView />
+            )}
+
             {/* TAB DOCUMENTOS: DILIGENCIAS OFICIALES FIRMADAS */}
             {activeTab === 'documentos' && (
               <DocumentosCambioSection currentPersona={currentPersona} isAdmin={false} />
@@ -2276,6 +2332,12 @@ export const UserPortalPage: React.FC = () => {
         <CambiarPasswordModal
           isOpen={isPasswordModalOpen}
           onClose={() => setIsPasswordModalOpen(false)}
+        />
+
+        {/* Modal de Consulta Rápida de Matrícula mediante Cámara para U.S. */}
+        <MatriculaScannerModal
+          isOpen={isMatriculaScannerOpen}
+          onClose={() => setIsMatriculaScannerOpen(false)}
         />
       </div>
     </div>

@@ -100,7 +100,10 @@ export type TipoAccionAudit =
   | 'MODO_ADMIN_VER_COMO_USUARIO_INICIO'
   | 'MODO_ADMIN_VER_COMO_USUARIO_FIN'
   | 'ELIMINAR_BLOQUEO'
-  | 'GESTION_AUSENCIAS_US';
+  | 'GESTION_AUSENCIAS_US'
+  | 'CREAR_BACKUP'
+  | 'RESTAURAR_BACKUP'
+  | 'ELIMINAR_BACKUP';
 
 export interface AuditLog {
   id: string;

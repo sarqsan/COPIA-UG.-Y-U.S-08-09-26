@@ -43,6 +43,7 @@ const notifyCambiosListeners = () => {
 };
 
 const loadLocalCache = () => {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
   try {
     const stored = localStorage.getItem(SOLICITUDES_STORAGE_KEY);
     if (stored) {
