@@ -531,12 +531,27 @@ export const generarSimulacionCuadranteUS = (params: {
       serviciosManana = new Set([]);
     }
 
-    // Candidatos que cumplen estrictamente la restricción de 3 días: ni ayer, ni hoy, ni mañana
+    // Identificar quién fue imaginaria el día anterior (del cuadrante actual o del mes anterior)
+    let imaginariaAyer: string | null = null;
+    if (diaIdx > 0) {
+      imaginariaAyer =
+        asignacionesDias[diaIdx - 1].imaginariaReal ||
+        asignacionesDias[diaIdx - 1].imaginariaOriginal ||
+        null;
+    } else if (estadoContinuidadMesAnterior) {
+      imaginariaAyer =
+        (estadoContinuidadMesAnterior as any).imaginariaReal ||
+        estadoContinuidadMesAnterior.imaginariaOriginal ||
+        null;
+    }
+
+    // Candidatos que cumplen estrictamente la restricción: ni ayer, ni hoy, ni mañana, y NUNCA dos días seguidos de imaginaria
     const candidatosImaginaria = plantillaUS.filter((p) => {
       if (idsEnAusencia.has(p.id)) return false;
       if (serviciosHoy.has(p.id)) return false;
       if (serviciosAyer.has(p.id)) return false;
       if (serviciosManana.has(p.id)) return false;
+      if (imaginariaAyer && p.id === imaginariaAyer) return false;
       return true;
     });
 
@@ -556,12 +571,54 @@ export const generarSimulacionCuadranteUS = (params: {
     if (candidatosImaginaria.length > 0) {
       imagElegida = candidatosImaginaria[0].id;
     } else {
-      // Fallback: relajar búfer de mañana antes que romper el de hoy o ayer
-      const fallback = plantillaUS.filter(
-        (p) => !idsEnAusencia.has(p.id) && !serviciosHoy.has(p.id) && !serviciosAyer.has(p.id)
+      // Fallback 1: relajar búfer de mañana antes que romper el de hoy o ayer, pero NUNCA dos días seguidos de imaginaria
+      const fallback1 = plantillaUS.filter(
+        (p) =>
+          !idsEnAusencia.has(p.id) &&
+          !serviciosHoy.has(p.id) &&
+          !serviciosAyer.has(p.id) &&
+          (!imaginariaAyer || p.id !== imaginariaAyer)
       );
-      fallback.sort((a, b) => tracks[a.id].imaginarias - tracks[b.id].imaginarias);
-      imagElegida = fallback[0]?.id || plantillaUS[0].id;
+      fallback1.sort((a, b) => {
+        const tA = tracks[a.id];
+        const tB = tracks[b.id];
+        if (tA.imaginarias !== tB.imaginarias) return tA.imaginarias - tB.imaginarias;
+        return (tA.persona.ordenRotacion ?? 99) - (tB.persona.ordenRotacion ?? 99);
+      });
+
+      if (fallback1.length > 0) {
+        imagElegida = fallback1[0].id;
+      } else {
+        // Fallback 2: relajar servicio de ayer pero NUNCA servicio de hoy ni ausencia ni imaginaria de ayer
+        const fallback2 = plantillaUS.filter(
+          (p) =>
+            !idsEnAusencia.has(p.id) &&
+            !serviciosHoy.has(p.id) &&
+            (!imaginariaAyer || p.id !== imaginariaAyer)
+        );
+        fallback2.sort((a, b) => {
+          const tA = tracks[a.id];
+          const tB = tracks[b.id];
+          if (tA.imaginarias !== tB.imaginarias) return tA.imaginarias - tB.imaginarias;
+          return (tA.persona.ordenRotacion ?? 99) - (tB.persona.ordenRotacion ?? 99);
+        });
+
+        if (fallback2.length > 0) {
+          imagElegida = fallback2[0].id;
+        } else {
+          // Último recurso: cualquier efectivo excepto quien fue imaginaria ayer
+          const fallbackSinRepetir = plantillaUS.filter(
+            (p) => !imaginariaAyer || p.id !== imaginariaAyer
+          );
+          fallbackSinRepetir.sort((a, b) => {
+            const tA = tracks[a.id];
+            const tB = tracks[b.id];
+            if (tA.imaginarias !== tB.imaginarias) return tA.imaginarias - tB.imaginarias;
+            return (tA.persona.ordenRotacion ?? 99) - (tB.persona.ordenRotacion ?? 99);
+          });
+          imagElegida = fallbackSinRepetir[0]?.id || plantillaUS[0].id;
+        }
+      }
     }
 
     asignacionHoy.imaginariaOriginal = imagElegida;
@@ -881,6 +938,7 @@ export const extraerEstadoContinuidadDesdeServiciosUS = (
   }
 
   const imagOriginal = extractOriginalId(srvUltimo.imaginaria);
+  const imagReal = (srvUltimo.imaginaria as any)?.personaIdReal || imagOriginal;
 
   const penultimo = srvOrdenados.length >= 2 ? (srvOrdenados[srvOrdenados.length - 2] as any) : null;
   const penultimoDiaNocturnosOriginales: string[] = [];
@@ -1019,6 +1077,7 @@ export const extraerEstadoContinuidadDesdeServiciosUS = (
     diurnosOriginales,
     nocturnosOriginales,
     imaginariaOriginal: imagOriginal,
+    imaginariaReal: imagReal,
     penultimoDiaNocturnosOriginales,
     diasDesdeUltimoServicioOriginal,
     totalesAcumulados,

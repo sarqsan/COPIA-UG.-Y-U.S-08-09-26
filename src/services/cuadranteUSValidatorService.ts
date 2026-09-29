@@ -182,9 +182,9 @@ export const validarCuadranteUS = (params: {
     if (ausenciasHoy.length > 4) {
       items.push({
         codigo: 'US-11',
-        severidad: 'ERROR',
+        severidad: 'ADVERTENCIA',
         fecha: s.fecha,
-        descripcion: `Cupo máximo de ausencias superado el día ${s.fecha}: hay ${ausenciasHoy.length} personas con permiso/vacaciones (máximo permitido: 4).`,
+        descripcion: `Cupo de ausencias ampliado por Administrador el día ${s.fecha}: hay ${ausenciasHoy.length} personas con permiso/vacaciones (el Administrador no tiene el límite general de 4).`,
       });
     }
 

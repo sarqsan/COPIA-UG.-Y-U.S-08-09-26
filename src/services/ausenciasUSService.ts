@@ -168,7 +168,10 @@ export const getSolicitudesAusenciaUS = async (): Promise<SolicitudAusenciaUS[]>
     }
     return result;
   } catch (e: any) {
-    console.warn('Lectura Firestore ausencias US diferida:', e.message || e);
+    // En entorno offline o sin conexión a Firestore, sincronizar con caché local
+    if (typeof localStorage !== 'undefined') {
+      loadAusenciasCache();
+    }
   }
   return memoryAusenciasUS;
 };
@@ -252,17 +255,21 @@ export const solicitarAusenciaUS = async (params: {
     }
   }
 
-  // 2. Validar cupo máximo de personas por día (4 para plantilla 16, o N - 12 si son más)
-  const cupoMaximo = calcularCupoMaximoAusenciasUS(totalMiembrosUS);
   const todas = await getSolicitudesAusenciaUS();
 
-  for (const f of fechas) {
-    const conteo = contarAusenciasEnFecha(f, todas);
-    if (conteo.total >= cupoMaximo) {
-      return {
-        success: false,
-        message: `El cupo para el día ${f} está lleno. Ya hay ${conteo.total} personas que han solicitado o tienen aprobado este día (${conteo.personasNombres.join(', ')}). El cupo máximo permitido es de ${cupoMaximo} efectivos.`,
-      };
+  // 2. Validar cupo máximo de personas por día para usuarios comunes (4 para plantilla 16, o N - 12 si son más)
+  // REGLA: El Administrador NO tiene este límite al asignar o gestionar ausencias
+  if (!forzarPorAdmin) {
+    const cupoMaximo = calcularCupoMaximoAusenciasUS(totalMiembrosUS);
+
+    for (const f of fechas) {
+      const conteo = contarAusenciasEnFecha(f, todas);
+      if (conteo.total >= cupoMaximo) {
+        return {
+          success: false,
+          message: `El cupo para el día ${f} está lleno. Ya hay ${conteo.total} personas que han solicitado o tienen aprobado este día (${conteo.personasNombres.join(', ')}). El cupo máximo permitido es de ${cupoMaximo} efectivos.`,
+        };
+      }
     }
   }
 
@@ -348,7 +355,7 @@ export const solicitarAusenciaUS = async (params: {
       accion: 'COMUNICAR_AUSENCIA',
       personaId: persona.id,
       personaNombre: persona.nombre,
-      detalles: `Asignación manual de ${tipoAusencia} (${fechaInicio} a ${fechaFin})${detalleExcluidosTxt} para ${persona.nombre}. Cupo validado ≤ ${cupoMaximo}.`,
+      detalles: `Asignación manual por Administrador de ${tipoAusencia} (${fechaInicio} a ${fechaFin})${detalleExcluidosTxt} para ${persona.nombre}. (Exento de límite de cupo).`,
     });
   }
 
@@ -417,21 +424,7 @@ export const resolverSolicitudAusenciaUS = async (params: {
     };
   }
 
-  const cupoMaximo = calcularCupoMaximoAusenciasUS(totalMiembrosUS);
-
-  // Si se va a aprobar, verificar que no supere el cupo
-  if (aprobada) {
-    for (const f of sol.fechasAfectadas) {
-      const conteo = contarAusenciasEnFecha(f, todas, sol.id);
-      if (conteo.total >= cupoMaximo) {
-        return {
-          success: false,
-          message: `No se puede aprobar: el día ${f} ya tiene ${conteo.total} personas con cupo reservado (${conteo.personasNombres.join(', ')}). Límite: ${cupoMaximo}.`,
-        };
-      }
-    }
-  }
-
+  // El Administrador tiene la potestad de autorizar solicitudes sin el límite general de cupo
   const now = new Date().toISOString();
   const nombreAdminLimpio = adminInfo.nombre.trim();
   sol.estado = aprobada ? 'APROBADA' : 'RECHAZADA';

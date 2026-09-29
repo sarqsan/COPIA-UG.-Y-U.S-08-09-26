@@ -66,7 +66,7 @@ export const CuadranteUSEdicionManualModal: FC<CuadranteUSEdicionManualModalProp
   }
 
   if (ausencias.length > 4) {
-    errores.push('Cupo máximo de ausencias superado: no puede haber más de 4 personas con permiso/vacaciones en el mismo día.');
+    advertencias.push(`Cupo de ausencias ampliado: ${ausencias.length} personas con permiso/vacaciones en este día (autorizado para administración).`);
   }
 
   const idsConAusencia = new Set(ausencias.map((a) => a.personaId));
@@ -79,10 +79,6 @@ export const CuadranteUSEdicionManualModal: FC<CuadranteUSEdicionManualModalProp
 
   const handleAddAusencia = () => {
     if (!nuevaAusenciaPersonaId) return;
-    if (ausencias.length >= 4) {
-      alert('Cupo máximo de 4 ausencias simultáneas alcanzado.');
-      return;
-    }
     if (ausencias.some((a) => a.personaId === nuevaAusenciaPersonaId)) {
       alert('Esta persona ya tiene una ausencia registrada en este día.');
       return;
@@ -109,10 +105,6 @@ export const CuadranteUSEdicionManualModal: FC<CuadranteUSEdicionManualModalProp
 
   // Convertir un Presente directamente a A.P. (Asuntos Propios)
   const handleCambiarPresentePorAP = (personaId: string) => {
-    if (ausencias.length >= 4) {
-      alert('Cupo máximo de 4 ausencias simultáneas alcanzado en este día.');
-      return;
-    }
     const pers = personasUS.find((p) => p.id === personaId);
     const pNombre = pers?.nombre || personaId;
 
@@ -135,10 +127,6 @@ export const CuadranteUSEdicionManualModal: FC<CuadranteUSEdicionManualModalProp
 
   // Convertir un Presente directamente a Permiso (P)
   const handleCambiarPresentePorPermiso = (personaId: string) => {
-    if (ausencias.length >= 4) {
-      alert('Cupo máximo de 4 ausencias simultáneas alcanzado en este día.');
-      return;
-    }
     const pers = personasUS.find((p) => p.id === personaId);
     const pNombre = pers?.nombre || personaId;
 
@@ -495,7 +483,7 @@ export const CuadranteUSEdicionManualModal: FC<CuadranteUSEdicionManualModalProp
           <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                Ausencias / Permisos / A.P. en este día ({ausencias.length}/4 máx)
+                Ausencias / Permisos / A.P. en este día ({ausencias.length} personas{ausencias.length > 4 ? ' · Cupo ampliado por Administrador' : ''})
               </span>
             </div>
 
@@ -553,41 +541,39 @@ export const CuadranteUSEdicionManualModal: FC<CuadranteUSEdicionManualModalProp
               </div>
             )}
 
-            {ausencias.length < 4 && (
-              <div className="flex items-center gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
-                <select
-                  value={nuevaAusenciaPersonaId}
-                  onChange={(e) => setNuevaAusenciaPersonaId(e.target.value)}
-                  className="p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs flex-1 text-slate-900 dark:text-white"
-                >
-                  <option value="">Añadir persona con permiso/vacaciones...</option>
-                  {personasUS.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.nombre} ({p.empleo})
-                    </option>
-                  ))}
-                </select>
+            <div className="flex items-center gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+              <select
+                value={nuevaAusenciaPersonaId}
+                onChange={(e) => setNuevaAusenciaPersonaId(e.target.value)}
+                className="p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs flex-1 text-slate-900 dark:text-white"
+              >
+                <option value="">Añadir persona con permiso/vacaciones...</option>
+                {personasUS.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nombre} ({p.empleo})
+                  </option>
+                ))}
+              </select>
 
-                <select
-                  value={nuevaAusenciaTipo}
-                  onChange={(e) => setNuevaAusenciaTipo(e.target.value as any)}
-                  className="p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold text-slate-900 dark:text-white"
-                >
-                  <option value="V">V (Vacaciones)</option>
-                  <option value="P">P (Permiso)</option>
-                  <option value="AP">AP (Asuntos Propios)</option>
-                </select>
+              <select
+                value={nuevaAusenciaTipo}
+                onChange={(e) => setNuevaAusenciaTipo(e.target.value as any)}
+                className="p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold text-slate-900 dark:text-white"
+              >
+                <option value="V">V (Vacaciones)</option>
+                <option value="P">P (Permiso)</option>
+                <option value="AP">AP (Asuntos Propios)</option>
+              </select>
 
-                <button
-                  type="button"
-                  onClick={handleAddAusencia}
-                  className="px-3 py-1.5 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 transition cursor-pointer flex items-center gap-1"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Añadir</span>
-                </button>
-              </div>
-            )}
+              <button
+                type="button"
+                onClick={handleAddAusencia}
+                className="px-3 py-1.5 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 transition cursor-pointer flex items-center gap-1"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Añadir</span>
+              </button>
+            </div>
           </div>
 
           {/* Motivo del Cambio Manual */}

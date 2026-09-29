@@ -186,6 +186,7 @@ export interface EstadoContinuidadUS {
   diurnosOriginales: string[]; // [pId1, pId2] que tuvieron Diurno original en el último día
   nocturnosOriginales: string[]; // [pId1, pId2] que tuvieron Nocturno original en el último día (Salientes de Noche en día 1)
   imaginariaOriginal: string; // pId de imaginaria original en el último día
+  imaginariaReal?: string; // pId de imaginaria real en el último día (si hubo modificación manual)
   penultimoDiaNocturnosOriginales?: string[]; // [pId1, pId2] que tuvieron Nocturno original 2 días antes
   diasDesdeUltimoServicioOriginal?: Record<
     string,
