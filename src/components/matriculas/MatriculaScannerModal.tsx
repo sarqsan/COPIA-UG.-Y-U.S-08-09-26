@@ -38,6 +38,7 @@ export const MatriculaScannerModal: React.FC<MatriculaScannerModalProps> = ({
   onClose,
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const viewfinderRef = useRef<HTMLDivElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scanIntervalRef = useRef<any>(null);
   const isProcessingFrameRef = useRef<boolean>(false);
@@ -262,13 +263,21 @@ export const MatriculaScannerModal: React.FC<MatriculaScannerModalProps> = ({
 
     isProcessingFrameRef.current = true;
     try {
-      // Recorte adaptado a la ventana de encuadre
-      const canvas = preprocesarFrameMatricula(videoRef.current, {
-        xRatio: 0.10,
-        yRatio: 0.35,
-        wRatio: 0.80,
-        hRatio: 0.28,
-      });
+      const targetRect = viewfinderRef.current?.getBoundingClientRect() || null;
+      const videoRect = videoRef.current?.getBoundingClientRect() || null;
+
+      // Recorte adaptado exactamente a la ventana de encuadre visible en pantalla
+      const canvas = preprocesarFrameMatricula(
+        videoRef.current,
+        {
+          xRatio: 0.10,
+          yRatio: 0.35,
+          wRatio: 0.80,
+          hRatio: 0.28,
+        },
+        targetRect,
+        videoRect
+      );
 
       if (!canvas) {
         isProcessingFrameRef.current = false;
@@ -572,9 +581,6 @@ export const MatriculaScannerModal: React.FC<MatriculaScannerModalProps> = ({
             muted
           />
 
-          {/* Capa de oscurecimiento con ventana transparente de encuadre */}
-          <div className="absolute inset-0 bg-black/55 pointer-events-none" />
-
           {/* Cabecera flotante */}
           <div className="relative z-10 flex items-center justify-between p-4 bg-gradient-to-b from-black/80 to-transparent">
             <div className="flex items-center gap-2">
@@ -614,35 +620,40 @@ export const MatriculaScannerModal: React.FC<MatriculaScannerModalProps> = ({
 
             {fase !== 'ERROR_CAMARA' ? (
               <div className="w-full max-w-sm space-y-3">
-                {/* Marco guía de aspecto tipo matrícula (ratio 3.5:1) */}
-                <div className="relative w-full aspect-[3.5/1] rounded-2xl border-2 border-emerald-400/90 shadow-[0_0_30px_rgba(52,211,153,0.35)] flex items-center justify-center overflow-hidden bg-black/20 backdrop-blur-[2px]">
+                {/* Marco guía transparente de aspecto tipo matrícula (ratio 3.5:1), sin desenfoques ni velos internos */}
+                <div
+                  ref={viewfinderRef}
+                  onClick={() => procesarFotograma()}
+                  className="relative w-full aspect-[3.5/1] rounded-2xl border-2 border-emerald-400 shadow-[0_0_0_9999px_rgba(0,0,0,0.55),0_0_25px_rgba(52,211,153,0.35)] flex items-center justify-center bg-transparent cursor-pointer select-none"
+                  title="Toca para capturar al instante"
+                >
                   {/* Esquinas de mira de alta visibilidad */}
-                  <div className="absolute top-1 left-1 w-4 h-4 border-t-4 border-l-4 border-emerald-400" />
-                  <div className="absolute top-1 right-1 w-4 h-4 border-t-4 border-r-4 border-emerald-400" />
-                  <div className="absolute bottom-1 left-1 w-4 h-4 border-b-4 border-l-4 border-emerald-400" />
-                  <div className="absolute bottom-1 right-1 w-4 h-4 border-b-4 border-r-4 border-emerald-400" />
+                  <div className="absolute -top-0.5 -left-0.5 w-4 h-4 border-t-4 border-l-4 border-emerald-400 rounded-tl-lg pointer-events-none" />
+                  <div className="absolute -top-0.5 -right-0.5 w-4 h-4 border-t-4 border-r-4 border-emerald-400 rounded-tr-lg pointer-events-none" />
+                  <div className="absolute -bottom-0.5 -left-0.5 w-4 h-4 border-b-4 border-l-4 border-emerald-400 rounded-bl-lg pointer-events-none" />
+                  <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 border-b-4 border-r-4 border-emerald-400 rounded-br-lg pointer-events-none" />
 
                   {/* Línea láser de escaneo animada */}
                   {fase === 'ESCANEANDO' && (
-                    <div className="absolute inset-x-0 h-0.5 bg-gradient-to-r from-transparent via-emerald-400 to-transparent animate-pulse" />
+                    <div className="absolute inset-x-0 h-0.5 bg-gradient-to-r from-transparent via-emerald-400 to-transparent animate-pulse pointer-events-none" />
                   )}
 
                   {/* Indicador breve «Leyendo…» */}
                   {fase === 'LEYENDO' && (
-                    <div className="px-4 py-1.5 rounded-full bg-black/80 border border-emerald-400 text-emerald-400 text-xs font-bold flex items-center gap-2 shadow-lg backdrop-blur-md">
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      <span>Leyendo…</span>
+                    <div className="px-4 py-1.5 rounded-full bg-black/90 border border-emerald-400 text-emerald-300 text-xs font-bold flex items-center gap-2 shadow-2xl">
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+                      <span>Leyendo matrícula…</span>
                     </div>
                   )}
                 </div>
 
                 {/* Instrucción clara */}
                 <div className="text-center">
-                  <p className="text-xs font-bold text-white/90 drop-shadow-md">
+                  <p className="text-xs font-bold text-white/95 drop-shadow-md">
                     Encuadre la matrícula dentro del recuadro
                   </p>
-                  <p className="text-[11px] text-white/60">
-                    La lectura y consulta son 100% automáticas
+                  <p className="text-[11px] text-emerald-300/80 font-medium">
+                    Lectura continua o toque el visor / botón para capturar
                   </p>
                 </div>
               </div>
@@ -744,18 +755,29 @@ export const MatriculaScannerModal: React.FC<MatriculaScannerModalProps> = ({
           {/* Barra inferior de acciones (solo cuando la cámara está activa o iniciando) */}
           {fase !== 'ERROR_CAMARA' && (
             <>
-              <div className="relative z-10 p-4 bg-gradient-to-t from-black/90 to-transparent flex items-center justify-between gap-3">
+              <div className="relative z-10 p-4 bg-gradient-to-t from-black/95 to-transparent flex items-center justify-between gap-3">
                 <button
+                  type="button"
                   onClick={() => setModoManual(!modoManual)}
-                  className="py-2.5 px-4 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs font-bold flex items-center gap-2 backdrop-blur-md transition cursor-pointer"
+                  className="py-2.5 px-3.5 rounded-xl bg-white/15 hover:bg-white/25 active:scale-95 text-white text-xs font-bold flex items-center gap-2 backdrop-blur-md transition cursor-pointer"
                 >
                   <Keyboard className="w-4 h-4" />
-                  <span>{modoManual ? 'Ocultar teclado' : 'Escribir manual'}</span>
+                  <span>{modoManual ? 'Ocultar' : 'Escribir manual'}</span>
                 </button>
 
-                <span className="text-[11px] text-white/50 flex items-center gap-1.5">
+                {/* Disparador instantáneo prominente para capturar y consultar */}
+                <button
+                  type="button"
+                  onClick={() => procesarFotograma()}
+                  className="p-3.5 rounded-full bg-emerald-500 hover:bg-emerald-400 active:scale-90 text-slate-950 font-black shadow-lg shadow-emerald-500/40 flex items-center justify-center transition cursor-pointer ring-4 ring-emerald-500/25"
+                  title="Capturar y consultar matrícula ahora"
+                >
+                  <Camera className="w-6 h-6 text-slate-950" />
+                </button>
+
+                <span className="text-[11px] text-white/70 flex items-center gap-1.5">
                   <Shield className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Cotejo O(1) en catálogo</span>
+                  <span>Cotejo O(1)</span>
                 </span>
               </div>
 

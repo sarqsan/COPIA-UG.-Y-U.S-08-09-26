@@ -433,29 +433,49 @@ app.post('/api/matriculas/ocr-frame', async (req, res) => {
     const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
     const ai = getGenAI();
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: [
-        {
-          inlineData: {
-            mimeType: 'image/jpeg',
-            data: cleanBase64,
-          },
-        },
-        'Lee la matrícula del vehículo en esta imagen. Devuelve ÚNICAMENTE los caracteres alfanuméricos en mayúsculas (por ejemplo 1234BBB o M1234AB o PGC1234A), sin espacios, sin guiones, sin saltos de línea ni puntuación. Si no distingues claramente una matrícula de vehículo, devuelve exactamente: VACIO',
-      ],
-      config: {
-        maxOutputTokens: 20,
-        temperature: 0.1,
-      },
-    });
+    // Modelos en orden de preferencia según Skill Gemini API y resiliencia ante picos de demanda
+    const modelos = ['gemini-3.1-flash-lite', 'gemini-3.8-flash', 'gemini-2.5-flash'];
+    let response: any = null;
+    let ultimoError: any = null;
 
-    const rawText = (response.text || '').trim().toUpperCase().replace(/[\s\-_./\\'"`,;:]/g, '');
+    for (const modelName of modelos) {
+      try {
+        response = await ai.models.generateContent({
+          model: modelName,
+          contents: [
+            {
+              inlineData: {
+                mimeType: 'image/jpeg',
+                data: cleanBase64,
+              },
+            },
+            'Identifica la matrícula de vehículo visible en esta imagen (por ejemplo 8920BZF o 1234BBB o M1234AB). Devuelve ÚNICAMENTE los caracteres alfanuméricos en mayúsculas sin espacios, sin guiones ni puntos. Si no ves claramente una matrícula de coche/moto/vehículo, devuelve: VACIO',
+          ],
+          config: {
+            maxOutputTokens: 20,
+            temperature: 0.1,
+          },
+        });
+        if (response && response.text) break;
+      } catch (err: any) {
+        ultimoError = err;
+        console.warn(`[OCR Frame API] Reintentando con modelo alternativo tras fallo en ${modelName}:`, err?.message || err);
+      }
+    }
+
+    if (!response && ultimoError) {
+      throw ultimoError;
+    }
+
+    let rawText = (response?.text || '').trim().toUpperCase().replace(/[\s\-_./\\'"`,;:]/g, '');
+    if (rawText.includes('VACIO') || rawText.includes('NINGUNA') || rawText.includes('NOTFOUND')) {
+      rawText = '';
+    }
     const duracionMs = Date.now() - t0;
 
     return res.json({
       success: true,
-      texto: rawText === 'VACIO' || rawText === 'NINGUNA' ? '' : rawText,
+      texto: rawText,
       duracionMs,
     });
   } catch (err: any) {

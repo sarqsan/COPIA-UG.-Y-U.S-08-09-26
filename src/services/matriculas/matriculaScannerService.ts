@@ -70,14 +70,22 @@ export const terminateLocalOcrWorker = async (): Promise<void> => {
  * preprocesamiento de alto contraste en un <canvas> de dimensiones normalizadas.
  * Esto reduce drásticamente el tiempo de OCR y elimina brillos o reflejos del vehículo.
  */
+/**
+ * Recorta la región de la matrícula desde el elemento <video> y genera un
+ * <canvas> de alta resolución y fidelidad visual para el motor de OCR.
+ * Si se proporcionan targetRect y videoRect (coordenadas reales en pantalla),
+ * realiza un recorte milimétrico ajustado a la ventana de mira del visor.
+ */
 export const preprocesarFrameMatricula = (
   video: HTMLVideoElement,
   cropArea: { xRatio: number; yRatio: number; wRatio: number; hRatio: number } = {
-    xRatio: 0.15,
+    xRatio: 0.10,
     yRatio: 0.35,
-    wRatio: 0.70,
+    wRatio: 0.80,
     hRatio: 0.30,
-  }
+  },
+  targetRect?: { left: number; top: number; width: number; height: number } | null,
+  videoRect?: { left: number; top: number; width: number; height: number } | null
 ): HTMLCanvasElement | null => {
   if (!video || video.videoWidth === 0 || video.videoHeight === 0) {
     return null;
@@ -86,72 +94,66 @@ export const preprocesarFrameMatricula = (
   const vWidth = video.videoWidth;
   const vHeight = video.videoHeight;
 
-  const sx = Math.floor(vWidth * cropArea.xRatio);
-  const sy = Math.floor(vHeight * cropArea.yRatio);
-  const sw = Math.floor(vWidth * cropArea.wRatio);
-  const sh = Math.floor(vHeight * cropArea.hRatio);
+  let sx: number;
+  let sy: number;
+  let sw: number;
+  let sh: number;
+
+  if (targetRect && videoRect && videoRect.width > 0 && videoRect.height > 0) {
+    // Escala precisa de object-cover
+    const scale = Math.max(videoRect.width / vWidth, videoRect.height / vHeight);
+    const renderedWidth = vWidth * scale;
+    const renderedHeight = vHeight * scale;
+    const offsetX = (renderedWidth - videoRect.width) / 2;
+    const offsetY = (renderedHeight - videoRect.height) / 2;
+
+    const xInRendered = (targetRect.left - videoRect.left) + offsetX;
+    const yInRendered = (targetRect.top - videoRect.top) + offsetY;
+
+    // Margen de seguridad del 8% horizontal y 12% vertical
+    const marginX = targetRect.width * 0.08;
+    const marginY = targetRect.height * 0.12;
+
+    sx = Math.max(0, Math.floor((xInRendered - marginX) / scale));
+    sy = Math.max(0, Math.floor((yInRendered - marginY) / scale));
+    sw = Math.min(vWidth - sx, Math.floor((targetRect.width + marginX * 2) / scale));
+    sh = Math.min(vHeight - sy, Math.floor((targetRect.height + marginY * 2) / scale));
+  } else {
+    sx = Math.floor(vWidth * cropArea.xRatio);
+    sy = Math.floor(vHeight * cropArea.yRatio);
+    sw = Math.floor(vWidth * cropArea.wRatio);
+    sh = Math.floor(vHeight * cropArea.hRatio);
+  }
+
+  if (sw <= 10 || sh <= 10) return null;
 
   const canvas = document.createElement('canvas');
-  // Tamaño óptimo para OCR rápido de matrícula (aspect ratio aprox 4:1)
-  canvas.width = 400;
-  canvas.height = 100;
+  // Resolución nítida (800px de ancho) preservando la relación de aspecto
+  canvas.width = Math.min(1000, Math.max(700, sw));
+  canvas.height = Math.round(canvas.width * (sh / Math.max(1, sw)));
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) return null;
 
-  // Dibujar solo la sección encuadrada
+  // Dibujar sección nítida en color natural para máxima legibilidad por visión multimodal
   ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-
-  try {
-    // Filtro de alto contraste en escala de grises
-    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = imgData.data;
-
-    // Calcular brillo medio para umbralización adaptativa
-    let sumaBrillo = 0;
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      const gray = 0.299 * r + 0.587 * g + 0.114 * b;
-      sumaBrillo += gray;
-    }
-    const umbral = Math.max(80, Math.min(180, sumaBrillo / (data.length / 4)));
-
-    // Binarización y aumento de contraste
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      const gray = 0.299 * r + 0.587 * g + 0.114 * b;
-      // Estirar contraste según el umbral
-      const val = gray > umbral ? Math.min(255, gray * 1.2) : Math.max(0, gray * 0.7);
-      data[i] = val;
-      data[i + 1] = val;
-      data[i + 2] = val;
-    }
-    ctx.putImageData(imgData, 0, 0);
-  } catch (err) {
-    // Si falla el getImageData por restricciones de contexto, devolvemos el canvas dibujado
-    console.warn('[OCR Service] Aviso en preprocesamiento de imagen:', err);
-  }
 
   return canvas;
 };
 
 /**
  * Reconoce el texto alfanumérico contenido en el canvas.
- * Prioriza el worker local; si no está disponible o tarda más de 1200ms, recurre al endpoint ultrarrápido.
+ * Prioriza el worker local si ya está listo; si no o si tarda más de 800ms, recurre al endpoint ultrarrápido con Gemini.
  */
 export const reconocerTextoCanvas = async (
   canvas: HTMLCanvasElement
 ): Promise<{ texto: string; metodo: MetodoOCR; duracionMs: number }> => {
   const t0 = Date.now();
 
-  // 1. Intentar OCR local en dispositivo con Tesseract
+  // 1. Intentar OCR local en dispositivo con Tesseract si está disponible
   if (localWorkerInstance) {
     try {
       const timeoutPromise = new Promise<{ timeout: true }>((resolve) =>
-        setTimeout(() => resolve({ timeout: true }), 1400)
+        setTimeout(() => resolve({ timeout: true }), 800)
       );
 
       const ocrPromise = localWorkerInstance.recognize(canvas).then((res: any) => ({
@@ -176,7 +178,7 @@ export const reconocerTextoCanvas = async (
     }
   }
 
-  // 2. Fallback remoto ultrarrápido (vía endpoint en memoria, sin persistencia de imágenes)
+  // 2. Reconocimiento rápido mediante visión multimodal en el servidor
   try {
     const base64Data = canvas.toDataURL('image/jpeg', 0.85);
     const resp = await fetch('/api/matriculas/ocr-frame', {
@@ -187,11 +189,14 @@ export const reconocerTextoCanvas = async (
 
     if (resp.ok) {
       const data = await resp.json();
-      return {
-        texto: (data.texto || '').replace(/[^A-Z0-9]/gi, '').toUpperCase(),
-        metodo: 'REMOTO',
-        duracionMs: Date.now() - t0,
-      };
+      const txt = (data.texto || '').replace(/[^A-Z0-9]/gi, '').toUpperCase();
+      if (txt.length >= 4) {
+        return {
+          texto: txt,
+          metodo: 'REMOTO',
+          duracionMs: Date.now() - t0,
+        };
+      }
     }
   } catch (err) {
     console.error('[OCR Service] Error en OCR remoto:', err);
