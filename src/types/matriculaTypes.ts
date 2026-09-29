@@ -152,7 +152,8 @@ export interface FilaReconciliacion {
   seleccionadaParaAplicar: boolean;
   filaExcel?: number;
   columnaOrigen?: string;
-  ocurrenciasEnArchivo?: { fila: number; columna: string }[];
+  hojaOrigen?: string;
+  ocurrenciasEnArchivo?: { fila: number; columna: string; hoja?: string }[];
 }
 
 export interface ResumenReconciliacionMatriculas {
@@ -177,6 +178,8 @@ export interface ResumenReconciliacionMatriculas {
   totalCeldasEscaneadas?: number;
   columnasConMatriculas?: string[];
   datosSensiblesDescartados?: boolean;
+  sinColumnaMatricula?: boolean;
+  mensajeAviso?: string;
 }
 
 export interface ProgresoPersistenciaLotes {

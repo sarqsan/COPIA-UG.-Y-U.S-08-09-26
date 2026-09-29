@@ -70,7 +70,7 @@ const plantillaUS: Persona[] = Array.from({ length: 16 }, (_, i) => ({
   diasVacacionesAsignados: 22,
   diasAsuntosPropiosAsignados: 6,
   diasPermisoAsignados: 5,
-}));
+})) as unknown as Persona[];
 
 async function runTests() {
   console.log('\n============================================================');

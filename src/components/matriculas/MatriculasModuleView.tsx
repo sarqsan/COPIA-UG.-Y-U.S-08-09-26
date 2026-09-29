@@ -378,7 +378,7 @@ export const MatriculasModuleView: React.FC = () => {
     if (archivoExcelSeleccionado) {
       const data = await archivoExcelSeleccionado.arrayBuffer();
       const workbook = XLSX.read(data, { type: 'array' });
-      const resultado = escanearMatriculasDesdeLibroExcel(workbook);
+      const resultado = await escanearMatriculasDesdeLibroExcel(workbook);
       return {
         items: resultado.items,
         metricas: resultado,

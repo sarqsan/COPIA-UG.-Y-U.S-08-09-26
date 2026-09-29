@@ -462,6 +462,7 @@ export interface ItemMatriculaDetectada {
   estadoValidacion: 'VALIDA' | 'DUDOSA' | 'INVALIDA';
   filaOrigen: number;
   columnaOrigen: string;
+  hojaOrigen?: string;
   incidencias?: string[];
 }
 
@@ -472,25 +473,172 @@ export interface ResultadoEscaneoMultiColumna {
   columnasConMatriculas: string[];
   totalFilasDocumento: number;
   datosSensiblesDescartados: boolean;
+  sinColumnaMatricula?: boolean;
+  cancelado?: boolean;
+  mensajeAviso?: string;
+}
+
+export interface ProgresoEscaneoExcel {
+  hojaActual: number;
+  totalHojas: number;
+  nombreHoja: string;
+  filaActual: number;
+  totalFilasHoja: number;
+  totalFilasGlobal: number;
+  porcentaje: number;
+  totalMatriculasDetectadas: number;
+}
+
+export interface ColumnaIdentificada {
+  indice: number;
+  nombreOriginal: string;
+  nombreNormalizado: string;
+  letraExcel: string;
+}
+
+export interface OpcionesEscaneoExcel {
+  onProgreso?: (progreso: ProgresoEscaneoExcel) => void;
+  debeCancelar?: () => boolean;
+  tamanoLoteFilas?: number;
 }
 
 /**
- * Escanea de forma profunda y sin límites todas las hojas, filas y columnas de un libro Excel (.xlsx, .xls).
- * - Sin límite en la cantidad de columnas (examina todas las columnas presentes A..ZZZ).
- * - Sin límite en la cantidad de filas ni matrículas.
- * - Extrae ÚNICAMENTE las matrículas de vehículos identificadas en cualquier columna.
- * - Descarte estricto al 100% de datos sensibles (nombres, DNI, teléfonos, direcciones) por privacidad (RGPD).
+ * Normaliza un texto de encabezado para su comparación robusta:
+ * - Convierte a minúsculas
+ * - Elimina acentos (á->a, é->e, etc.)
+ * - Elimina caracteres no alfanuméricos
+ * - Colapsa espacios redundantes
  */
-export const escanearMatriculasDesdeLibroExcel = (
-  workbook: XLSX.WorkBook
-): ResultadoEscaneoMultiColumna => {
+export const normalizarTextoEncabezado = (encabezado: any): string => {
+  if (encabezado === null || encabezado === undefined) return '';
+  return String(encabezado)
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // Quitar tildes
+    .replace(/[^a-z0-9]/g, ' ') // Dejar solo letras y números
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+/**
+ * Determina inequívocamente si un encabezado de columna corresponde a una columna de matrícula de vehículo.
+ * Regla de exclusión estricta:
+ * - NO acepta columnas genéricas: Modelo, Marca, Vehículo, Descripción, Color, Observaciones, Bastidor, VIN, etc.
+ * - Solo devuelve true si el encabezado identifica explícitamente una matrícula o placa.
+ */
+export const esEncabezadoColumnaMatricula = (rawHeader: string): boolean => {
+  const norm = normalizarTextoEncabezado(rawHeader);
+  if (!norm || norm.length < 3) return false;
+
+  // 1. Exclusiones obligatorias: si contiene fecha, año, país o lugar de matriculación, no es la matrícula en sí
+  if (
+    norm.includes('fecha') ||
+    norm.includes('date') ||
+    norm.includes('ano') ||
+    norm.includes('year') ||
+    norm.includes('pais') ||
+    norm.includes('country') ||
+    norm.includes('lugar')
+  ) {
+    return false;
+  }
+
+  // 2. Comprobar presencia explícita de términos de matrícula
+  const contieneTerminoMatricula =
+    /\bmatriculas?\b/.test(norm) ||
+    norm.includes('matricula') ||
+    norm.includes('nmatricula') ||
+    norm.includes('nummatricula');
+
+  const contieneTerminoPlaca =
+    /\bplacas?\b/.test(norm) ||
+    norm.includes('placamatricula');
+
+  const contieneTerminoInternacional =
+    norm.includes('license plate') ||
+    norm.includes('licenseplate') ||
+    norm.includes('plate number') ||
+    norm === 'plate' ||
+    norm === 'plates' ||
+    norm === 'registration' ||
+    norm === 'vehicle registration';
+
+  if (!contieneTerminoMatricula && !contieneTerminoPlaca && !contieneTerminoInternacional) {
+    return false;
+  }
+
+  // 3. Excluir campos descriptivos anexos que contengan la palabra matrícula (ej. "tipo de matricula", "observaciones matricula")
+  if (
+    norm.startsWith('tipo de matricula') ||
+    norm.startsWith('formato matricula') ||
+    norm.startsWith('tipo matricula') ||
+    norm.includes('observaciones matricula') ||
+    norm.includes('notas matricula')
+  ) {
+    return false;
+  }
+
+  return true;
+};
+
+/**
+ * Inspecciona los encabezados de una hoja y devuelve exclusivamente las columnas
+ * cuyo encabezado identifique inequívocamente una columna de matrícula.
+ */
+export const identificarColumnasMatricula = (
+  encabezados: string[]
+): ColumnaIdentificada[] => {
+  const columnas: ColumnaIdentificada[] = [];
+  encabezados.forEach((enc, idx) => {
+    if (esEncabezadoColumnaMatricula(enc)) {
+      columnas.push({
+        indice: idx,
+        nombreOriginal: enc,
+        nombreNormalizado: normalizarTextoEncabezado(enc),
+        letraExcel: XLSX.utils.encode_col(idx),
+      });
+    }
+  });
+  return columnas;
+};
+
+/**
+ * Escanea de forma optimizada, asíncrona y segura las hojas de un libro Excel (.xlsx, .xls).
+ * - Identifica EXCLUSIVAMENTE las columnas de matrícula mediante sus encabezados.
+ * - Si no encuentra ninguna columna de matrícula, NO busca en otras columnas y devuelve aviso claro.
+ * - Las columnas no autorizadas (Modelo, Marca, Color, etc.) NUNCA llegan al detector ni al normalizador.
+ * - Descarte estricto al 100% de datos sensibles (nombres, DNI, teléfonos, direcciones) por privacidad (RGPD).
+ * - Procesa por bloques asíncronos para evitar congelar el hilo principal del navegador.
+ */
+export const escanearMatriculasDesdeLibroExcel = async (
+  workbook: XLSX.WorkBook,
+  opciones?: OpcionesEscaneoExcel
+): Promise<ResultadoEscaneoMultiColumna> => {
   let totalCeldasEscaneadas = 0;
   let totalColumnasEscaneadas = 0;
   let totalFilasDocumento = 0;
   const columnasConMatriculaSet = new Set<string>();
   const items: ItemMatriculaDetectada[] = [];
+  const tamanoLote = opciones?.tamanoLoteFilas || 150;
 
-  for (const sheetName of workbook.SheetNames) {
+  let algunaHojaConColumnaMatricula = false;
+
+  for (let hIdx = 0; hIdx < workbook.SheetNames.length; hIdx++) {
+    if (opciones?.debeCancelar?.()) {
+      return {
+        items: [],
+        totalColumnasEscaneadas,
+        totalCeldasEscaneadas,
+        columnasConMatriculas: [],
+        totalFilasDocumento,
+        datosSensiblesDescartados: true,
+        cancelado: true,
+        mensajeAviso: 'Análisis cancelado por el usuario. El catálogo anterior permanece intacto.',
+      };
+    }
+
+    const sheetName = workbook.SheetNames[hIdx];
     const ws = workbook.Sheets[sheetName];
     if (!ws || !ws['!ref']) continue;
 
@@ -504,41 +652,90 @@ export const escanearMatriculasDesdeLibroExcel = (
 
     const primeraFila = matriz[0] || [];
     const tieneEncabezados = primeraFila.some((c: any) => typeof c === 'string' && c.trim().length > 0);
-    const encabezados: string[] = tieneEncabezados
-      ? primeraFila.map((c: any, i: number) => {
-          const val = String(c || '').trim();
-          return val || `Columna ${XLSX.utils.encode_col(i)}`;
-        })
-      : [];
+    const encabezadosRaw: string[] = primeraFila.map((c: any, i: number) => {
+      const val = String(c || '').trim();
+      return val || `Columna ${XLSX.utils.encode_col(i)}`;
+    });
 
-    const filaInicio = tieneEncabezados ? 1 : 0;
-    totalFilasDocumento += matriz.length - filaInicio;
-
-    let maxCols = 0;
+    let maxColsHoja = 0;
     for (const f of matriz) {
-      if (f && f.length > maxCols) maxCols = f.length;
+      if (f && f.length > maxColsHoja) maxColsHoja = f.length;
     }
-    if (maxCols > totalColumnasEscaneadas) totalColumnasEscaneadas = maxCols;
+    if (maxColsHoja > totalColumnasEscaneadas) totalColumnasEscaneadas = maxColsHoja;
+
+    // FASE 2 Y 3: Identificar EXCLUSIVAMENTE las columnas de matrícula en esta hoja
+    const colsMatricula = tieneEncabezados ? identificarColumnasMatricula(encabezadosRaw) : [];
+
+    // REGLA CRÍTICA OBLIGATORIA:
+    // Si esta hoja no tiene ninguna columna identificada como matrícula,
+    // NO analizar ninguna otra columna buscando matrículas por todo el documento.
+    if (colsMatricula.length === 0) {
+      continue;
+    }
+
+    algunaHojaConColumnaMatricula = true;
+    colsMatricula.forEach((col) => {
+      columnasConMatriculaSet.add(`${col.letraExcel} (${col.nombreOriginal})`);
+    });
+
+    const filaInicio = 1;
+    const totalFilasHoja = matriz.length - filaInicio;
+    totalFilasDocumento += totalFilasHoja;
 
     for (let r = filaInicio; r < matriz.length; r++) {
+      // Ceder el turno periódicamente al event loop del navegador para evitar congelar la interfaz
+      if ((r - filaInicio) % tamanoLote === 0) {
+        if (opciones?.debeCancelar?.()) {
+          return {
+            items: [],
+            totalColumnasEscaneadas,
+            totalCeldasEscaneadas,
+            columnasConMatriculas: [],
+            totalFilasDocumento,
+            datosSensiblesDescartados: true,
+            cancelado: true,
+            mensajeAviso: 'Análisis cancelado por el usuario. El catálogo anterior permanece intacto.',
+          };
+        }
+
+        if (opciones?.onProgreso) {
+          const progresoPct = Math.min(
+            100,
+            Math.round(((r - filaInicio) / Math.max(1, totalFilasHoja)) * 100)
+          );
+          opciones.onProgreso({
+            hojaActual: hIdx + 1,
+            totalHojas: workbook.SheetNames.length,
+            nombreHoja: sheetName,
+            filaActual: r - filaInicio,
+            totalFilasHoja,
+            totalFilasGlobal: totalFilasDocumento,
+            porcentaje: progresoPct,
+            totalMatriculasDetectadas: items.length,
+          });
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+
       const fila = matriz[r];
       if (!fila || fila.length === 0) continue;
 
-      for (let c = 0; c < fila.length; c++) {
-        const celdaVal = fila[c];
+      // FASE 4: Procesar ÚNICAMENTE las columnas autorizadas de matrícula
+      // Las celdas de Modelo, Marca, Color, etc. NUNCA se leen ni se envían a extraerCandidatosMatriculaDeCelda
+      for (const col of colsMatricula) {
+        const celdaVal = fila[col.indice];
         totalCeldasEscaneadas++;
 
         if (celdaVal === null || celdaVal === undefined || celdaVal === '') continue;
 
-        const colLetra = XLSX.utils.encode_col(c);
-        const colNombre = encabezados[c] ? `${colLetra} (${encabezados[c]})` : `Columna ${colLetra}`;
+        const colNombre = `${col.letraExcel} (${col.nombreOriginal})`;
 
         // Extraer candidatos a matrícula usando el detector determinista
         const candidatos = extraerCandidatosMatriculaDeCelda(celdaVal);
         for (const cand of candidatos) {
           const norm = normalizarMatricula(cand);
           if (norm.matriculaNormalizada && norm.estadoValidacion !== 'INVALIDA') {
-            columnasConMatriculaSet.add(colNombre);
             items.push({
               matriculaOriginal: norm.matriculaOriginal,
               matriculaNormalizada: norm.matriculaNormalizada,
@@ -547,12 +744,42 @@ export const escanearMatriculasDesdeLibroExcel = (
               estadoValidacion: norm.estadoValidacion,
               filaOrigen: r + 1,
               columnaOrigen: colNombre,
+              hojaOrigen: sheetName,
               incidencias: norm.incidencias,
             });
           }
         }
       }
     }
+  }
+
+  // Notificación de progreso final
+  if (opciones?.onProgreso && workbook.SheetNames.length > 0) {
+    opciones.onProgreso({
+      hojaActual: workbook.SheetNames.length,
+      totalHojas: workbook.SheetNames.length,
+      nombreHoja: workbook.SheetNames[workbook.SheetNames.length - 1],
+      filaActual: totalFilasDocumento,
+      totalFilasHoja: totalFilasDocumento,
+      totalFilasGlobal: totalFilasDocumento,
+      porcentaje: 100,
+      totalMatriculasDetectadas: items.length,
+    });
+  }
+
+  // Si ninguna hoja tenía una columna de matrícula identificable
+  if (!algunaHojaConColumnaMatricula) {
+    return {
+      items: [],
+      totalColumnasEscaneadas,
+      totalCeldasEscaneadas,
+      columnasConMatriculas: [],
+      totalFilasDocumento,
+      datosSensiblesDescartados: true,
+      sinColumnaMatricula: true,
+      mensajeAviso:
+        'No se ha encontrado ninguna columna identificada como matrícula en el archivo. Verifique los encabezados del Excel.',
+    };
   }
 
   return {
@@ -562,11 +789,13 @@ export const escanearMatriculasDesdeLibroExcel = (
     columnasConMatriculas: Array.from(columnasConMatriculaSet),
     totalFilasDocumento,
     datosSensiblesDescartados: true,
+    sinColumnaMatricula: false,
   };
 };
 
 /**
- * Escanea matrículas desde texto pegado (TSV/Excel, CSV o listado) sin límite de columnas ni de filas.
+ * Escanea matrículas desde texto pegado (TSV/Excel, CSV o listado).
+ * Si la primera línea contiene encabezados identificables, procesa exclusivamente las columnas de matrícula.
  */
 export const escanearMatriculasDesdeTexto = (
   texto: string
@@ -578,36 +807,91 @@ export const escanearMatriculasDesdeTexto = (
 
   const lineas = texto.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
   const totalFilasDocumento = lineas.length;
+  if (totalFilasDocumento === 0) {
+    return {
+      items: [],
+      totalColumnasEscaneadas: 0,
+      totalCeldasEscaneadas: 0,
+      columnasConMatriculas: [],
+      totalFilasDocumento: 0,
+      datosSensiblesDescartados: true,
+      sinColumnaMatricula: false,
+    };
+  }
 
-  lineas.forEach((linea, rIdx) => {
-    const partes = linea.split(/[\t;,]/);
-    if (partes.length > totalColumnasEscaneadas) totalColumnasEscaneadas = partes.length;
+  // Comprobar si la primera línea contiene encabezados identificables
+  const primeraLineaPartes = lineas[0].split(/[\t;,]/).map((p) => p.trim());
+  const colsMatricula = identificarColumnasMatricula(primeraLineaPartes);
 
-    partes.forEach((parte, cIdx) => {
-      totalCeldasEscaneadas++;
-      const val = parte.trim();
-      if (!val) return;
+  if (colsMatricula.length > 0) {
+    // Modo con encabezados: solo procesar columnas identificadas
+    totalColumnasEscaneadas = primeraLineaPartes.length;
+    colsMatricula.forEach((col) => {
+      columnasConMatriculaSet.add(`${col.letraExcel} (${col.nombreOriginal})`);
+    });
 
-      const colNombre = `Columna ${cIdx + 1}`;
-      const candidatos = extraerCandidatosMatriculaDeCelda(val);
-      for (const cand of candidatos) {
-        const norm = normalizarMatricula(cand);
-        if (norm.matriculaNormalizada && norm.estadoValidacion !== 'INVALIDA') {
-          columnasConMatriculaSet.add(colNombre);
-          items.push({
-            matriculaOriginal: norm.matriculaOriginal,
-            matriculaNormalizada: norm.matriculaNormalizada,
-            valorLimpio: norm.valorLimpio,
-            formatoDetectado: norm.formatoDetectado,
-            estadoValidacion: norm.estadoValidacion,
-            filaOrigen: rIdx + 1,
-            columnaOrigen: colNombre,
-            incidencias: norm.incidencias,
-          });
+    for (let rIdx = 1; rIdx < lineas.length; rIdx++) {
+      const partes = lineas[rIdx].split(/[\t;,]/);
+      if (partes.length > totalColumnasEscaneadas) totalColumnasEscaneadas = partes.length;
+
+      for (const col of colsMatricula) {
+        totalCeldasEscaneadas++;
+        const val = partes[col.indice]?.trim();
+        if (!val) continue;
+
+        const colNombre = `${col.letraExcel} (${col.nombreOriginal})`;
+        const candidatos = extraerCandidatosMatriculaDeCelda(val);
+        for (const cand of candidatos) {
+          const norm = normalizarMatricula(cand);
+          if (norm.matriculaNormalizada && norm.estadoValidacion !== 'INVALIDA') {
+            items.push({
+              matriculaOriginal: norm.matriculaOriginal,
+              matriculaNormalizada: norm.matriculaNormalizada,
+              valorLimpio: norm.valorLimpio,
+              formatoDetectado: norm.formatoDetectado,
+              estadoValidacion: norm.estadoValidacion,
+              filaOrigen: rIdx + 1,
+              columnaOrigen: colNombre,
+              hojaOrigen: 'Texto Pegado',
+              incidencias: norm.incidencias,
+            });
+          }
         }
       }
+    }
+  } else {
+    // Si la primera línea no contiene encabezados identificados de matrícula (ej. listado plano o filas directas de datos):
+    lineas.forEach((linea, rIdx) => {
+      const partes = linea.split(/[\t;,]/);
+      if (partes.length > totalColumnasEscaneadas) totalColumnasEscaneadas = partes.length;
+
+      partes.forEach((parte, cIdx) => {
+        totalCeldasEscaneadas++;
+        const val = parte.trim();
+        if (!val) return;
+
+        const colNombre = `Columna ${cIdx + 1}`;
+        const candidatos = extraerCandidatosMatriculaDeCelda(val);
+        for (const cand of candidatos) {
+          const norm = normalizarMatricula(cand);
+          if (norm.matriculaNormalizada && norm.estadoValidacion !== 'INVALIDA') {
+            columnasConMatriculaSet.add(colNombre);
+            items.push({
+              matriculaOriginal: norm.matriculaOriginal,
+              matriculaNormalizada: norm.matriculaNormalizada,
+              valorLimpio: norm.valorLimpio,
+              formatoDetectado: norm.formatoDetectado,
+              estadoValidacion: norm.estadoValidacion,
+              filaOrigen: rIdx + 1,
+              columnaOrigen: colNombre,
+              hojaOrigen: 'Texto Pegado',
+              incidencias: norm.incidencias,
+            });
+          }
+        }
+      });
     });
-  });
+  }
 
   return {
     items,
