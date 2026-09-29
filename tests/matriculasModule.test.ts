@@ -14,6 +14,7 @@
 
 import {
   normalizarMatricula,
+  normalizarMatriculaEntradaCamara,
   previsualizarLoteMatriculas,
   limpiarValorOriginal,
   extraerCandidatosMatriculaDeCelda,
@@ -1124,6 +1125,128 @@ assert(
   resumenReconcilMulti.datosSensiblesDescartados === true,
   'Resumen de reconciliación certifica descarte de datos sensibles'
 );
+
+// -------------------------------------------------------------
+// 15. Normalización Robusta y Reconocimiento de Matrículas por Cámara (Resolución OCR vs Manual)
+// -------------------------------------------------------------
+console.log('\n--- 15. Normalización Robusta y Reconocimiento por Cámara (OCR vs Manual) ---');
+
+// 1. Matrícula moderna estándar sin ruidos
+const ocrMod1 = normalizarMatriculaEntradaCamara('1508 GSZ');
+assert(ocrMod1.matriculaNormalizada === '1508GSZ', 'CÁMARA: "1508 GSZ" normaliza a canónica "1508GSZ"');
+assert(ocrMod1.formatoDetectado === 'MODERNO_ESP', 'CÁMARA: Detecta formato MODERNO_ESP');
+assert(ocrMod1.estadoValidacion === 'VALIDA', 'CÁMARA: Clasificada como VALIDA');
+
+// 2. Matrícula sin espacios
+const ocrModSinEsp = normalizarMatriculaEntradaCamara('1508GSZ');
+assert(ocrModSinEsp.matriculaNormalizada === '1508GSZ', 'CÁMARA: "1508GSZ" normaliza a canónica "1508GSZ"');
+
+// 3. Matrícula con distintivo europeo de país 'E' (Banda azul eurobanda física)
+const ocrModConE = normalizarMatriculaEntradaCamara('E 1508 GSZ');
+assert(ocrModConE.matriculaNormalizada === '1508GSZ', 'CÁMARA: "E 1508 GSZ" descarta eurobanda "E" y normaliza a canónica "1508GSZ"');
+assert(ocrModConE.formatoDetectado === 'MODERNO_ESP', 'CÁMARA: "E 1508 GSZ" se clasifica como MODERNO_ESP (no ciclo)');
+
+const ocrModConE2 = normalizarMatriculaEntradaCamara('E1508GSZ');
+assert(ocrModConE2.matriculaNormalizada === '1508GSZ', 'CÁMARA: "E1508GSZ" desambigua eurobanda pegada a "1508GSZ"');
+assert(
+  ocrModConE2.clavesCandidatasAlternativas?.includes('E1508GSZ'),
+  'CÁMARA: "E1508GSZ" preserva clave alternativa especial E1508GSZ para vehículos especiales'
+);
+
+const ocrModConCorchetes = normalizarMatriculaEntradaCamara('[E] 1508 GSZ');
+assert(ocrModConCorchetes.matriculaNormalizada === '1508GSZ', 'CÁMARA: "[E] 1508 GSZ" descarta corchetes y símbolo de eurobanda');
+
+const ocrModConParentesis = normalizarMatriculaEntradaCamara('(E) 1508 GSZ');
+assert(ocrModConParentesis.matriculaNormalizada === '1508GSZ', 'CÁMARA: "(E) 1508 GSZ" descarta paréntesis de eurobanda');
+
+const ocrModConES = normalizarMatriculaEntradaCamara('ES 1508 GSZ');
+assert(ocrModConES.matriculaNormalizada === '1508GSZ', 'CÁMARA: "ES 1508 GSZ" descarta distintivo país "ES"');
+
+// 4. Distintivo 'SP' (Servicio Público)
+const ocrModConSP = normalizarMatriculaEntradaCamara('1508 GSZ SP');
+assert(ocrModConSP.matriculaNormalizada === '1508GSZ', 'CÁMARA: "1508 GSZ SP" descarta distintivo sufijo SP');
+
+const ocrModConSPPrefijo = normalizarMatriculaEntradaCamara('SP 1508 GSZ');
+assert(ocrModConSPPrefijo.matriculaNormalizada === '1508GSZ', 'CÁMARA: "SP 1508 GSZ" descarta distintivo prefijo SP');
+
+// 5. Puntuación y separadores comunes de OCR
+const ocrModPuntoMedio = normalizarMatriculaEntradaCamara('1508·GSZ');
+assert(ocrModPuntoMedio.matriculaNormalizada === '1508GSZ', 'CÁMARA: "1508·GSZ" con punto medio normaliza a "1508GSZ"');
+
+const ocrModPunto = normalizarMatriculaEntradaCamara('1508.GSZ');
+assert(ocrModPunto.matriculaNormalizada === '1508GSZ', 'CÁMARA: "1508.GSZ" con punto normaliza a "1508GSZ"');
+
+const ocrModGuion = normalizarMatriculaEntradaCamara('1508-GSZ');
+assert(ocrModGuion.matriculaNormalizada === '1508GSZ', 'CÁMARA: "1508-GSZ" con guion normaliza a "1508GSZ"');
+
+const ocrModBarra = normalizarMatriculaEntradaCamara('1508/GSZ');
+assert(ocrModBarra.matriculaNormalizada === '1508GSZ', 'CÁMARA: "1508/GSZ" con barra normaliza a "1508GSZ"');
+
+const ocrModEspaciosMultiples = normalizarMatriculaEntradaCamara('  1508    GSZ   ');
+assert(ocrModEspaciosMultiples.matriculaNormalizada === '1508GSZ', 'CÁMARA: Espacios múltiples y extremos normalizan a "1508GSZ"');
+
+// 6. Placas de doble fila / cuadradas (motos, 4x4) con saltos de línea
+const ocrModSaltoLinea = normalizarMatriculaEntradaCamara('1508\nGSZ');
+assert(ocrModSaltoLinea.matriculaNormalizada === '1508GSZ', 'CÁMARA: "1508\\nGSZ" con salto de línea normaliza a "1508GSZ"');
+
+const ocrModSaltoConE = normalizarMatriculaEntradaCamara('E\n1508\nGSZ');
+assert(ocrModSaltoConE.matriculaNormalizada === '1508GSZ', 'CÁMARA: "E\\n1508\\nGSZ" con saltos de línea y eurobanda normaliza a "1508GSZ"');
+
+// 7. Ruido circundante de portamatrículas / concesionarios ('GES', marcas)
+const ocrModRuidoGES = normalizarMatriculaEntradaCamara('1508 GSZ GES');
+assert(ocrModRuidoGES.matriculaNormalizada === '1508GSZ', 'CÁMARA: "1508 GSZ GES" extrae matrícula aislando ruido "GES"');
+
+const ocrModRuidoGESPrefijo = normalizarMatriculaEntradaCamara('GES 1508 GSZ');
+assert(ocrModRuidoGESPrefijo.matriculaNormalizada === '1508GSZ', 'CÁMARA: "GES 1508 GSZ" extrae matrícula aislando prefijo "GES"');
+
+const ocrModRuidoConcesionario = normalizarMatriculaEntradaCamara('GETAFE MOTOR 1508 GSZ');
+assert(ocrModRuidoConcesionario.matriculaNormalizada === '1508GSZ', 'CÁMARA: "GETAFE MOTOR 1508 GSZ" extrae matrícula limpia');
+
+// 8. Mayúsculas / minúsculas
+const ocrModMinusculas = normalizarMatriculaEntradaCamara('e 1508 gsz');
+assert(ocrModMinusculas.matriculaNormalizada === '1508GSZ', 'CÁMARA: Minúsculas "e 1508 gsz" normalizan a "1508GSZ"');
+
+// 9. Otros formatos españoles oficiales leídos por cámara
+const ocrProvAlfa = normalizarMatriculaEntradaCamara('E M 1234 AB');
+assert(ocrProvAlfa.matriculaNormalizada === 'M1234AB', 'CÁMARA: Provincial con eurobanda "E M 1234 AB" normaliza a "M1234AB"');
+assert(ocrProvAlfa.formatoDetectado === 'PROVINCIAL_ALFA', 'CÁMARA: Detecta formato PROVINCIAL_ALFA');
+
+const ocrFuerzas = normalizarMatriculaEntradaCamara('PGC 1234 A');
+assert(ocrFuerzas.matriculaNormalizada === 'PGC1234A', 'CÁMARA: Oficial fuerzas "PGC 1234 A" normaliza a "PGC1234A"');
+
+const ocrCiclo = normalizarMatriculaEntradaCamara('C-1234-BBB');
+assert(ocrCiclo.matriculaNormalizada === 'C1234BBB', 'CÁMARA: Ciclomotor "C-1234-BBB" normaliza a "C1234BBB"');
+
+// 10. REGLA DE PARIDAD ESTRICTA: Entrada manual vs Cámara
+// La misma matrícula almacenada en el catálogo maestro ("1508GSZ") introducida de forma manual ("1508 GSZ")
+// y capturada por cámara con ruido óptico ("E 1508 GSZ") resuelven a la IDÉNTICA clave canónica y ambas autorizan.
+const entradaManual = normalizarMatricula('1508 GSZ');
+const entradaCamara1 = normalizarMatriculaEntradaCamara('E 1508 GSZ');
+const entradaCamara2 = normalizarMatriculaEntradaCamara('1508\\nGSZ');
+const entradaCamara3 = normalizarMatriculaEntradaCamara('1508 GSZ GES');
+
+assert(
+  entradaManual.matriculaNormalizada === entradaCamara1.matriculaNormalizada,
+  'PARIDAD TOTAL: Entrada manual y captura de cámara con "E" resuelven a la misma clave ("1508GSZ")'
+);
+assert(
+  entradaManual.matriculaNormalizada === entradaCamara2.matriculaNormalizada,
+  'PARIDAD TOTAL: Entrada manual y captura de cámara en 2 líneas resuelven a la misma clave ("1508GSZ")'
+);
+assert(
+  entradaManual.matriculaNormalizada === entradaCamara3.matriculaNormalizada,
+  'PARIDAD TOTAL: Entrada manual y captura con texto "GES" resuelven a la misma clave ("1508GSZ")'
+);
+
+// Simulación de catálogo con documento '1508GSZ' activo:true
+const catalogoMock: Record<string, { activo: boolean }> = {
+  '1508GSZ': { activo: true },
+};
+
+const estadoManual = evaluarEstadoAutorizacion(catalogoMock[entradaManual.matriculaNormalizada]);
+const estadoCamara = evaluarEstadoAutorizacion(catalogoMock[entradaCamara1.matriculaNormalizada]);
+assert(estadoManual === 'AUTORIZADA', 'PARIDAD: Entrada manual resulta en AUTORIZADA');
+assert(estadoCamara === 'AUTORIZADA', 'PARIDAD: Entrada por cámara resulta idénticamente en AUTORIZADA');
 
 // -------------------------------------------------------------
 // RESUMEN FINAL

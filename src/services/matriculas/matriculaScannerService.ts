@@ -1,4 +1,4 @@
-import { normalizarMatricula } from './matriculaNormalizerService';
+import { normalizarMatricula, normalizarMatriculaEntradaCamara } from './matriculaNormalizerService';
 import { getMatriculaByNormalizada } from './matriculaDataService';
 
 export type MetodoOCR = 'LOCAL' | 'REMOTO';
@@ -37,7 +37,7 @@ export const initLocalOcrWorker = async (): Promise<any> => {
     const { createWorker } = await import('tesseract.js');
     const worker = await createWorker('eng');
     await worker.setParameters({
-      tessedit_char_whitelist: '0123456789BCDFGHJKLMNPRSTVWXYZ',
+      tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ -',
       tessedit_pageseg_mode: '7' as any, // Single text line (optimizado para matrículas)
     });
     localWorkerInstance = worker;
@@ -164,8 +164,8 @@ export const reconocerTextoCanvas = async (
       const raceResult = await Promise.race([ocrPromise, timeoutPromise]);
 
       if (!raceResult.timeout && raceResult.text) {
-        const textoLimpio = raceResult.text.replace(/[^A-Z0-9]/gi, '').toUpperCase();
-        if (textoLimpio.length >= 4) {
+        const textoLimpio = raceResult.text.trim();
+        if (textoLimpio.length >= 3) {
           return {
             texto: textoLimpio,
             metodo: 'LOCAL',
@@ -189,8 +189,8 @@ export const reconocerTextoCanvas = async (
 
     if (resp.ok) {
       const data = await resp.json();
-      const txt = (data.texto || '').replace(/[^A-Z0-9]/gi, '').toUpperCase();
-      if (txt.length >= 4) {
+      const txt = (data.texto || '').trim();
+      if (txt.length >= 3) {
         return {
           texto: txt,
           metodo: 'REMOTO',
@@ -227,7 +227,7 @@ export const evaluarEstadoAutorizacion = (
 
 /**
  * Flujo completo:
- * 1. Limpieza y normalización canónica de la matrícula leída.
+ * 1. Limpieza y normalización canónica de la matrícula leída (pasando por normalizarMatriculaEntradaCamara).
  * 2. Consulta en Firestore (colección matriculas_autorizadas).
  * 3. Retorno del semáforo (AUTORIZADA vs NO_AUTORIZADA) sin datos adjuntos.
  */
@@ -236,7 +236,7 @@ export const consultarAutorizacionMatricula = async (
   metodo: MetodoOCR = 'LOCAL'
 ): Promise<ResultadoConsultaScanner> => {
   const t0 = Date.now();
-  const normalizado = normalizarMatricula(textoCrudo);
+  const normalizado = normalizarMatriculaEntradaCamara(textoCrudo);
 
   // Descartar lecturas que no alcanzan una estructura mínima reconocible
   if (normalizado.estadoValidacion === 'INVALIDA' || !normalizado.matriculaNormalizada) {
@@ -250,8 +250,17 @@ export const consultarAutorizacionMatricula = async (
   }
 
   try {
-    // Consulta determinista O(1) por clave canónica
-    const docMatricula = await getMatriculaByNormalizada(normalizado.matriculaNormalizada);
+    // 1. Consulta determinista O(1) por clave canónica principal
+    let docMatricula = await getMatriculaByNormalizada(normalizado.matriculaNormalizada);
+
+    // 2. Si no se encontró y existen claves candidatas alternativas (ej: turismo estándar '1508GSZ' vs especial 'E1508GSZ')
+    if (!docMatricula && normalizado.clavesCandidatasAlternativas?.length) {
+      for (const altKey of normalizado.clavesCandidatasAlternativas) {
+        docMatricula = await getMatriculaByNormalizada(altKey);
+        if (docMatricula) break;
+      }
+    }
+
     const estado = evaluarEstadoAutorizacion(docMatricula);
 
     return {

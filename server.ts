@@ -449,7 +449,7 @@ app.post('/api/matriculas/ocr-frame', async (req, res) => {
                 data: cleanBase64,
               },
             },
-            'Identifica la matrícula de vehículo visible en esta imagen (por ejemplo 8920BZF o 1234BBB o M1234AB). Devuelve ÚNICAMENTE los caracteres alfanuméricos en mayúsculas sin espacios, sin guiones ni puntos. Si no ves claramente una matrícula de coche/moto/vehículo, devuelve: VACIO',
+            'Identifica la matrícula oficial del vehículo visible en esta imagen (por ejemplo "1508 GSZ", "M 1234 AB", "PGC 1234 A"). Si la placa incluye la banda azul europea con la "E", omite la "E" del país y devuelve solo los caracteres de la matrícula. Si no ves claramente una matrícula de vehículo, devuelve: VACIO',
           ],
           config: {
             maxOutputTokens: 20,
@@ -467,8 +467,8 @@ app.post('/api/matriculas/ocr-frame', async (req, res) => {
       throw ultimoError;
     }
 
-    let rawText = (response?.text || '').trim().toUpperCase().replace(/[\s\-_./\\'"`,;:]/g, '');
-    if (rawText.includes('VACIO') || rawText.includes('NINGUNA') || rawText.includes('NOTFOUND')) {
+    let rawText = (response?.text || '').trim();
+    if (rawText.toUpperCase().includes('VACIO') || rawText.toUpperCase().includes('NINGUNA') || rawText.toUpperCase().includes('NOTFOUND')) {
       rawText = '';
     }
     const duracionMs = Date.now() - t0;

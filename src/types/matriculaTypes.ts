@@ -26,6 +26,7 @@ export interface MatriculaNormalizadaResultado {
   esValida: boolean;                         // true ÚNICAMENTE si estadoValidacion === 'VALIDA'
   incidencias: string[];                     // Lista de motivos de duda, advertencias o causas de invalidez
   motivoInvalidez?: string;                  // Causa principal (para compatibilidad de interfaz)
+  clavesCandidatasAlternativas?: string[];   // Claves canónicas alternativas para comprobación (ej. con/sin prefijo especial E)
 }
 
 export type OrigenMatricula = 'IMPORTACION_EXCEL' | 'ALTA_MANUAL' | 'SISTEMA';

@@ -575,3 +575,185 @@ export const extraerCandidatosMatriculaDeCelda = (rawCelda: any): string[] => {
 
   return candidatosEncontrados;
 };
+
+/**
+ * Limpia y normaliza el texto bruto proveniente de una lectura óptica (Cámara / OCR).
+ * Elimina saltos de línea, separadores gráficos, caracteres parásitos y diacríticos.
+ */
+export const limpiarTextoLecturaOCR = (raw: string): string => {
+  if (!raw) return '';
+  return raw
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\\N|\\R|\\T/gi, ' ')
+    .replace(/[\r\n\t]+/g, ' ')
+    // Símbolos de ruido de placa y artefactos de OCR (viñetas, puntos medios, corchetes, comillas, etc.)
+    .replace(/[·•*°ºª()\[\]{}<>'\":;.,_\/\\\\|~^#$%&+=?!–—-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+/**
+ * Función canónica ÚNICA de normalización para entradas procedentes de CÁMARA y OCR.
+ *
+ * Contempla taxativamente:
+ * - Espacios (múltiples, interiores o ausentes)
+ * - Guiones, barras, puntos y saltos de línea
+ * - Mayúsculas / minúsculas
+ * - Ruido gráfico de la placa: Banda azul europea ('E', 'ES', '[E]'), distintivo 'SP' (Servicio Público)
+ * - Textos de portamatrículas / concesionarios ('GES', 'MOTOR', etc.)
+ * - Desambiguación determinista entre turismo moderno con eurobanda ('E 1508 GSZ' -> '1508GSZ')
+ *   y vehículo especial genuino ('E1508GSZ' preservado como clave alternativa para comprobación).
+ * - Comparación canónica sin alterar el dato almacenado en la base de datos.
+ */
+export const normalizarMatriculaEntradaCamara = (
+  raw: string | number | null | undefined
+): MatriculaNormalizadaResultado => {
+  if (raw === null || raw === undefined) {
+    return normalizarMatricula('');
+  }
+
+  const str = String(raw).trim();
+  const limpio = limpiarTextoLecturaOCR(str);
+  if (!limpio) {
+    return normalizarMatricula('');
+  }
+
+  // 1. Evaluación directa si la cadena limpia ya es una matrícula oficial española válida
+  const normDirecta = normalizarMatricula(limpio);
+  if (normDirecta.estadoValidacion === 'VALIDA') {
+    // Si coincide con formato ESPECIAL que empieza por E, pero también encaja con formato MODERNO DGT:
+    // (Ej: 'E 1508 GSZ' o 'E1508GSZ' capturada por cámara en un turismo donde la E es la banda europea)
+    if (normDirecta.matriculaNormalizada.startsWith('E')) {
+      const posibleSinE = normDirecta.matriculaNormalizada.slice(1);
+      if (/^\d{4}[BCDFGHJKLMNPRSTVWXYZ]{3}$/.test(posibleSinE)) {
+        const normModerno = normalizarMatricula(posibleSinE);
+        return {
+          ...normModerno,
+          matriculaOriginal: str,
+          valorLimpio: posibleSinE.slice(0, 4) + ' ' + posibleSinE.slice(4),
+          clavesCandidatasAlternativas: [normDirecta.matriculaNormalizada],
+        };
+      }
+    }
+    return normDirecta;
+  }
+
+  // 2. Eliminación de distintivos de país o servicio público ubicados en los extremos (separados por espacio o símbolos)
+  const sinDistintivos = limpio
+    .replace(/^(?:ES|SP)\s+/g, '')
+    .replace(/\s+(?:ES|SP)$/g, '')
+    .replace(/^E\s+/g, '')
+    .replace(/\s+E$/g, '')
+    .trim();
+
+  const normSinDist = normalizarMatricula(sinDistintivos);
+  if (normSinDist.estadoValidacion === 'VALIDA') {
+    if (normSinDist.matriculaNormalizada.startsWith('E')) {
+      const posibleSinE = normSinDist.matriculaNormalizada.slice(1);
+      if (/^\d{4}[BCDFGHJKLMNPRSTVWXYZ]{3}$/.test(posibleSinE)) {
+        const normModerno = normalizarMatricula(posibleSinE);
+        return {
+          ...normModerno,
+          matriculaOriginal: str,
+          valorLimpio: posibleSinE.slice(0, 4) + ' ' + posibleSinE.slice(4),
+          clavesCandidatasAlternativas: [normSinDist.matriculaNormalizada],
+        };
+      }
+    }
+    return {
+      ...normSinDist,
+      matriculaOriginal: str,
+    };
+  }
+
+  // 3. Extracción robusta de patrones de matrícula oficial española dentro de texto con ruido circundante
+  // (por ejemplo marcas, nombres de concesionarios 'GES', publicidad de portamatrículas)
+
+  // Patrón 3.1: Formato Nacional Moderno Español (4 dígitos + 3 consonantes DGT)
+  // Ej: 'GETAFE MOTOR 1508 GSZ' o '1508 GSZ GES'
+  const matchMod = sinDistintivos.match(/\b(\d{4})\s*([BCDFGHJKLMNPRSTVWXYZ]{3})\b/);
+  if (matchMod) {
+    const can = matchMod[1] + matchMod[2];
+    const norm = normalizarMatricula(can);
+    if (norm.estadoValidacion === 'VALIDA') {
+      return {
+        ...norm,
+        matriculaOriginal: str,
+      };
+    }
+  }
+
+  // Si no tenía espacio y estaba precedido por 'E' de la eurobanda (ej: 'E1508GSZ'):
+  const matchModConE = sinDistintivos.match(/\bE(\d{4})([BCDFGHJKLMNPRSTVWXYZ]{3})\b/);
+  if (matchModConE) {
+    const can = matchModConE[1] + matchModConE[2];
+    const norm = normalizarMatricula(can);
+    if (norm.estadoValidacion === 'VALIDA') {
+      return {
+        ...norm,
+        matriculaOriginal: str,
+        clavesCandidatasAlternativas: ['E' + can],
+      };
+    }
+  }
+
+  // Patrón 3.2: Oficial Fuerzas y Cuerpos de Seguridad / Estado (PGC, CNP, etc.)
+  const matchFuerzas = sinDistintivos.match(
+    /\b(PGC|CNP|ET|EA|FN|CME|DGP|PMM|PME|MF|MMA)\s*(\d{3,6}\s*[A-Z]?)\b/
+  );
+  if (matchFuerzas) {
+    const can = matchFuerzas[1] + matchFuerzas[2].replace(/\s+/g, '');
+    const norm = normalizarMatricula(can);
+    if (norm.estadoValidacion === 'VALIDA') {
+      return {
+        ...norm,
+        matriculaOriginal: str,
+      };
+    }
+  }
+
+  // Patrón 3.3: Formato Provincial Alfanumérico (1-2 letras provinciales + 4 dígitos + 1-2 letras)
+  const matchProvAlfa = sinDistintivos.match(/\b([A-Z]{1,2})\s*(\d{4})\s*([A-Z]{1,2})\b/);
+  if (matchProvAlfa && PREFIJOS_PROVINCIALES_ESP.has(matchProvAlfa[1])) {
+    const can = matchProvAlfa[1] + matchProvAlfa[2] + matchProvAlfa[3];
+    const norm = normalizarMatricula(can);
+    if (norm.estadoValidacion === 'VALIDA') {
+      return {
+        ...norm,
+        matriculaOriginal: str,
+      };
+    }
+  }
+
+  // Patrón 3.4: Formato Provincial Numérico Antiguo (1-2 letras provinciales + 1 a 6 dígitos)
+  const matchProvNum = sinDistintivos.match(/\b([A-Z]{1,2})\s*(\d{1,6})\b/);
+  if (matchProvNum && PREFIJOS_PROVINCIALES_ESP.has(matchProvNum[1])) {
+    const can = matchProvNum[1] + matchProvNum[2];
+    const norm = normalizarMatricula(can);
+    if (norm.estadoValidacion === 'VALIDA') {
+      return {
+        ...norm,
+        matriculaOriginal: str,
+      };
+    }
+  }
+
+  // Patrón 3.5: Formato Especial / Ciclomotor / Remolque (C, R, H + 4 dígitos + 1-3 letras)
+  const matchEsp = sinDistintivos.match(/\b([CERH])\s*(\d{4})\s*([A-Z]{1,3})\b/);
+  if (matchEsp) {
+    const can = matchEsp[1] + matchEsp[2] + matchEsp[3];
+    const norm = normalizarMatricula(can);
+    if (norm.estadoValidacion === 'VALIDA') {
+      return {
+        ...norm,
+        matriculaOriginal: str,
+      };
+    }
+  }
+
+  // Fallback: retornar resultado normalizado estándar
+  return normSinDist;
+};
+

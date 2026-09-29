@@ -231,15 +231,28 @@ export const MatriculaScannerModal: React.FC<MatriculaScannerModalProps> = ({
         img.src = url;
       });
 
+      const maxDim = 1600;
+      let w = img.naturalWidth || img.width;
+      let h = img.naturalHeight || img.height;
+      if (w > maxDim || h > maxDim) {
+        if (w > h) {
+          h = Math.round((h * maxDim) / w);
+          w = maxDim;
+        } else {
+          w = Math.round((w * maxDim) / h);
+          h = maxDim;
+        }
+      }
+
       const canvas = document.createElement('canvas');
-      canvas.width = 400;
-      canvas.height = 100;
+      canvas.width = w;
+      canvas.height = h;
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        ctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, w, h);
         const ocr = await reconocerTextoCanvas(canvas);
         URL.revokeObjectURL(url);
-        if (ocr.texto && ocr.texto.length >= 4) {
+        if (ocr.texto && ocr.texto.length >= 3) {
           const res = await consultarAutorizacionMatricula(ocr.texto, ocr.metodo);
           setResultadoSemafaro(res.estado || 'NO_AUTORIZADA');
           setFase('RESULTADO');
@@ -576,9 +589,10 @@ export const MatriculaScannerModal: React.FC<MatriculaScannerModalProps> = ({
           {/* Elemento de video a pantalla completa */}
           <video
             ref={videoRef}
-            className="absolute inset-0 w-full h-full object-cover"
+            autoPlay
             playsInline
             muted
+            className="absolute inset-0 w-full h-full object-cover bg-black"
           />
 
           {/* Cabecera flotante */}
@@ -620,11 +634,11 @@ export const MatriculaScannerModal: React.FC<MatriculaScannerModalProps> = ({
 
             {fase !== 'ERROR_CAMARA' ? (
               <div className="w-full max-w-sm space-y-3">
-                {/* Marco guía transparente de aspecto tipo matrícula (ratio 3.5:1), sin desenfoques ni velos internos */}
+                {/* Marco guía transparente de aspecto tipo matrícula (ratio 3.5:1), nítido y libre de velos */}
                 <div
                   ref={viewfinderRef}
                   onClick={() => procesarFotograma()}
-                  className="relative w-full aspect-[3.5/1] rounded-2xl border-2 border-emerald-400 shadow-[0_0_0_9999px_rgba(0,0,0,0.55),0_0_25px_rgba(52,211,153,0.35)] flex items-center justify-center bg-transparent cursor-pointer select-none"
+                  className="relative w-full aspect-[3.5/1] rounded-2xl border-2 border-emerald-400 shadow-[0_0_0_9999px_rgba(0,0,0,0.55),0_0_25px_rgba(52,211,153,0.35)] flex items-center justify-center bg-transparent backdrop-filter-none cursor-pointer select-none"
                   title="Toca para capturar al instante"
                 >
                   {/* Esquinas de mira de alta visibilidad */}
