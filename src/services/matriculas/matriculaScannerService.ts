@@ -253,11 +253,17 @@ export const consultarAutorizacionMatricula = async (
     // 1. Consulta determinista O(1) por clave canónica principal
     let docMatricula = await getMatriculaByNormalizada(normalizado.matriculaNormalizada);
 
-    // 2. Si no se encontró y existen claves candidatas alternativas (ej: turismo estándar '1508GSZ' vs especial 'E1508GSZ')
-    if (!docMatricula && normalizado.clavesCandidatasAlternativas?.length) {
+    // 2. Si no se encontró o está inactiva y existen claves candidatas alternativas (ej: turismo estándar '1508GSZ' vs especial 'E1508GSZ', o variantes sintácticas OCR)
+    if ((!docMatricula || !docMatricula.activo) && normalizado.clavesCandidatasAlternativas?.length) {
       for (const altKey of normalizado.clavesCandidatasAlternativas) {
-        docMatricula = await getMatriculaByNormalizada(altKey);
-        if (docMatricula) break;
+        if (!altKey || altKey === normalizado.matriculaNormalizada) continue;
+        const altDoc = await getMatriculaByNormalizada(altKey);
+        if (altDoc && altDoc.activo) {
+          docMatricula = altDoc;
+          break;
+        } else if (!docMatricula && altDoc) {
+          docMatricula = altDoc;
+        }
       }
     }
 

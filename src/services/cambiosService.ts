@@ -620,6 +620,14 @@ export const validarViabilidadPermuta = (
         valido: false,
         motivo: `${destinatario.nombre} ya está asignado como imaginaria el día ${fechaServicioA}.`,
       };
+    } else if (tipoCambioA === 'IMAGINARIA') {
+      const otrasImagA = imagA.filter((id) => id !== solicitante.id);
+      if (otrasImagA.includes(destinatario.id)) {
+        return {
+          valido: false,
+          motivo: `${destinatario.nombre} ya tiene asignada otra imaginaria el día ${fechaServicioA}.`,
+        };
+      }
     }
 
     // En srvB: verificar si solicitante ya tenía OTRO puesto distinto al que se intercambia
@@ -643,6 +651,14 @@ export const validarViabilidadPermuta = (
         valido: false,
         motivo: `${solicitante.nombre} ya está asignado como imaginaria el día ${fechaServicioB}.`,
       };
+    } else if (tipoCambioB === 'IMAGINARIA') {
+      const otrasImagB = imagB.filter((id) => id !== destinatario.id);
+      if (otrasImagB.includes(solicitante.id)) {
+        return {
+          valido: false,
+          motivo: `${solicitante.nombre} ya tiene asignada otra imaginaria el día ${fechaServicioB}.`,
+        };
+      }
     }
 
     // 3. Reglas de descanso para el SOLICITANTE en torno a su nuevo servicio (fechaServicioB)
@@ -743,6 +759,19 @@ export const validarViabilidadPermuta = (
       motivo: `${solicitante.nombre} finalizaría el turno nocturno de ${fechaServicioB} e ingresaría de diurno el ${sigB} (24h seguidas no permitidas en U.S.).`,
     };
   }
+  // En U.S. no se puede asumir imaginaria si hay servicio diurno/nocturno en días adyacentes, ni viceversa
+  if (estSolEnB.imaginaria && (estSolAntB.diurno || estSolAntB.nocturno || estSolSigB.diurno || estSolSigB.nocturno)) {
+    return {
+      valido: false,
+      motivo: `${solicitante.nombre} tendría servicio diurno/nocturno en el día anterior o posterior a la imaginaria del ${fechaServicioB} (prohibido en U.S. por riesgo de solapamiento de 24h).`,
+    };
+  }
+  if ((estSolEnB.diurno || estSolEnB.nocturno) && (estSolAntB.imaginaria || estSolSigB.imaginaria)) {
+    return {
+      valido: false,
+      motivo: `${solicitante.nombre} tiene imaginaria en el día anterior o posterior a su servicio del ${fechaServicioB} (prohibido en U.S. por riesgo de solapamiento de 24h).`,
+    };
+  }
 
   const estDestEnA = getEstadoUSResultante(fechaServicioA, destinatario.id);
   const antA = getOffsetDate(fechaServicioA, -1);
@@ -760,6 +789,18 @@ export const validarViabilidadPermuta = (
     return {
       valido: false,
       motivo: `${destinatario.nombre} finalizaría el turno nocturno de ${fechaServicioA} e ingresaría de diurno el ${sigA} (24h seguidas no permitidas en U.S.).`,
+    };
+  }
+  if (estDestEnA.imaginaria && (estDestAntA.diurno || estDestAntA.nocturno || estDestSigA.diurno || estDestSigA.nocturno)) {
+    return {
+      valido: false,
+      motivo: `${destinatario.nombre} tendría servicio diurno/nocturno en el día anterior o posterior a la imaginaria del ${fechaServicioA} (prohibido en U.S. por riesgo de solapamiento de 24h).`,
+    };
+  }
+  if ((estDestEnA.diurno || estDestEnA.nocturno) && (estDestAntA.imaginaria || estDestSigA.imaginaria)) {
+    return {
+      valido: false,
+      motivo: `${destinatario.nombre} tiene imaginaria en el día anterior o posterior a su servicio del ${fechaServicioA} (prohibido en U.S. por riesgo de solapamiento de 24h).`,
     };
   }
 
@@ -862,51 +903,126 @@ export const getCandidatosViablesPermuta = (
             });
           }
         }
+        // U.S. Imaginaria
+        if (s.imaginaria?.personaIdReal === comp.id) {
+          const check = validarViabilidadPermuta({
+            solicitante,
+            destinatario: comp,
+            fechaServicioA,
+            fechaServicioB: s.fecha,
+            servicios,
+            slotTipoA,
+            slotTipoB: 'imaginaria_us' as SlotServicioTipo,
+            tipoCambioA,
+            tipoCambioB: 'IMAGINARIA',
+          });
+          if (check.valido) {
+            serviciosViables.push({
+              servicioId: s.id,
+              fecha: s.fecha,
+              slotTipo: 'imaginaria_us' as SlotServicioTipo,
+              label: `${s.fecha} — IMAGINARIA (Disponibilidad 24h)`,
+              tipoCambio: 'IMAGINARIA',
+            });
+          }
+        }
       } else {
         const tRol1 = s.titulares?.rol1 || [];
         const tRol2 = s.titulares?.rol2 || [];
 
-        if (comp.empleo === 'ROL 1' && tRol1.some((c: any) => c?.personaIdReal === comp.id)) {
-          const check = validarViabilidadPermuta({
-            solicitante,
-            destinatario: comp,
-            fechaServicioA,
-            fechaServicioB: s.fecha,
-            servicios,
-            slotTipoA,
-            slotTipoB: 'rol1_1',
-            tipoCambioA,
-            tipoCambioB: 'SERVICIO',
-          });
-          if (check.valido) {
-            serviciosViables.push({
-              servicioId: s.id,
-              fecha: s.fecha,
-              slotTipo: 'rol1_1',
-              label: `${s.fecha} (${s.esFinDeSemana ? 'Fin de Semana' : 'Laborable'}) — ROL 1 (24h)`,
-              tipoCambio: 'SERVICIO',
+        if (comp.empleo === 'ROL 1') {
+          // Guardia ordinaria titular ROL 1
+          if (tRol1.some((c: any) => c?.personaIdReal === comp.id)) {
+            const check = validarViabilidadPermuta({
+              solicitante,
+              destinatario: comp,
+              fechaServicioA,
+              fechaServicioB: s.fecha,
+              servicios,
+              slotTipoA,
+              slotTipoB: 'rol1_1',
+              tipoCambioA,
+              tipoCambioB: 'SERVICIO',
             });
+            if (check.valido) {
+              serviciosViables.push({
+                servicioId: s.id,
+                fecha: s.fecha,
+                slotTipo: 'rol1_1',
+                label: `${s.fecha} (${s.esFinDeSemana ? 'Fin de Semana' : 'Laborable'}) — ROL 1 (24h)`,
+                tipoCambio: 'SERVICIO',
+              });
+            }
           }
-        } else if (comp.empleo === 'ROL 2' && tRol2.some((so: any) => so?.personaIdReal === comp.id)) {
-          const check = validarViabilidadPermuta({
-            solicitante,
-            destinatario: comp,
-            fechaServicioA,
-            fechaServicioB: s.fecha,
-            servicios,
-            slotTipoA,
-            slotTipoB: 'rol2_1',
-            tipoCambioA,
-            tipoCambioB: 'SERVICIO',
-          });
-          if (check.valido) {
-            serviciosViables.push({
-              servicioId: s.id,
-              fecha: s.fecha,
-              slotTipo: 'rol2_1',
-              label: `${s.fecha} (${s.esFinDeSemana ? 'Fin de Semana' : 'Laborable'}) — ROL 2 (24h)`,
-              tipoCambio: 'SERVICIO',
+          // Imaginaria ROL 1 asignada al compañero
+          if (s.imaginarias?.rol1?.personaIdReal === comp.id) {
+            const check = validarViabilidadPermuta({
+              solicitante,
+              destinatario: comp,
+              fechaServicioA,
+              fechaServicioB: s.fecha,
+              servicios,
+              slotTipoA,
+              slotTipoB: 'imaginaria_rol1',
+              tipoCambioA,
+              tipoCambioB: 'IMAGINARIA',
             });
+            if (check.valido) {
+              serviciosViables.push({
+                servicioId: s.id,
+                fecha: s.fecha,
+                slotTipo: 'imaginaria_rol1',
+                label: `${s.fecha} (${s.esFinDeSemana ? 'Fin de Semana' : 'Laborable'}) — IMAGINARIA ROL 1 (24h)`,
+                tipoCambio: 'IMAGINARIA',
+              });
+            }
+          }
+        } else if (comp.empleo === 'ROL 2') {
+          // Guardia ordinaria titular ROL 2
+          if (tRol2.some((so: any) => so?.personaIdReal === comp.id)) {
+            const check = validarViabilidadPermuta({
+              solicitante,
+              destinatario: comp,
+              fechaServicioA,
+              fechaServicioB: s.fecha,
+              servicios,
+              slotTipoA,
+              slotTipoB: 'rol2_1',
+              tipoCambioA,
+              tipoCambioB: 'SERVICIO',
+            });
+            if (check.valido) {
+              serviciosViables.push({
+                servicioId: s.id,
+                fecha: s.fecha,
+                slotTipo: 'rol2_1',
+                label: `${s.fecha} (${s.esFinDeSemana ? 'Fin de Semana' : 'Laborable'}) — ROL 2 (24h)`,
+                tipoCambio: 'SERVICIO',
+              });
+            }
+          }
+          // Imaginaria ROL 2 asignada al compañero
+          if (s.imaginarias?.rol2?.personaIdReal === comp.id) {
+            const check = validarViabilidadPermuta({
+              solicitante,
+              destinatario: comp,
+              fechaServicioA,
+              fechaServicioB: s.fecha,
+              servicios,
+              slotTipoA,
+              slotTipoB: 'imaginaria_rol2',
+              tipoCambioA,
+              tipoCambioB: 'IMAGINARIA',
+            });
+            if (check.valido) {
+              serviciosViables.push({
+                servicioId: s.id,
+                fecha: s.fecha,
+                slotTipo: 'imaginaria_rol2',
+                label: `${s.fecha} (${s.esFinDeSemana ? 'Fin de Semana' : 'Laborable'}) — IMAGINARIA ROL 2 (24h)`,
+                tipoCambio: 'IMAGINARIA',
+              });
+            }
           }
         }
       }
@@ -941,6 +1057,7 @@ export const crearSolicitudCambio = async (params: {
   servicioDevolucionId?: string;
   servicioDevolucionFecha?: string;
   servicioDevolucionSlot?: SlotServicioTipo;
+  servicioDevolucionTipo?: 'SERVICIO' | 'IMAGINARIA';
   modalidad?: 'CAMBIO_INDIVIDUAL' | 'PERMUTA';
   firmaSolicitante?: string;
   motivo?: string;
@@ -960,6 +1077,7 @@ export const crearSolicitudCambio = async (params: {
     servicioDevolucionId,
     servicioDevolucionFecha,
     servicioDevolucionSlot,
+    servicioDevolucionTipo,
     modalidad,
     firmaSolicitante,
     motivo,
@@ -985,6 +1103,9 @@ export const crearSolicitudCambio = async (params: {
   // Diferenciamos estrictamente entre PERMUTA SIMULTÁNEA (evalúa el resultado final del intercambio)
   // y CAMBIO INDIVIDUAL (cesión unilateral de servicio)
   const esPermuta = Boolean(servicioDevolucionFecha) || modalidad === 'PERMUTA';
+  const tipoCambioDev: 'SERVICIO' | 'IMAGINARIA' =
+    servicioDevolucionTipo ||
+    (servicioDevolucionSlot?.includes('imag') ? 'IMAGINARIA' : 'SERVICIO');
 
   if (esPermuta && servicioDevolucionFecha) {
     const checkPermuta = validarViabilidadPermuta({
@@ -996,7 +1117,7 @@ export const crearSolicitudCambio = async (params: {
       slotTipoA: slotTipo,
       slotTipoB: servicioDevolucionSlot,
       tipoCambioA: tipoCambio,
-      tipoCambioB: 'SERVICIO',
+      tipoCambioB: tipoCambioDev,
     });
     if (!checkPermuta.valido) {
       return {
@@ -1050,6 +1171,7 @@ export const crearSolicitudCambio = async (params: {
     servicioDevolucionId,
     servicioDevolucionFecha,
     servicioDevolucionSlot,
+    servicioDevolucionTipo: tipoCambioDev,
     motivo: motivo?.trim() || '',
     fechaSolicitud: nowIso,
     estado: 'PENDIENTE_COMPAÑERO',
@@ -1387,6 +1509,9 @@ export const responderSolicitudCompanero = async (params: {
     const solicitanteObj = personas.find((p) => p.id === sol!.solicitantePersonaId);
     const destinatarioObj = personas.find((p) => p.id === sol!.destinatarioPersonaId);
 
+    const tipoDevContra: 'SERVICIO' | 'IMAGINARIA' =
+      contraofertaSlot?.includes('imag') ? 'IMAGINARIA' : 'SERVICIO';
+
     if (solicitanteObj && destinatarioObj && servicios.length > 0) {
       const checkContra = validarViabilidadPermuta({
         solicitante: solicitanteObj,
@@ -1397,7 +1522,7 @@ export const responderSolicitudCompanero = async (params: {
         slotTipoA: sol.slotTipo,
         slotTipoB: contraofertaSlot,
         tipoCambioA: sol.tipoCambio,
-        tipoCambioB: 'SERVICIO',
+        tipoCambioB: tipoDevContra,
       });
       if (!checkContra.valido) {
         return {
@@ -1412,6 +1537,7 @@ export const responderSolicitudCompanero = async (params: {
     sol.servicioDevolucionId = contraofertaServicioId;
     sol.servicioDevolucionFecha = contraofertaFecha;
     sol.servicioDevolucionSlot = contraofertaSlot;
+    sol.servicioDevolucionTipo = tipoDevContra;
     if (firmaDestinatario) {
       sol.firmaDestinatario = firmaDestinatario;
       sol.fechaFirmaDestinatario = now;
@@ -1722,6 +1848,10 @@ export const resolverSolicitudAdmin = async (params: {
 
   if (servicios && servicios.length > 0) {
     if (esPermuta && sol.servicioDevolucionFecha) {
+      const tipoDevAdmin: 'SERVICIO' | 'IMAGINARIA' =
+        sol.servicioDevolucionTipo ||
+        (sol.servicioDevolucionSlot?.includes('imag') ? 'IMAGINARIA' : 'SERVICIO');
+
       const checkPermuta = validarViabilidadPermuta({
         solicitante: solicitanteObj,
         destinatario: destinatarioObj,
@@ -1731,7 +1861,7 @@ export const resolverSolicitudAdmin = async (params: {
         slotTipoA: sol.slotTipo,
         slotTipoB: sol.servicioDevolucionSlot,
         tipoCambioA: sol.tipoCambio,
-        tipoCambioB: 'SERVICIO',
+        tipoCambioB: tipoDevAdmin,
       });
       if (!checkPermuta.valido) {
         return {

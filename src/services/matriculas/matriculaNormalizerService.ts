@@ -727,8 +727,29 @@ export const normalizarMatriculaEntradaCamara = (
     }
   }
 
-  // Patrón 3.4: Formato Provincial Numérico Antiguo (1-2 letras provinciales + 1 a 6 dígitos)
-  const matchProvNum = sinDistintivos.match(/\b([A-Z]{1,2})\s*(\d{1,6})\b/);
+  // 3.4 Estabilización y auto-reparación sintáctica OCR para placas nacionales modernas
+  // (se evalúa antes de provincial numérico para evitar falsos positivos con prefijo 'O' de Asturias en cadenas tipo 'O508 GSZ')
+  const reparados = generarVariantesReparacionSintacticaOCR(sinDistintivos);
+  for (const cand of reparados) {
+    const normCand = normalizarMatricula(cand);
+    if (normCand.estadoValidacion === 'VALIDA') {
+      return {
+        ...normCand,
+        matriculaOriginal: str,
+        incidencias: [
+          ...(normSinDist.incidencias || []),
+          'Estabilización sintáctica OCR aplicada (DGT 4 dígitos + 3 consonantes)',
+        ],
+        clavesCandidatasAlternativas: [
+          normSinDist.matriculaNormalizada,
+          ...reparados.filter((c) => c !== cand),
+        ].filter(Boolean),
+      };
+    }
+  }
+
+  // Patrón 3.5: Formato Provincial Numérico Antiguo (1-2 letras provinciales + 1 a 6 dígitos sin letras posteriores)
+  const matchProvNum = sinDistintivos.match(/\b([A-Z]{1,2})\s*(\d{1,6})\b(?!\s*[A-Z])/);
   if (matchProvNum && PREFIJOS_PROVINCIALES_ESP.has(matchProvNum[1])) {
     const can = matchProvNum[1] + matchProvNum[2];
     const norm = normalizarMatricula(can);
@@ -740,7 +761,7 @@ export const normalizarMatriculaEntradaCamara = (
     }
   }
 
-  // Patrón 3.5: Formato Especial / Ciclomotor / Remolque (C, R, H + 4 dígitos + 1-3 letras)
+  // Patrón 3.6: Formato Especial / Ciclomotor / Remolque (C, R, H + 4 dígitos + 1-3 letras)
   const matchEsp = sinDistintivos.match(/\b([CERH])\s*(\d{4})\s*([A-Z]{1,3})\b/);
   if (matchEsp) {
     const can = matchEsp[1] + matchEsp[2] + matchEsp[3];
@@ -753,7 +774,82 @@ export const normalizarMatriculaEntradaCamara = (
     }
   }
 
-  // Fallback: retornar resultado normalizado estándar
+  // Fallback: retornar resultado normalizado estándar con candidatos si existen
+  if (reparados.length > 0) {
+    return {
+      ...normSinDist,
+      clavesCandidatasAlternativas: reparados,
+    };
+  }
+
   return normSinDist;
+};
+
+const OCR_DIGIT_MAP: Record<string, string> = {
+  O: '0',
+  Q: '0',
+  D: '0',
+  I: '1',
+  L: '1',
+  Z: '2',
+  E: '3',
+  A: '4',
+  S: '5',
+  G: '6',
+  B: '8',
+  T: '7',
+  g: '9',
+  q: '9',
+};
+
+const OCR_CONSONANT_MAP: Record<string, string> = {
+  '0': 'D',
+  '1': 'L',
+  '2': 'Z',
+  '5': 'S',
+  '6': 'G',
+  '8': 'B',
+};
+
+/**
+ * Genera variantes candidatas corregidas sintácticamente según el formato DGT (4 dígitos + 3 consonantes).
+ */
+export const generarVariantesReparacionSintacticaOCR = (raw: string): string[] => {
+  if (!raw) return [];
+  const clean = raw.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  const candidates = new Set<string>();
+
+  const variants = [clean];
+  if (clean.startsWith('E') && clean.length === 8) {
+    variants.push(clean.slice(1));
+  }
+
+  for (const v of variants) {
+    if (v.length === 7) {
+      const dPart = v.slice(0, 4);
+      const lPart = v.slice(4);
+
+      let repairedD = '';
+      for (const ch of dPart) {
+        if (/\d/.test(ch)) repairedD += ch;
+        else if (OCR_DIGIT_MAP[ch]) repairedD += OCR_DIGIT_MAP[ch];
+        else repairedD += ch;
+      }
+
+      let repairedL = '';
+      for (const ch of lPart) {
+        if (/[BCDFGHJKLMNPRSTVWXYZ]/.test(ch)) repairedL += ch;
+        else if (OCR_CONSONANT_MAP[ch]) repairedL += OCR_CONSONANT_MAP[ch];
+        else repairedL += ch;
+      }
+
+      const combined = repairedD + repairedL;
+      if (/^\d{4}[BCDFGHJKLMNPRSTVWXYZ]{3}$/.test(combined)) {
+        candidates.add(combined);
+      }
+    }
+  }
+
+  return Array.from(candidates);
 };
 

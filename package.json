@@ -11,8 +11,9 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "test:matriculas": "tsx tests/matriculasModule.test.ts",
+    "test:imaginarias-ocr": "tsx tests/imaginariasYRobustezOcr.test.ts",
     "test:backups": "tsx tests/backupRestoreModule.test.ts",
-    "test": "tsx tests/backupRestoreModule.test.ts && tsx tests/matriculasModule.test.ts"
+    "test": "tsx tests/backupRestoreModule.test.ts && tsx tests/matriculasModule.test.ts && tsx tests/imaginariasYRobustezOcr.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

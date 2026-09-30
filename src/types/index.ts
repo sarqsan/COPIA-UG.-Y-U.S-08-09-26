@@ -453,6 +453,7 @@ export interface SolicitudCambio {
   servicioDevolucionId?: string;
   servicioDevolucionFecha?: string;
   servicioDevolucionSlot?: SlotServicioTipo;
+  servicioDevolucionTipo?: 'SERVICIO' | 'IMAGINARIA';
 
   // Contraofertas
   esContraoferta?: boolean;

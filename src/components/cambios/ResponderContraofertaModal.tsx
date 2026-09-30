@@ -51,9 +51,21 @@ export const ResponderContraofertaModal: React.FC<ResponderContraofertaModalProp
     if (!s || s.fecha <= hoyStr) return false;
     const tRol1 = (s.titulares?.rol1 || []) as Array<{ personaIdReal?: string }>;
     const tRol2 = (s.titulares?.rol2 || []) as Array<{ personaIdReal?: string }>;
+    const imagRol1 = s.imaginarias?.rol1?.personaIdReal;
+    const imagRol2 = s.imaginarias?.rol2?.personaIdReal;
+    const sAny = s as any;
+    const usImag = sAny.imaginaria?.personaIdReal;
+    const dTit = (sAny.diurno?.titulares || []) as Array<{ personaIdReal?: string }>;
+    const nTit = (sAny.nocturno?.titulares || []) as Array<{ personaIdReal?: string }>;
+
     return (
       tRol1.some((c) => c.personaIdReal === solicitud.solicitantePersonaId) ||
-      tRol2.some((so) => so.personaIdReal === solicitud.solicitantePersonaId)
+      tRol2.some((so) => so.personaIdReal === solicitud.solicitantePersonaId) ||
+      imagRol1 === solicitud.solicitantePersonaId ||
+      imagRol2 === solicitud.solicitantePersonaId ||
+      usImag === solicitud.solicitantePersonaId ||
+      dTit.some((t) => t.personaIdReal === solicitud.solicitantePersonaId) ||
+      nTit.some((t) => t.personaIdReal === solicitud.solicitantePersonaId)
     );
   });
 

@@ -43,6 +43,8 @@ export const MatriculaScannerModal: React.FC<MatriculaScannerModalProps> = ({
   const scanIntervalRef = useRef<any>(null);
   const isProcessingFrameRef = useRef<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const streakUnauthorizedRef = useRef<number>(0);
+  const lastDetectedPlateRef = useRef<string>('');
 
   // Estados visuales del flujo
   const [fase, setFase] = useState<
@@ -100,6 +102,8 @@ export const MatriculaScannerModal: React.FC<MatriculaScannerModalProps> = ({
     setMensajeError('');
     setResultadoSemafaro(null);
     setMostrarGuiaAjustes(false);
+    streakUnauthorizedRef.current = 0;
+    lastDetectedPlateRef.current = '';
 
     // Inicializar worker OCR en segundo plano si aún no está cargado
     initLocalOcrWorker().catch(() => {});
@@ -308,20 +312,43 @@ export const MatriculaScannerModal: React.FC<MatriculaScannerModalProps> = ({
         const consulta = await consultarAutorizacionMatricula(ocr.texto, ocr.metodo);
 
         if (consulta.esLecturaValida && consulta.estado) {
-          // Detener inmediatamente la cámara para ahorrar batería y señalizar resultado
-          detenerCamara();
-          setResultadoSemafaro(consulta.estado);
-          setFase('RESULTADO');
+          if (consulta.estado === 'AUTORIZADA') {
+            // Éxito inmediato: detener cámara y mostrar verde
+            detenerCamara();
+            setResultadoSemafaro('AUTORIZADA');
+            setFase('RESULTADO');
 
-          // Feedback háptico en móviles compatibles
-          if (typeof navigator !== 'undefined' && navigator.vibrate) {
-            if (consulta.estado === 'AUTORIZADA') {
+            // Feedback háptico en móviles compatibles
+            if (typeof navigator !== 'undefined' && navigator.vibrate) {
               navigator.vibrate([100]);
+            }
+            return;
+          } else {
+            // Lectura no autorizada en flujo continuo de cámara:
+            // Para evitar que un fotograma con desenfoque temporal o reflejo interrumpa un vehículo autorizado,
+            // requerimos 2 lecturas consecutivas idénticas antes de concluir NO_AUTORIZADA.
+            const rawPlate = ocr.texto.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+            if (lastDetectedPlateRef.current === rawPlate) {
+              streakUnauthorizedRef.current += 1;
             } else {
-              navigator.vibrate([150, 80, 150]);
+              lastDetectedPlateRef.current = rawPlate;
+              streakUnauthorizedRef.current = 1;
+            }
+
+            if (streakUnauthorizedRef.current >= 2) {
+              detenerCamara();
+              setResultadoSemafaro('NO_AUTORIZADA');
+              setFase('RESULTADO');
+
+              if (typeof navigator !== 'undefined' && navigator.vibrate) {
+                navigator.vibrate([150, 80, 150]);
+              }
+              return;
+            } else {
+              // Continuar escaneando discretamente para dar oportunidad al siguiente fotograma
+              setFase('ESCANEANDO');
             }
           }
-          return;
         } else {
           // Si el texto no es una matrícula válida, continuar escaneando discretamente
           setFase('ESCANEANDO');

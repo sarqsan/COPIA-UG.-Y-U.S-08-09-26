@@ -390,7 +390,7 @@ export const SolicitarCambioModal: React.FC<SolicitarCambioModalProps> = ({
         slotTipoA: itemSeleccionado.slotTipo,
         slotTipoB: servicioPermutaSeleccionado.slotTipo,
         tipoCambioA: itemSeleccionado.tipoCambio,
-        tipoCambioB: 'SERVICIO',
+        tipoCambioB: servicioPermutaSeleccionado.tipoCambio || 'SERVICIO',
       });
     }
 
@@ -412,10 +412,16 @@ export const SolicitarCambioModal: React.FC<SolicitarCambioModalProps> = ({
     servicios,
   ]);
 
-  // Posibles guardias del destinatario para proponer devolución en cambio individual
+  // Posibles guardias o imaginarias del destinatario para proponer devolución en cambio individual
   const serviciosDestinatarioFuturos = useMemo(() => {
-    if (!destinatarioSeleccionado) return [];
-    const lista: { id: string; fecha: string; label: string; slotTipo?: SlotServicioTipo }[] = [];
+    if (!destinatarioSeleccionado || !itemSeleccionado) return [];
+    const lista: {
+      id: string;
+      fecha: string;
+      label: string;
+      slotTipo?: SlotServicioTipo;
+      tipoCambio?: 'SERVICIO' | 'IMAGINARIA';
+    }[] = [];
 
     (servicios || []).forEach((sRaw) => {
       const s = sRaw as any;
@@ -430,33 +436,70 @@ export const SolicitarCambioModal: React.FC<SolicitarCambioModalProps> = ({
             fecha: s.fecha,
             label: `${s.fecha} — Turno DIURNO (12h • 07:00 a 19:00)`,
             slotTipo: 'diurno_1' as SlotServicioTipo,
+            tipoCambio: 'SERVICIO',
           });
-        } else if (nTit.some((t: any) => t?.personaIdReal === destinatarioSeleccionado.id)) {
+        }
+        if (nTit.some((t: any) => t?.personaIdReal === destinatarioSeleccionado.id)) {
           const hNoc = s.esNocturnoProlongado ? '12.75h' : '12h';
           lista.push({
             id: s.id,
             fecha: s.fecha,
             label: `${s.fecha} — Turno NOCTURNO (${hNoc})`,
             slotTipo: 'nocturno_1' as SlotServicioTipo,
+            tipoCambio: 'SERVICIO',
+          });
+        }
+        if (s.imaginaria?.personaIdReal === destinatarioSeleccionado.id) {
+          lista.push({
+            id: s.id,
+            fecha: s.fecha,
+            label: `${s.fecha} — IMAGINARIA (Disponibilidad 24h)`,
+            slotTipo: 'imaginaria_us' as SlotServicioTipo,
+            tipoCambio: 'IMAGINARIA',
           });
         }
       } else {
         const tRol1 = s.titulares?.rol1 || [];
         const tRol2 = s.titulares?.rol2 || [];
-        if (tRol1.some((c: any) => c?.personaIdReal === destinatarioSeleccionado.id)) {
-          lista.push({
-            id: s.id,
-            fecha: s.fecha,
-            label: `${s.fecha} (${s.esFinDeSemana ? 'Fin de Semana' : 'Laborable'}) — ROL 1 (24h)`,
-            slotTipo: 'rol1_1',
-          });
-        } else if (tRol2.some((so: any) => so?.personaIdReal === destinatarioSeleccionado.id)) {
-          lista.push({
-            id: s.id,
-            fecha: s.fecha,
-            label: `${s.fecha} (${s.esFinDeSemana ? 'Fin de Semana' : 'Laborable'}) — ROL 2 (24h)`,
-            slotTipo: 'rol2_1',
-          });
+
+        if (destinatarioSeleccionado.empleo === 'ROL 1') {
+          if (tRol1.some((c: any) => c?.personaIdReal === destinatarioSeleccionado.id)) {
+            lista.push({
+              id: s.id,
+              fecha: s.fecha,
+              label: `${s.fecha} (${s.esFinDeSemana ? 'Fin de Semana' : 'Laborable'}) — ROL 1 (24h)`,
+              slotTipo: 'rol1_1',
+              tipoCambio: 'SERVICIO',
+            });
+          }
+          if (s.imaginarias?.rol1?.personaIdReal === destinatarioSeleccionado.id) {
+            lista.push({
+              id: s.id,
+              fecha: s.fecha,
+              label: `${s.fecha} (${s.esFinDeSemana ? 'Fin de Semana' : 'Laborable'}) — IMAGINARIA ROL 1 (24h)`,
+              slotTipo: 'imaginaria_rol1',
+              tipoCambio: 'IMAGINARIA',
+            });
+          }
+        } else if (destinatarioSeleccionado.empleo === 'ROL 2') {
+          if (tRol2.some((so: any) => so?.personaIdReal === destinatarioSeleccionado.id)) {
+            lista.push({
+              id: s.id,
+              fecha: s.fecha,
+              label: `${s.fecha} (${s.esFinDeSemana ? 'Fin de Semana' : 'Laborable'}) — ROL 2 (24h)`,
+              slotTipo: 'rol2_1',
+              tipoCambio: 'SERVICIO',
+            });
+          }
+          if (s.imaginarias?.rol2?.personaIdReal === destinatarioSeleccionado.id) {
+            lista.push({
+              id: s.id,
+              fecha: s.fecha,
+              label: `${s.fecha} (${s.esFinDeSemana ? 'Fin de Semana' : 'Laborable'}) — IMAGINARIA ROL 2 (24h)`,
+              slotTipo: 'imaginaria_rol2',
+              tipoCambio: 'IMAGINARIA',
+            });
+          }
         }
       }
     });
@@ -530,6 +573,10 @@ export const SolicitarCambioModal: React.FC<SolicitarCambioModalProps> = ({
           modalidad === 'PERMUTA'
             ? servicioPermutaSeleccionado?.slotTipo
             : srvDevolucion?.slotTipo,
+        servicioDevolucionTipo:
+          modalidad === 'PERMUTA'
+            ? servicioPermutaSeleccionado?.tipoCambio
+            : srvDevolucion?.tipoCambio,
         firmaSolicitante: JSON.stringify(firmaDigital),
         servicios,
       });

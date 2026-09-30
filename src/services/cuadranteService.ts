@@ -1014,10 +1014,11 @@ export const aplicarCambioServiciosAutorizado = async (params: {
   codigoVerificacion: string;
   personas: Persona[];
   adminInfo: { uid: string; nombre: string };
+  serviciosActuales?: ServicioDia[];
 }): Promise<{ success: boolean; message: string }> => {
-  const { cuadranteId, solicitud, codigoVerificacion, personas, adminInfo } = params;
+  const { cuadranteId, solicitud, codigoVerificacion, personas, adminInfo, serviciosActuales } = params;
 
-  let servicios = memoryServiciosCache.get(cuadranteId);
+  let servicios = serviciosActuales || memoryServiciosCache.get(cuadranteId);
   if (!servicios || servicios.length === 0) {
     servicios = await getServiciosByCuadranteId(cuadranteId);
   }
@@ -1188,6 +1189,16 @@ export const aplicarCambioServiciosAutorizado = async (params: {
         } else if (nDevTit[1] && (nDevTit[1].personaIdReal === solicitud.destinatarioPersonaId || nDevTit[1].personaIdOriginal === solicitud.destinatarioPersonaId)) {
           nDevTit[1] = { ...nDevTit[1], personaIdReal: solicitud.solicitantePersonaId, motivoCambio: motivoDevolucion, tipoOrigen: 'MODIFICADO_MANUAL' };
           slotDevAsignado = true;
+        } else if (srvDevActual.imaginaria && (srvDevActual.imaginaria.personaIdReal === solicitud.destinatarioPersonaId || srvDevActual.imaginaria.personaIdOriginal === solicitud.destinatarioPersonaId)) {
+          srvDevActual.imaginaria = { ...srvDevActual.imaginaria, personaIdReal: solicitud.solicitantePersonaId };
+          slotDevAsignado = true;
+        }
+
+        if (!slotDevAsignado && solicitud.servicioDevolucionSlot) {
+          if (solicitud.servicioDevolucionSlot === 'imaginaria_us' && srvDevActual.imaginaria) {
+            srvDevActual.imaginaria = { ...srvDevActual.imaginaria, personaIdReal: solicitud.solicitantePersonaId };
+            slotDevAsignado = true;
+          }
         }
       } else {
         if (srvDevActual.titulares?.rol1?.[0] && (srvDevActual.titulares.rol1[0].personaIdReal === solicitud.destinatarioPersonaId || srvDevActual.titulares.rol1[0].personaIdOriginal === solicitud.destinatarioPersonaId)) {
@@ -1222,6 +1233,18 @@ export const aplicarCambioServiciosAutorizado = async (params: {
             motivoCambio: motivoDevolucion,
           };
           slotDevAsignado = true;
+        } else if (srvDevActual.imaginarias?.rol1 && (srvDevActual.imaginarias.rol1.personaIdReal === solicitud.destinatarioPersonaId || srvDevActual.imaginarias.rol1.personaIdOriginal === solicitud.destinatarioPersonaId)) {
+          srvDevActual.imaginarias.rol1 = {
+            ...srvDevActual.imaginarias.rol1,
+            personaIdReal: solicitud.solicitantePersonaId,
+          };
+          slotDevAsignado = true;
+        } else if (srvDevActual.imaginarias?.rol2 && (srvDevActual.imaginarias.rol2.personaIdReal === solicitud.destinatarioPersonaId || srvDevActual.imaginarias.rol2.personaIdOriginal === solicitud.destinatarioPersonaId)) {
+          srvDevActual.imaginarias.rol2 = {
+            ...srvDevActual.imaginarias.rol2,
+            personaIdReal: solicitud.solicitantePersonaId,
+          };
+          slotDevAsignado = true;
         }
 
         if (!slotDevAsignado) {
@@ -1242,6 +1265,16 @@ export const aplicarCambioServiciosAutorizado = async (params: {
               personaIdReal: solicitud.solicitantePersonaId,
               tipoOrigen: 'MODIFICADO_MANUAL',
               motivoCambio: motivoDevolucion,
+            };
+          } else if (slotDevTipo === 'imaginaria_rol1' && srvDevActual.imaginarias?.rol1) {
+            srvDevActual.imaginarias.rol1 = {
+              ...srvDevActual.imaginarias.rol1,
+              personaIdReal: solicitud.solicitantePersonaId,
+            };
+          } else if (slotDevTipo === 'imaginaria_rol2' && srvDevActual.imaginarias?.rol2) {
+            srvDevActual.imaginarias.rol2 = {
+              ...srvDevActual.imaginarias.rol2,
+              personaIdReal: solicitud.solicitantePersonaId,
             };
           }
         }
