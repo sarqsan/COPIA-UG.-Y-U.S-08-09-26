@@ -1930,3 +1930,132 @@ export const incorporarNuevoUsuarioEnCuadranteUG = async (
     comparacionConservacion,
   };
 };
+
+/**
+ * Sincroniza la eliminación o modificación de una ausencia/permiso US en todos los cuadrantes US existentes.
+ * - Limpia o actualiza srv.ausencias.
+ * - NO altera ninguna asignación de Diurno, Nocturno o Imaginaria de otros efectivos.
+ * - Persiste en Firestore y caché en memoria.
+ * - Dispara evento para actualizar la UI en vivo.
+ */
+export const sincronizarAusenciaEnCuadrantesUS = async (params: {
+  tipoAccion: 'MODIFICAR' | 'ELIMINAR';
+  solicitudId: string;
+  solicitudAnterior?: any;
+  solicitudNueva?: any;
+}): Promise<void> => {
+  const { tipoAccion, solicitudId, solicitudAnterior, solicitudNueva } = params;
+  try {
+    const cuadrantes = await getCuadrantes();
+    const cuadrantesUS = cuadrantes.filter(
+      (c) => c.tipoServicio === 'US' || c.id?.includes('-us-') || (c as any).configuracionUS
+    );
+
+    for (const c of cuadrantesUS) {
+      let servicios = memoryServiciosCache.get(c.id);
+      if (!servicios || servicios.length === 0) {
+        servicios = await getServiciosByCuadranteId(c.id);
+      }
+      if (!servicios || servicios.length === 0) continue;
+
+      let huboCambios = false;
+
+      for (const srv of servicios as any[]) {
+        if (!srv.ausencias) srv.ausencias = [];
+
+        if (tipoAccion === 'ELIMINAR') {
+          const prevLen = srv.ausencias.length;
+          srv.ausencias = srv.ausencias.filter((aus: any) => {
+            if (aus.solicitudId && aus.solicitudId === solicitudId) return false;
+            if (
+              solicitudAnterior &&
+              aus.personaId === solicitudAnterior.personaId &&
+              solicitudAnterior.fechasAfectadas?.includes(srv.fecha)
+            ) {
+              return false;
+            }
+            return true;
+          });
+          if (srv.ausencias.length !== prevLen) {
+            huboCambios = true;
+            try {
+              const srvRef = doc(db, CUADRANTES_COLLECTION, c.id, 'servicios', srv.id);
+              await setDoc(srvRef, sanitizeForFirestore(srv), { merge: true });
+            } catch (e: any) {
+              console.warn('Persistencia diferida de servicio US:', e?.message || e);
+            }
+          }
+        } else if (tipoAccion === 'MODIFICAR' && solicitudNueva) {
+          const estaEnNuevasFechas = solicitudNueva.fechasAfectadas?.includes(srv.fecha);
+          const estabaEnAntiguasFechas = solicitudAnterior?.fechasAfectadas?.includes(srv.fecha);
+
+          if (!estaEnNuevasFechas) {
+            // Retirar si existía en las fechas anteriores pero ya no en las nuevas
+            const prevLen = srv.ausencias.length;
+            srv.ausencias = srv.ausencias.filter((aus: any) => {
+              if (aus.solicitudId && aus.solicitudId === solicitudId) return false;
+              if (
+                solicitudAnterior &&
+                aus.personaId === solicitudAnterior.personaId &&
+                estabaEnAntiguasFechas
+              ) {
+                return false;
+              }
+              return true;
+            });
+            if (srv.ausencias.length !== prevLen) {
+              huboCambios = true;
+              try {
+                const srvRef = doc(db, CUADRANTES_COLLECTION, c.id, 'servicios', srv.id);
+                await setDoc(srvRef, sanitizeForFirestore(srv), { merge: true });
+              } catch (e: any) {
+                console.warn('Persistencia diferida de servicio US:', e?.message || e);
+              }
+            }
+          } else {
+            // Asegurar que esté presente y actualizado en las nuevas fechas
+            const tipoCode =
+              solicitudNueva.tipoAusencia === 'VACACIONES'
+                ? 'V'
+                : solicitudNueva.tipoAusencia === 'PERMISO'
+                ? 'P'
+                : 'AP';
+
+            srv.ausencias = srv.ausencias.filter((aus: any) => {
+              if (aus.solicitudId && aus.solicitudId === solicitudId) return false;
+              if (aus.personaId === solicitudNueva.personaId) return false;
+              return true;
+            });
+
+            srv.ausencias.push({
+              personaId: solicitudNueva.personaId,
+              personaNombre: solicitudNueva.personaNombre,
+              tipo: tipoCode,
+              motivo: solicitudNueva.motivo,
+              solicitudId: solicitudNueva.id,
+            });
+
+            huboCambios = true;
+            try {
+              const srvRef = doc(db, CUADRANTES_COLLECTION, c.id, 'servicios', srv.id);
+              await setDoc(srvRef, sanitizeForFirestore(srv), { merge: true });
+            } catch (e: any) {
+              console.warn('Persistencia diferida de servicio US:', e?.message || e);
+            }
+          }
+        }
+      }
+
+      if (huboCambios) {
+        memoryServiciosCache.set(c.id, servicios);
+        saveLocalCache();
+      }
+    }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('cuadrante_updated'));
+    }
+  } catch (err: any) {
+    console.warn('Aviso sincronizando ausencias en cuadrante US:', err?.message || err);
+  }
+};

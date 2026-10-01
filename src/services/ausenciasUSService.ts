@@ -1,10 +1,11 @@
-import { SolicitudAusenciaUS, AusenciaDiaUS } from '../types/usTypes';
+import { SolicitudAusenciaUS, AusenciaDiaUS, TipoAusenciaUS } from '../types/usTypes';
 import { Persona } from '../types';
 import { registrarAuditLog } from './auditService';
 import { crearNotificacion } from './notificacionesService';
 import { sanitizeForFirestore } from '../utils/firestoreSanitizer';
 import { desglosarPeriodoPermisoUS, expandirRangoFechas } from './festivosUSService';
 import { validarDisponibilidadDias } from './bolsaDiasService';
+import { sincronizarAusenciaEnCuadrantesUS } from './cuadranteService';
 import {
   collection,
   doc,
@@ -504,14 +505,149 @@ export const resolverSolicitudAusenciaUS = async (params: {
 };
 
 /**
- * Elimina o cancela una solicitud/ausencia U.S.
+ * Modifica los datos de una solicitud o permiso US (restringido a administradores).
+ * - Permite corregir fechas, tipo de ausencia y motivo.
+ * - Recalcula días computables, días no computables y festivos excluidos.
+ * - Sincroniza automáticamente los cuadrantes publicados existentes.
+ * - Actualiza bolsas y saldos del efectivo de forma inmediata.
+ */
+export const modificarSolicitudAusenciaUS = async (params: {
+  solicitudId: string;
+  adminInfo: { uid: string; nombre: string; rol?: string };
+  fechaInicio: string; // YYYY-MM-DD
+  fechaFin: string; // YYYY-MM-DD
+  tipoAusencia: TipoAusenciaUS;
+  motivo?: string;
+}): Promise<{
+  success: boolean;
+  message: string;
+  solicitud?: SolicitudAusenciaUS;
+}> => {
+  const { solicitudId, adminInfo, fechaInicio, fechaFin, tipoAusencia, motivo } = params;
+
+  // 1. Verificación estricta de autorización de administrador
+  const esAdmin = Boolean(
+    adminInfo &&
+      (adminInfo.rol === 'ADMIN' ||
+        adminInfo.uid?.startsWith('admin-') ||
+        adminInfo.uid === 'admin-system')
+  );
+
+  if (!esAdmin) {
+    return {
+      success: false,
+      message: 'AUTORIZACIÓN DENEGADA: Solo un administrador autorizado puede modificar permisos concedidos.',
+    };
+  }
+
+  if (fechaInicio > fechaFin) {
+    return {
+      success: false,
+      message: 'La fecha de inicio no puede ser posterior a la fecha de fin.',
+    };
+  }
+
+  const todas = await getSolicitudesAusenciaUS();
+  const solOriginal = todas.find((s) => s.id === solicitudId);
+
+  if (!solOriginal) {
+    return {
+      success: false,
+      message: 'No se encontró la solicitud de ausencia especificada.',
+    };
+  }
+
+  // 2. Re-calcular desglose reglamentario con festivos y fines de semana excluidos
+  const fechasAfectadas = expandirRangoFechas(fechaInicio, fechaFin);
+  const desglose = desglosarPeriodoPermisoUS(fechasAfectadas, tipoAusencia);
+
+  const solActualizada: SolicitudAusenciaUS = {
+    ...solOriginal,
+    tipoAusencia,
+    fechaInicio,
+    fechaFin,
+    fechasAfectadas,
+    diasConsumibles: desglose.totalDiasConsumibles,
+    diasTotales: desglose.totalDiasSolicitados,
+    diasNoConsumibles: desglose.totalDiasNoConsumibles,
+    festivosExcluidos: desglose.fechasFestivas,
+    finesSemanaExcluidos: desglose.fechasFinesSemana,
+    motivo: motivo !== undefined ? motivo : solOriginal.motivo,
+  };
+
+  // 3. Actualizar memoria y caché
+  const idx = memoryAusenciasUS.findIndex((s) => s.id === solicitudId);
+  if (idx !== -1) {
+    memoryAusenciasUS[idx] = solActualizada;
+  } else {
+    memoryAusenciasUS.push(solActualizada);
+  }
+  saveAusenciasCache();
+  notifyAusenciasUSListeners();
+
+  // 4. Persistir en Firestore
+  try {
+    const docRef = doc(db, AUSENCIAS_US_COLLECTION, solicitudId);
+    await setDoc(docRef, sanitizeForFirestore(solActualizada), { merge: true });
+  } catch (e: any) {
+    console.warn('Persistencia Firestore modificacion ausencia diferida:', e.message || e);
+  }
+
+  // 5. Sincronizar en cuadrantes si estaba aprobada
+  if (solOriginal.estado === 'APROBADA') {
+    await sincronizarAusenciaEnCuadrantesUS({
+      tipoAccion: 'MODIFICAR',
+      solicitudId,
+      solicitudAnterior: solOriginal,
+      solicitudNueva: solActualizada,
+    });
+  }
+
+  // 6. Registrar en AuditLog
+  await registrarAuditLog({
+    adminUid: adminInfo.uid,
+    adminNombre: adminInfo.nombre,
+    accion: 'GESTION_AUSENCIAS_US',
+    personaId: solOriginal.personaId,
+    personaNombre: solOriginal.personaNombre,
+    detalles: `Modificación de permiso (${solOriginal.tipoAusencia} ${solOriginal.fechaInicio}..${solOriginal.fechaFin} -> ${tipoAusencia} ${fechaInicio}..${fechaFin}, ${desglose.totalDiasConsumibles} días consumibles) de ${solOriginal.personaNombre}.`,
+  });
+
+  return {
+    success: true,
+    message: `Permiso de ${solOriginal.personaNombre} modificado correctamente.`,
+    solicitud: solActualizada,
+  };
+};
+
+/**
+ * Elimina o anula una solicitud/ausencia U.S. concedida o pendiente.
+ * - Solo administradores autorizados.
+ * - Descuenta inmediatamente la ausencia de la situación de permisos del usuario.
+ * - Retira la ausencia del cuadrante publicado sin alterar servicios ni asignaciones no correspondientes.
+ * - Registra la acción en AuditLog.
  */
 export const eliminarSolicitudAusenciaUS = async (params: {
   solicitudId: string;
-  adminInfo?: { uid: string; nombre: string };
+  adminInfo?: { uid: string; nombre: string; rol?: string };
   motivo?: string;
 }): Promise<{ success: boolean; message: string }> => {
   const { solicitudId, adminInfo, motivo } = params;
+
+  if (adminInfo) {
+    const esAdmin = Boolean(
+      adminInfo.rol === 'ADMIN' ||
+        adminInfo.uid?.startsWith('admin-') ||
+        adminInfo.uid === 'admin-system'
+    );
+    if (!esAdmin) {
+      return {
+        success: false,
+        message: 'AUTORIZACIÓN DENEGADA: Solo un administrador autorizado puede anular o eliminar permisos.',
+      };
+    }
+  }
+
   const todas = await getSolicitudesAusenciaUS();
   const sol = todas.find((s) => s.id === solicitudId);
 
@@ -526,6 +662,15 @@ export const eliminarSolicitudAusenciaUS = async (params: {
     console.warn('Delete Firestore ausencia diferido:', e.message || e);
   }
 
+  // Sincronizar cuadrantes si estaba aprobada
+  if (sol && sol.estado === 'APROBADA') {
+    await sincronizarAusenciaEnCuadrantesUS({
+      tipoAccion: 'ELIMINAR',
+      solicitudId,
+      solicitudAnterior: sol,
+    });
+  }
+
   if (adminInfo && sol) {
     await registrarAuditLog({
       adminUid: adminInfo.uid,
@@ -533,13 +678,13 @@ export const eliminarSolicitudAusenciaUS = async (params: {
       accion: 'ELIMINAR_BLOQUEO',
       personaId: sol.personaId,
       personaNombre: sol.personaNombre,
-      detalles: `Eliminación de ausencia/permiso (${sol.tipoAusencia} ${sol.fechaInicio} a ${sol.fechaFin}) de ${sol.personaNombre}. ${motivo ? `Motivo: ${motivo}` : ''}`,
+      detalles: `Eliminación/anulación de permiso (${sol.tipoAusencia} ${sol.fechaInicio} a ${sol.fechaFin}) de ${sol.personaNombre}. ${motivo ? `Motivo: ${motivo}` : ''}`,
     });
   }
 
   return {
     success: true,
-    message: 'Ausencia o solicitud eliminada correctamente.',
+    message: 'Ausencia o permiso anulado y eliminado correctamente.',
   };
 };
 

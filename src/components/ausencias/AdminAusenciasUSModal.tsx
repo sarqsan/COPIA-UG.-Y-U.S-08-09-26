@@ -5,6 +5,8 @@ import {
   getSolicitudesAusenciaUS,
   resolverSolicitudAusenciaUS,
   solicitarAusenciaUS,
+  modificarSolicitudAusenciaUS,
+  eliminarSolicitudAusenciaUS,
   expandirRangoFechas,
   subscribeAusenciasUS,
   limpiarTodasSolicitudesAusenciaUS,
@@ -73,6 +75,14 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
   const [actionLoading, setActionLoading] = useState(false);
   const [advertenciaSaldoDirecta, setAdvertenciaSaldoDirecta] = useState<string | null>(null);
 
+  // Estado para modificar una solicitud existente
+  const [solicitudEditando, setSolicitudEditando] = useState<SolicitudAusenciaUS | null>(null);
+  const [editTipo, setEditTipo] = useState<'VACACIONES' | 'PERMISO' | 'ASUNTOS_PROPIOS'>('VACACIONES');
+  const [editFechaInicio, setEditFechaInicio] = useState('');
+  const [editFechaFin, setEditFechaFin] = useState('');
+  const [editMotivo, setEditMotivo] = useState('');
+  const [advertenciaSaldoEdicion, setAdvertenciaSaldoEdicion] = useState<string | null>(null);
+
   const cargarSolicitudes = async () => {
     setLoading(true);
     const data = await getSolicitudesAusenciaUS();
@@ -113,6 +123,90 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
       setAdvertenciaSaldoDirecta(null);
     }
   }, [personaDirectaId, tipoDirecto, fechaInicioDirecta, fechaFinDirecta, personasUS, solicitudes]);
+
+  // Verificar saldo al modificar fechas o tipo en modal de edición
+  useEffect(() => {
+    if (!solicitudEditando || !editFechaInicio || !editFechaFin) {
+      setAdvertenciaSaldoEdicion(null);
+      return;
+    }
+    const pers = personasUS.find((p) => p.id === solicitudEditando.personaId);
+    if (!pers) return;
+
+    const fechas = expandirRangoFechas(editFechaInicio, editFechaFin);
+    const otrasSolicitudes = solicitudes.filter((s) => s.id !== solicitudEditando.id);
+    const validacion = validarDisponibilidadDias({
+      persona: pers,
+      tipoAusencia: editTipo,
+      fechasSolicitadas: fechas,
+      solicitudes: otrasSolicitudes,
+    });
+
+    if (!validacion.suficiente) {
+      setAdvertenciaSaldoEdicion(validacion.mensajeAdvertencia || null);
+    } else {
+      setAdvertenciaSaldoEdicion(null);
+    }
+  }, [solicitudEditando, editTipo, editFechaInicio, editFechaFin, personasUS, solicitudes]);
+
+  const handleAbrirEdicion = (s: SolicitudAusenciaUS) => {
+    setSolicitudEditando(s);
+    setEditTipo(s.tipoAusencia);
+    setEditFechaInicio(s.fechaInicio);
+    setEditFechaFin(s.fechaFin);
+    setEditMotivo(s.motivo || '');
+  };
+
+  const handleGuardarEdicion = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!solicitudEditando) return;
+    if (editFechaInicio > editFechaFin) {
+      alert('La fecha de inicio no puede ser posterior a la fecha de fin.');
+      return;
+    }
+
+    setActionLoading(true);
+    const res = await modificarSolicitudAusenciaUS({
+      solicitudId: solicitudEditando.id,
+      adminInfo,
+      fechaInicio: editFechaInicio,
+      fechaFin: editFechaFin,
+      tipoAusencia: editTipo,
+      motivo: editMotivo,
+    });
+
+    if (!res.success) {
+      alert(res.message);
+    } else {
+      setSolicitudEditando(null);
+      await cargarSolicitudes();
+      onUpdate();
+    }
+    setActionLoading(false);
+  };
+
+  const handleEliminarSolicitud = async (s: SolicitudAusenciaUS) => {
+    const estadoTxt = s.estado === 'APROBADA' ? 'concedido' : 'solicitado';
+    const confirmacion = window.confirm(
+      `¿Deseas retirar y anular este permiso ${estadoTxt} de ${s.personaNombre}?\n\nPeriodo: ${s.fechaInicio} al ${s.fechaFin} (${s.tipoAusencia})\n\nEsta acción reintegrará los días computables a la situación del usuario y retirará la ausencia de los cuadrantes correspondientes sin alterar asignaciones no correspondientes.`
+    );
+    if (!confirmacion) return;
+
+    setActionLoading(true);
+    const res = await eliminarSolicitudAusenciaUS({
+      solicitudId: s.id,
+      adminInfo,
+      motivo: `Retirado y anulado por administración (${adminInfo.nombre})`,
+    });
+
+    if (!res.success) {
+      alert(res.message);
+    } else {
+      await cargarSolicitudes();
+      onUpdate();
+    }
+    setActionLoading(false);
+  };
 
   const handleResolver = async (solicitudId: string, aprobada: boolean) => {
     let motivoRechazo: string | undefined = undefined;
@@ -241,43 +335,44 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
   const pendientesCount = solicitudes.filter((s) => s.estado === 'PENDIENTE_ADMIN').length;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-4xl w-full max-h-[92vh] flex flex-col border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex sm:items-center sm:justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+      <div className="bg-white dark:bg-slate-900 rounded-none sm:rounded-3xl max-w-4xl w-full h-[100dvh] sm:h-auto sm:max-h-[92vh] flex flex-col border-0 sm:border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
         {/* Cabecera */}
-        <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/40 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-teal-600 text-white flex items-center justify-center font-bold shadow-xs">
-              <Palmtree className="w-6 h-6" />
+        <div className="p-3.5 sm:p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/40 shrink-0">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-teal-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0">
+              <Palmtree className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
-            <div>
-              <h2 className="text-base font-extrabold text-slate-900 dark:text-white">
-                Gestión de Permisos, Vacaciones y Saldos (U.S.)
+            <div className="min-w-0">
+              <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white truncate">
+                Gestión de Permisos y Saldos (U.S.)
               </h2>
-              <p className="text-xs text-slate-500 font-mono">
-                Control de cupos, asignación anual de días ({HORAS_POR_DIA_AUSENCIA_O_PRESENTE}h/día) y autorizaciones
+              <p className="text-[10px] sm:text-xs text-slate-500 font-mono truncate">
+                Control de cupos, asignación anual ({HORAS_POR_DIA_AUSENCIA_O_PRESENTE}h/día) y autorizaciones
               </p>
             </div>
           </div>
 
           <button
             onClick={onClose}
-            className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+            className="p-1.5 sm:p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Pestañas de Navegación */}
-        <div className="flex items-center gap-2 px-5 pt-3 border-b border-slate-200 dark:border-slate-800 shrink-0 overflow-x-auto">
+        <div className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-5 pt-2.5 sm:pt-3 border-b border-slate-200 dark:border-slate-800 shrink-0 overflow-x-auto touch-pan-x">
           <button
             onClick={() => setActiveTab('PENDIENTES')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
+            className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
               activeTab === 'PENDIENTES'
                 ? 'bg-teal-600 text-white shadow-xs'
                 : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
             }`}
           >
-            <span>Pendientes de Autorizar</span>
+            <span className="hidden sm:inline">Pendientes de Autorizar</span>
+            <span className="sm:hidden">Pendientes</span>
             {pendientesCount > 0 && (
               <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[10px] font-black">
                 {pendientesCount}
@@ -287,46 +382,49 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
 
           <button
             onClick={() => setActiveTab('SALDOS')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
+            className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
               activeTab === 'SALDOS'
                 ? 'bg-teal-600 text-white shadow-xs'
                 : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
             }`}
           >
             <Users className="w-3.5 h-3.5" />
-            <span>Saldos y Bolsa de Días ({personasUS.length})</span>
+            <span className="hidden sm:inline">Saldos y Bolsa de Días ({personasUS.length})</span>
+            <span className="sm:hidden">Saldos ({personasUS.length})</span>
           </button>
 
           <button
             onClick={() => setActiveTab('TODAS')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap ${
+            className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap ${
               activeTab === 'TODAS'
                 ? 'bg-teal-600 text-white shadow-xs'
                 : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
             }`}
           >
-            Historial de Solicitudes ({solicitudes.length})
+            <span className="hidden sm:inline">Historial de Solicitudes ({solicitudes.length})</span>
+            <span className="sm:hidden">Historial ({solicitudes.length})</span>
           </button>
 
           <button
             onClick={() => setActiveTab('NUEVA_DIRECTA')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer whitespace-nowrap ${
+            className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer whitespace-nowrap ${
               activeTab === 'NUEVA_DIRECTA'
                 ? 'bg-emerald-600 text-white shadow-xs'
                 : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
             }`}
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>Asignación Directa</span>
+            <span className="hidden sm:inline">Asignación Directa</span>
+            <span className="sm:hidden">Asignar</span>
           </button>
         </div>
 
         {/* Contenido según pestaña */}
-        <div className="p-5 overflow-y-auto flex-1 space-y-4">
+        <div className="p-3.5 sm:p-5 overflow-y-auto overscroll-contain flex-1 space-y-4">
           {/* 1. PESTAÑA: SALDOS Y BOLSA DE DÍAS DE TODOS LOS EFECTIVOS */}
           {activeTab === 'SALDOS' && (
             <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                 <div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
                     Bolsa Anual de Días por Efectivo (U.S.)
@@ -337,8 +435,90 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
                 </div>
               </div>
 
-              <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-2xs">
-                <table className="w-full text-left text-xs">
+              {/* VISTA MÓVIL: Tarjetas compactas e intuitivas (sin scroll horizontal obligatorio) */}
+              <div className="space-y-2.5 block md:hidden">
+                {personasUS.map((p) => {
+                  const balance = calcularBalanceDiasPersona(p, solicitudes);
+                  return (
+                    <div
+                      key={p.id}
+                      className="p-3.5 bg-white dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-700/80 shadow-2xs space-y-3"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
+                            {p.nombre}
+                          </div>
+                          <div className="text-[10px] text-slate-500 font-mono">
+                            {p.empleo}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className="inline-block px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-mono font-bold text-xs">
+                            {balance.totalConsumidos * HORAS_POR_DIA_AUSENCIA_O_PRESENTE}h
+                          </span>
+                          <div className="text-[9px] text-slate-400">computables</div>
+                        </div>
+                      </div>
+
+                      {/* 3 balances en grid de 3 columnas */}
+                      <div className="grid grid-cols-3 gap-1.5 text-center">
+                        <div className="p-2 rounded-xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-900/40">
+                          <div className="text-[10px] font-bold text-amber-800 dark:text-amber-300">Vacaciones</div>
+                          <div className="text-sm font-black text-amber-950 dark:text-amber-200 mt-0.5">
+                            {balance.vacaciones.pendientes}d
+                          </div>
+                          <div className="text-[9px] text-slate-500 font-mono">
+                            {balance.vacaciones.consumidos} de {balance.vacaciones.asignados}
+                          </div>
+                        </div>
+
+                        <div className="p-2 rounded-xl bg-teal-50/70 dark:bg-teal-950/30 border border-teal-200/60 dark:border-teal-900/40">
+                          <div className="text-[10px] font-bold text-teal-800 dark:text-teal-300">A.P.</div>
+                          <div className="text-sm font-black text-teal-950 dark:text-teal-200 mt-0.5">
+                            {balance.asuntosPropios.pendientes}d
+                          </div>
+                          <div className="text-[9px] text-slate-500 font-mono">
+                            {balance.asuntosPropios.consumidos} de {balance.asuntosPropios.asignados}
+                          </div>
+                        </div>
+
+                        <div className="p-2 rounded-xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-900/40">
+                          <div className="text-[10px] font-bold text-blue-800 dark:text-blue-300">Permisos</div>
+                          <div className="text-sm font-black text-blue-950 dark:text-blue-200 mt-0.5">
+                            {balance.permisos.pendientes}d
+                          </div>
+                          <div className="text-[9px] text-slate-500 font-mono">
+                            {balance.permisos.consumidos} de {balance.permisos.asignados}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Botones de acción táctiles */}
+                      <div className="flex items-center gap-2 pt-1 border-t border-slate-100 dark:border-slate-700/50">
+                        <button
+                          onClick={() => setPersonaSeleccionadaDetalle(p)}
+                          className="flex-1 py-1.5 px-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <Eye className="w-3.5 h-3.5 text-slate-500" />
+                          <span>Ver Días</span>
+                        </button>
+                        <button
+                          onClick={() => abrirEdicionBolsa(p)}
+                          className="flex-1 py-1.5 px-3 bg-teal-50 hover:bg-teal-100 dark:bg-teal-950/60 dark:hover:bg-teal-900/60 text-teal-800 dark:text-teal-200 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <Edit2 className="w-3.5 h-3.5 text-teal-600" />
+                          <span>Editar Saldo</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* VISTA ESCRITORIO / TABLET: Tabla completa con desplazamiento horizontal garantizado */}
+              <div className="hidden md:block border border-slate-200 dark:border-slate-800 rounded-2xl overflow-x-auto shadow-2xs">
+                <table className="w-full min-w-[650px] text-left text-xs">
                   <thead className="bg-slate-50 dark:bg-slate-800/70 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase border-b border-slate-200 dark:border-slate-800">
                     <tr>
                       <th className="px-4 py-3">Efectivo</th>
@@ -666,26 +846,52 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
                         )}
                       </div>
 
-                      {s.estado === 'PENDIENTE_ADMIN' && (
-                        <div className="flex items-center gap-2 shrink-0">
-                          <button
-                            onClick={() => handleResolver(s.id, true)}
-                            disabled={actionLoading}
-                            className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center gap-1 cursor-pointer"
-                          >
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            <span>Aprobar</span>
-                          </button>
-                          <button
-                            onClick={() => handleResolver(s.id, false)}
-                            disabled={actionLoading}
-                            className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition flex items-center gap-1 cursor-pointer"
-                          >
-                            <XCircle className="w-3.5 h-3.5" />
-                            <span>Rechazar</span>
-                          </button>
-                        </div>
-                      )}
+                      <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                        {s.estado === 'PENDIENTE_ADMIN' && (
+                          <>
+                            <button
+                              onClick={() => handleResolver(s.id, true)}
+                              disabled={actionLoading}
+                              className="px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                              title="Aprobar solicitud de permiso"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>Aprobar</span>
+                            </button>
+                            <button
+                              onClick={() => handleResolver(s.id, false)}
+                              disabled={actionLoading}
+                              className="px-2.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                              title="Rechazar solicitud de permiso"
+                            >
+                              <XCircle className="w-3.5 h-3.5" />
+                              <span>Rechazar</span>
+                            </button>
+                          </>
+                        )}
+
+                        {/* Modificar permiso */}
+                        <button
+                          onClick={() => handleAbrirEdicion(s)}
+                          disabled={actionLoading}
+                          className="px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800 text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                          title="Modificar fechas, tipo o motivo de este permiso"
+                        >
+                          <Edit2 className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                          <span>Modificar</span>
+                        </button>
+
+                        {/* Anular y retirar permiso */}
+                        <button
+                          onClick={() => handleEliminarSolicitud(s)}
+                          disabled={actionLoading}
+                          className="px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900 text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                          title="Anular y retirar permiso concedido"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+                          <span>Anular</span>
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -694,22 +900,193 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
           )}
         </div>
 
+        {/* Modal de modificación de permiso concedido / solicitud */}
+        {solicitudEditando && (
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-2.5 sm:p-4 bg-black/60 backdrop-blur-xs">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl max-w-lg w-full max-h-[92vh] overflow-y-auto p-4 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                    <Edit2 className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                      Modificar Permiso Concedido
+                    </h3>
+                    <p className="text-xs text-slate-500 font-mono truncate">
+                      {solicitudEditando.personaNombre} • Estado: {solicitudEditando.estado}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSolicitudEditando(null)}
+                  className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer shrink-0"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleGuardarEdicion} className="space-y-3.5">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Tipo de Permiso / Ausencia
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditTipo('VACACIONES')}
+                      className={`p-2.5 rounded-xl border text-xs font-bold flex flex-col items-center gap-1 transition cursor-pointer ${
+                        editTipo === 'VACACIONES'
+                          ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 shadow-xs'
+                          : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400'
+                      }`}
+                    >
+                      <Palmtree className="w-4 h-4 text-amber-600" />
+                      <span>Vacaciones</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditTipo('PERMISO')}
+                      className={`p-2.5 rounded-xl border text-xs font-bold flex flex-col items-center gap-1 transition cursor-pointer ${
+                        editTipo === 'PERMISO'
+                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/40 text-blue-900 dark:text-blue-200 shadow-xs'
+                          : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400'
+                      }`}
+                    >
+                      <FileText className="w-4 h-4 text-blue-600" />
+                      <span>Permiso</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditTipo('ASUNTOS_PROPIOS')}
+                      className={`p-2.5 rounded-xl border text-xs font-bold flex flex-col items-center gap-1 transition cursor-pointer ${
+                        editTipo === 'ASUNTOS_PROPIOS'
+                          ? 'border-teal-500 bg-teal-50 dark:bg-teal-950/40 text-teal-900 dark:text-teal-200 shadow-xs'
+                          : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400'
+                      }`}
+                    >
+                      <HeartHandshake className="w-4 h-4 text-teal-600" />
+                      <span>Asuntos P.</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                      Fecha Inicio
+                    </label>
+                    <input
+                      type="date"
+                      required
+                      value={editFechaInicio}
+                      onChange={(e) => setEditFechaInicio(e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                      Fecha Fin
+                    </label>
+                    <input
+                      type="date"
+                      required
+                      value={editFechaFin}
+                      onChange={(e) => setEditFechaFin(e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold"
+                    />
+                  </div>
+                </div>
+
+                {/* Desglose dinámico en vivo */}
+                {editFechaInicio && editFechaFin && editFechaInicio <= editFechaFin && (() => {
+                  const fechas = expandirRangoFechas(editFechaInicio, editFechaFin);
+                  const desglose = desglosarPeriodoPermisoUS(fechas, editTipo);
+                  return (
+                    <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 text-xs space-y-1.5">
+                      <div className="flex items-center justify-between font-bold text-slate-700 dark:text-slate-300">
+                        <span>Cómputo reglamentario:</span>
+                        <span className="text-teal-700 dark:text-teal-300 font-mono">
+                          {desglose.totalDiasConsumibles} día(s) computables ({desglose.totalDiasConsumibles * HORAS_POR_DIA_AUSENCIA_O_PRESENTE}h)
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Periodo de {desglose.totalDiasSolicitados} días naturales.
+                        {desglose.totalDiasNoConsumibles > 0 ? (
+                          <span className="text-purple-700 dark:text-purple-300 font-medium ml-1">
+                            Se excluyen {desglose.totalDiasNoConsumibles} día(s) no computables
+                            {desglose.totalFinesSemanaExcluidos > 0 && ` (${desglose.totalFinesSemanaExcluidos} fin(es) de semana)`}
+                            {desglose.totalFestivosExcluidos > 0 && ` (${desglose.totalFestivosExcluidos} festivos)`}.
+                          </span>
+                        ) : (
+                          <span> Sin festivos ni días no computables.</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {advertenciaSaldoEdicion && (
+                  <div className="p-3 bg-amber-50 dark:bg-amber-950/40 rounded-xl border border-amber-300 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold">Aviso de Saldo:</span>
+                      <p className="text-[11px] mt-0.5">{advertenciaSaldoEdicion}</p>
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                    Motivo / Observaciones oficiales
+                  </label>
+                  <input
+                    type="text"
+                    value={editMotivo}
+                    onChange={(e) => setEditMotivo(e.target.value)}
+                    placeholder="Ej: Corrección fechas por resolución oficial..."
+                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2.5 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setSolicitudEditando(null)}
+                    disabled={actionLoading}
+                    className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={actionLoading || !editFechaInicio || !editFechaFin}
+                    className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-xs font-bold transition shadow-xs cursor-pointer"
+                  >
+                    {actionLoading ? 'Guardando...' : 'Guardar Modificación'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
         {/* Modal de edición rápida de bolsa de días de un efectivo */}
         {personaEditandoBolsa && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-            <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4">
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-2.5 sm:p-4 bg-black/60 backdrop-blur-xs">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl max-w-md w-full max-h-[92vh] overflow-y-auto p-4 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4">
               <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white truncate">
                     Modificar Saldo de Días: {personaEditandoBolsa.nombre}
                   </h3>
-                  <p className="text-xs text-slate-500 font-mono">
+                  <p className="text-xs text-slate-500 font-mono truncate">
                     {personaEditandoBolsa.empleo} • Días asignados anuales
                   </p>
                 </div>
                 <button
                   onClick={() => setPersonaEditandoBolsa(null)}
-                  className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer shrink-0"
                 >
                   <X className="w-5 h-5" />
                 </button>

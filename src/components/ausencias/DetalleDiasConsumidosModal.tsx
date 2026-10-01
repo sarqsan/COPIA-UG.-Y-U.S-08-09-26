@@ -72,39 +72,39 @@ export const DetalleDiasConsumidosModal: React.FC<DetalleDiasConsumidosModalProp
   const totalHorasConsumidas = balance.totalConsumidos * HORAS_POR_DIA_AUSENCIA_O_PRESENTE;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-2xl w-full max-h-[90vh] flex flex-col border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex sm:items-center sm:justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+      <div className="bg-white dark:bg-slate-900 rounded-none sm:rounded-3xl max-w-2xl w-full h-[100dvh] sm:h-auto sm:max-h-[90vh] flex flex-col border-0 sm:border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
         {/* Header */}
-        <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/40 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-teal-600 text-white flex items-center justify-center shadow-xs shrink-0">
-              <Palmtree className="w-6 h-6" />
+        <div className="p-3.5 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/40 shrink-0">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-teal-600 text-white flex items-center justify-center shadow-xs shrink-0">
+              <Palmtree className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-extrabold text-slate-900 dark:text-white">
-                  Bolsa de Días y Registro de Ausencias
+                <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white truncate">
+                  Bolsa de Días y Registro
                 </h2>
-                <span className="px-2 py-0.5 rounded-md bg-teal-100 dark:bg-teal-950 text-teal-800 dark:text-teal-200 text-[10px] font-black uppercase">
-                  {HORAS_POR_DIA_AUSENCIA_O_PRESENTE}h / día
+                <span className="px-2 py-0.5 rounded-md bg-teal-100 dark:bg-teal-950 text-teal-800 dark:text-teal-200 text-[10px] font-black uppercase shrink-0">
+                  {HORAS_POR_DIA_AUSENCIA_O_PRESENTE}h/d
                 </span>
               </div>
-              <p className="text-xs text-slate-500 font-mono mt-0.5">
-                Efectivo: <strong className="text-slate-700 dark:text-slate-300">{persona.nombre}</strong> ({persona.empleo}) • Año {balance.anio}
+              <p className="text-[10px] sm:text-xs text-slate-500 font-mono mt-0.5 truncate">
+                <strong className="text-slate-700 dark:text-slate-300">{persona.nombre}</strong> ({persona.empleo}) • Año {balance.anio}
               </p>
             </div>
           </div>
 
           <button
             onClick={onClose}
-            className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+            className="p-1.5 sm:p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Modal Body: Scrollable */}
-        <div className="p-5 overflow-y-auto space-y-5 flex-1">
+        <div className="p-3.5 sm:p-5 overflow-y-auto overscroll-contain space-y-4 sm:space-y-5 flex-1">
           {/* Tarjetas de Saldo de Días (Vacaciones, AP, Permisos) */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {/* Vacaciones */}

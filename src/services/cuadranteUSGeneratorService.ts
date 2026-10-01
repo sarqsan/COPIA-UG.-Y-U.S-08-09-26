@@ -215,6 +215,10 @@ export const generarSimulacionCuadranteUS = (params: {
       ultimoServicioDiaIdx: contP ? -contP.dias : -99,
       ultimoTipoServicio: contP ? contP.tipo : null,
       ultimosFinesSemanaTrabajados: [],
+      sabadosMesActual: 0,
+      domingosMesActual: 0,
+      finesDeSemanaMesActual: 0,
+      festivosMesActual: 0,
     };
   });
 
@@ -332,19 +336,26 @@ export const generarSimulacionCuadranteUS = (params: {
         t.ultimoTipoServicio = 'NOCTURNO';
         if (infoHoy.esSabado) {
           t.sabados++;
+          t.sabadosMesActual = (t.sabadosMesActual || 0) + 1;
           t.finesDeSemana++;
+          t.finesDeSemanaMesActual = (t.finesDeSemanaMesActual || 0) + 1;
           if (!t.ultimosFinesSemanaTrabajados.includes(currentFDSIdx)) {
             t.ultimosFinesSemanaTrabajados.push(currentFDSIdx);
           }
         }
         if (infoHoy.esDomingo) {
           t.domingos++;
+          t.domingosMesActual = (t.domingosMesActual || 0) + 1;
           t.finesDeSemana++;
+          t.finesDeSemanaMesActual = (t.finesDeSemanaMesActual || 0) + 1;
           if (!t.ultimosFinesSemanaTrabajados.includes(currentFDSIdx)) {
             t.ultimosFinesSemanaTrabajados.push(currentFDSIdx);
           }
         }
-        if (infoHoy.esFestivo) t.festivos++;
+        if (infoHoy.esFestivo) {
+          t.festivos++;
+          t.festivosMesActual = (t.festivosMesActual || 0) + 1;
+        }
         if (infoHoy.esDiaEspecial) {
           t.diasEspeciales++;
           t.puntosEspeciales += infoHoy.puntosEspeciales;
@@ -453,19 +464,26 @@ export const generarSimulacionCuadranteUS = (params: {
         t.ultimoTipoServicio = 'DIURNO';
         if (infoHoy.esSabado) {
           t.sabados++;
+          t.sabadosMesActual = (t.sabadosMesActual || 0) + 1;
           t.finesDeSemana++;
+          t.finesDeSemanaMesActual = (t.finesDeSemanaMesActual || 0) + 1;
           if (!t.ultimosFinesSemanaTrabajados.includes(currentFDSIdx)) {
             t.ultimosFinesSemanaTrabajados.push(currentFDSIdx);
           }
         }
         if (infoHoy.esDomingo) {
           t.domingos++;
+          t.domingosMesActual = (t.domingosMesActual || 0) + 1;
           t.finesDeSemana++;
+          t.finesDeSemanaMesActual = (t.finesDeSemanaMesActual || 0) + 1;
           if (!t.ultimosFinesSemanaTrabajados.includes(currentFDSIdx)) {
             t.ultimosFinesSemanaTrabajados.push(currentFDSIdx);
           }
         }
-        if (infoHoy.esFestivo) t.festivos++;
+        if (infoHoy.esFestivo) {
+          t.festivos++;
+          t.festivosMesActual = (t.festivosMesActual || 0) + 1;
+        }
         if (infoHoy.esDiaEspecial) {
           t.diasEspeciales++;
           t.puntosEspeciales += infoHoy.puntosEspeciales;
