@@ -64,7 +64,7 @@ interface AdminDashboardPageProps {
   recentLogs: AuditLog[];
   onSelectTab: (tab: AdminTab) => void;
   onOpenNewPersonaModal: () => void;
-  adminInfo: { uid: string; nombre: string };
+  adminInfo: { uid: string; nombre: string; rol?: string };
   onRefreshPersonal?: () => Promise<void>;
   pendingSolicitudId?: string | null;
   onClearPendingSolicitud?: () => void;

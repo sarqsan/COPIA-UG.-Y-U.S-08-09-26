@@ -1215,18 +1215,6 @@ export const crearSolicitudCambio = async (params: {
     servicioId,
   });
 
-  // 3. Notificar a administradores en la campana
-  await crearNotificacion({
-    tipo: 'NUEVA_SOLICITUD_CAMBIO',
-    titulo: `Nueva Solicitud de Cambio: ${solicitante.nombre} ➔ ${destinatario.nombre}`,
-    mensaje: `${solicitante.nombre} ha propuesto un cambio a ${destinatario.nombre} para el ${fechaServicio}.${servicioDevolucionFecha ? ` Devolución: ${servicioDevolucionFecha}.` : ''}`,
-    esParaAdmin: true,
-    linkTab: 'cambios',
-    referenciaId: solicitudId,
-    cuadranteId,
-    servicioId,
-  });
-
   return {
     success: true,
     solicitud: nuevaSolicitud,

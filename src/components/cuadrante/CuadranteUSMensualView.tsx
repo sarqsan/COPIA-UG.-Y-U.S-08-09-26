@@ -87,7 +87,7 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
     return serviciosUS.filter((s) => s.fecha.startsWith(selectedMesKey));
   }, [serviciosUS, selectedMesKey]);
 
-  // Filtrar personas US estrictamente
+  // Filtrar personas US estrictamente y ordenar según el orden de rotación oficial (orden del archivo Excel)
   const personasFiltradas = useMemo(() => {
     return personasUS
       .filter((p) => (p.tipoServicio || (p.grupo === 'US_SEGURIDAD' ? 'US' : 'GUARDIA')) === 'US')
@@ -95,6 +95,12 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
         const matchSearch = p.nombre.toLowerCase().includes(searchTerm.toLowerCase());
         if (!matchSearch) return false;
         return true;
+      })
+      .sort((a, b) => {
+        const ordA = a.ordenRotacion !== undefined && a.ordenRotacion !== null ? a.ordenRotacion : 9999;
+        const ordB = b.ordenRotacion !== undefined && b.ordenRotacion !== null ? b.ordenRotacion : 9999;
+        if (ordA !== ordB) return ordA - ordB;
+        return a.nombre.localeCompare(b.nombre);
       });
   }, [personasUS, searchTerm]);
 
@@ -327,6 +333,9 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
   // Métricas globales para todo el periodo (usadas cuando selectedMesKey === 'TODOS')
   const metricasGlobales = useMemo(() => {
     const ajuste = (cuadrante as any)?.configuracionUS?.ajusteHoras ?? (cuadrante as any)?.ajusteHoras ?? 14;
+    if (serviciosUS && serviciosUS.length > 0) {
+      return calcularMetricasCuadranteUS(serviciosUS, personasUS || [], ajuste);
+    }
     return (
       metricasUS ||
       calcularMetricasCuadranteUS(

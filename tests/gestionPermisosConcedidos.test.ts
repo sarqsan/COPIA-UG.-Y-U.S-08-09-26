@@ -87,8 +87,6 @@ async function runSuite() {
   console.log('🧪 SUITE: GESTIÓN DE PERMISOS CONCEDIDOS Y EQUIDAD US');
   console.log('============================================================\n');
 
-  await limpiarTodasSolicitudesAusenciaUS();
-
   const p1 = plantillaUS[0];
   const p2 = plantillaUS[1];
 
@@ -324,6 +322,9 @@ async function runSuite() {
 
   // Descanso y descansos reglamentarios respetados
   assert(simNovConCont.validacion.totalErrores === 0, `Cero errores de validación normativa en Noviembre (errores: ${simNovConCont.validacion.totalErrores})`);
+
+  // Limpiar solo la solicitud de test creada para p2
+  await eliminarSolicitudAusenciaUS({ solicitudId: sol2Id, adminInfo });
 
   console.log('\n============================================================');
   console.log(`📊 RESUMEN: ${testsPass} superados de ${testsPass + testsFail} tests (${testsFail} fallos)`);

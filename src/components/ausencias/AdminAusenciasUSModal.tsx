@@ -1,4 +1,4 @@
-import { useState, useEffect, FC } from 'react';
+import { useState, useEffect, useMemo, FC } from 'react';
 import { Persona } from '../../types';
 import { SolicitudAusenciaUS } from '../../types/usTypes';
 import {
@@ -82,6 +82,15 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
   const [editFechaFin, setEditFechaFin] = useState('');
   const [editMotivo, setEditMotivo] = useState('');
   const [advertenciaSaldoEdicion, setAdvertenciaSaldoEdicion] = useState<string | null>(null);
+
+  const personasUSOrdenadas = useMemo(() => {
+    return [...personasUS].sort((a, b) => {
+      const ordA = a.ordenRotacion !== undefined && a.ordenRotacion !== null ? a.ordenRotacion : 9999;
+      const ordB = b.ordenRotacion !== undefined && b.ordenRotacion !== null ? b.ordenRotacion : 9999;
+      if (ordA !== ordB) return ordA - ordB;
+      return a.nombre.localeCompare(b.nombre);
+    });
+  }, [personasUS]);
 
   const cargarSolicitudes = async () => {
     setLoading(true);
@@ -437,7 +446,7 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
 
               {/* VISTA MÓVIL: Tarjetas compactas e intuitivas (sin scroll horizontal obligatorio) */}
               <div className="space-y-2.5 block md:hidden">
-                {personasUS.map((p) => {
+                {personasUSOrdenadas.map((p) => {
                   const balance = calcularBalanceDiasPersona(p, solicitudes);
                   return (
                     <div
@@ -530,7 +539,7 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {personasUS.map((p) => {
+                    {personasUSOrdenadas.map((p) => {
                       const balance = calcularBalanceDiasPersona(p, solicitudes);
                       return (
                         <tr key={p.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition">
@@ -624,7 +633,7 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
                     className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
                   >
                     <option value="">Seleccionar efectivo...</option>
-                    {personasUS.map((p) => (
+                    {personasUSOrdenadas.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.nombre} ({p.empleo})
                       </option>

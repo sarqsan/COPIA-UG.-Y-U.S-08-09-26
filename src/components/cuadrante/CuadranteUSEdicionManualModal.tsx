@@ -1,6 +1,7 @@
-import { useState, FC } from 'react';
+import { useState, useMemo, FC } from 'react';
 import { ServicioDiaUS, SlotAsignacionUS, AusenciaDiaUS } from '../../types/usTypes';
 import { Persona } from '../../types';
+import { clasificarDiaUS } from '../../services/cuadranteUSCalendarHelper';
 import {
   X,
   Save,
@@ -41,6 +42,16 @@ export const CuadranteUSEdicionManualModal: FC<CuadranteUSEdicionManualModalProp
   const [nuevaAusenciaPersonaId, setNuevaAusenciaPersonaId] = useState('');
   const [nuevaAusenciaTipo, setNuevaAusenciaTipo] = useState<'V' | 'P' | 'AP'>('V');
   const [motivo, setMotivo] = useState('');
+
+  // Ordenar lista de personal de acuerdo al orden de rotación oficial (orden del archivo Excel)
+  const personasUSOrdenadas = useMemo(() => {
+    return [...personasUS].sort((a, b) => {
+      const ordA = a.ordenRotacion !== undefined && a.ordenRotacion !== null ? a.ordenRotacion : 9999;
+      const ordB = b.ordenRotacion !== undefined && b.ordenRotacion !== null ? b.ordenRotacion : 9999;
+      if (ordA !== ordB) return ordA - ordB;
+      return a.nombre.localeCompare(b.nombre);
+    });
+  }, [personasUS]);
 
   // Validaciones en vivo
   const errores: string[] = [];
@@ -186,8 +197,13 @@ export const CuadranteUSEdicionManualModal: FC<CuadranteUSEdicionManualModalProp
       fechaModificacion: new Date().toISOString(),
     });
 
+    const infoDia = clasificarDiaUS(servicio.fecha);
+
     const srvActualizado: ServicioDiaUS = {
       ...servicio,
+      esLaborable: infoDia.esLaborable,
+      esFestivo: infoDia.esFestivo,
+      esFinDeSemana: infoDia.esFinDeSemana,
       diurno: {
         ...servicio.diurno,
         titulares: [
@@ -273,7 +289,7 @@ export const CuadranteUSEdicionManualModal: FC<CuadranteUSEdicionManualModalProp
                   className="w-full p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
                 >
                   <option value="">Seleccionar...</option>
-                  {personasUS.map((p) => (
+                  {personasUSOrdenadas.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.nombre} ({p.empleo})
                     </option>
@@ -291,7 +307,7 @@ export const CuadranteUSEdicionManualModal: FC<CuadranteUSEdicionManualModalProp
                   className="w-full p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
                 >
                   <option value="">Seleccionar...</option>
-                  {personasUS.map((p) => (
+                  {personasUSOrdenadas.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.nombre} ({p.empleo})
                     </option>
@@ -326,7 +342,7 @@ export const CuadranteUSEdicionManualModal: FC<CuadranteUSEdicionManualModalProp
                   className="w-full p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
                 >
                   <option value="">Seleccionar...</option>
-                  {personasUS.map((p) => (
+                  {personasUSOrdenadas.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.nombre} ({p.empleo})
                     </option>
@@ -344,7 +360,7 @@ export const CuadranteUSEdicionManualModal: FC<CuadranteUSEdicionManualModalProp
                   className="w-full p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
                 >
                   <option value="">Seleccionar...</option>
-                  {personasUS.map((p) => (
+                  {personasUSOrdenadas.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.nombre} ({p.empleo})
                     </option>
@@ -373,7 +389,7 @@ export const CuadranteUSEdicionManualModal: FC<CuadranteUSEdicionManualModalProp
                 className="w-full p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-white"
               >
                 <option value="">Seleccionar...</option>
-                {personasUS.map((p) => (
+                {personasUSOrdenadas.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.nombre} ({p.empleo})
                   </option>
@@ -468,7 +484,7 @@ export const CuadranteUSEdicionManualModal: FC<CuadranteUSEdicionManualModalProp
                 }}
               >
                 <option value="">Añadir efectivo a Presente...</option>
-                {personasUS
+                {personasUSOrdenadas
                   .filter((p) => !presentes.includes(p.id) && !turnosAsignados.includes(p.id) && imag !== p.id)
                   .map((p) => (
                     <option key={p.id} value={p.id}>
@@ -548,7 +564,7 @@ export const CuadranteUSEdicionManualModal: FC<CuadranteUSEdicionManualModalProp
                 className="p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs flex-1 text-slate-900 dark:text-white"
               >
                 <option value="">Añadir persona con permiso/vacaciones...</option>
-                {personasUS.map((p) => (
+                {personasUSOrdenadas.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.nombre} ({p.empleo})
                   </option>

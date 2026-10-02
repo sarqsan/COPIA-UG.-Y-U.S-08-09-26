@@ -21,6 +21,7 @@ import {
   Edit2,
   CalendarDays,
   ShieldCheck,
+  Trash2,
 } from 'lucide-react';
 import { formatFecha } from '../../utils/formatters';
 
@@ -32,6 +33,8 @@ interface DetalleDiasConsumidosModalProps {
   isAdmin?: boolean;
   onOpenSolicitudModal?: () => void;
   onOpenAdminEditModal?: () => void;
+  onModificarSolicitud?: (solicitud: SolicitudAusenciaUS) => void;
+  onEliminarSolicitud?: (solicitud: SolicitudAusenciaUS) => void;
 }
 
 export const DetalleDiasConsumidosModal: React.FC<DetalleDiasConsumidosModalProps> = ({
@@ -42,6 +45,8 @@ export const DetalleDiasConsumidosModal: React.FC<DetalleDiasConsumidosModalProp
   isAdmin = false,
   onOpenSolicitudModal,
   onOpenAdminEditModal,
+  onModificarSolicitud,
+  onEliminarSolicitud,
 }) => {
   const [filtroTipo, setFiltroTipo] = useState<'TODOS' | 'VACACIONES' | 'ASUNTOS_PROPIOS' | 'PERMISO'>('TODOS');
   const [ordenAsc, setOrdenAsc] = useState<boolean>(false);
@@ -59,6 +64,7 @@ export const DetalleDiasConsumidosModal: React.FC<DetalleDiasConsumidosModalProp
 
   const solicitudesActivas = solicitudesProp || internalSolicitudes;
   const balance = calcularBalanceDiasPersona(persona, solicitudesActivas);
+  const solicitudesPersona = solicitudesActivas.filter((s) => s.personaId === persona.id);
 
   const diasFiltrados = balance.todosLosDiasConsumidos.filter((item) => {
     if (filtroTipo === 'TODOS') return true;
@@ -273,6 +279,84 @@ export const DetalleDiasConsumidosModal: React.FC<DetalleDiasConsumidosModalProp
               </button>
             )}
           </div>
+
+          {/* Sección de Permisos / Ausencias Concedidas para el Efectivo */}
+          {solicitudesPersona.length > 0 && (
+            <div className="space-y-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                <h3 className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <FileText className="w-3.5 h-3.5 text-teal-600" />
+                  <span>Permisos y Solicitudes de {persona.nombre} ({solicitudesPersona.length})</span>
+                </h3>
+                {isAdmin && (
+                  <span className="text-[10px] text-teal-600 dark:text-teal-400 font-semibold">
+                    Puedes editar o anular directamente
+                  </span>
+                )}
+              </div>
+              <div className="space-y-2">
+                {solicitudesPersona.map((s) => (
+                  <div
+                    key={s.id}
+                    className="p-3 bg-slate-50 dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-700/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-2xs"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-black ${
+                          s.tipoAusencia === 'VACACIONES'
+                            ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                            : s.tipoAusencia === 'PERMISO'
+                            ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
+                            : 'bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300'
+                        }`}>
+                          {s.tipoAusencia}
+                        </span>
+                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                          s.estado === 'APROBADA'
+                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                            : 'bg-amber-100 text-amber-800'
+                        }`}>
+                          {s.estado}
+                        </span>
+                        <span className="font-mono text-xs font-bold text-slate-800 dark:text-slate-200">
+                          {s.fechaInicio} al {s.fechaFin}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                        {s.diasConsumibles ?? s.fechasAfectadas.length} días computables ({ (s.diasConsumibles ?? s.fechasAfectadas.length) * HORAS_POR_DIA_AUSENCIA_O_PRESENTE}h)
+                        {s.motivo && <span className="italic ml-1.5 font-normal">"{s.motivo}"</span>}
+                      </p>
+                    </div>
+
+                    {isAdmin && (
+                      <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+                        {onModificarSolicitud && (
+                          <button
+                            onClick={() => onModificarSolicitud(s)}
+                            className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:hover:bg-amber-900/60 dark:text-amber-200 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer border border-amber-200 dark:border-amber-800"
+                            title="Modificar fechas o tipo de este permiso"
+                          >
+                            <Edit2 className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                            <span>Modificar</span>
+                          </button>
+                        )}
+                        {onEliminarSolicitud && (
+                          <button
+                            onClick={() => onEliminarSolicitud(s)}
+                            className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:hover:bg-rose-900/60 dark:text-rose-200 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer border border-rose-200 dark:border-rose-800"
+                            title="Anular y retirar este permiso"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+                            <span>Anular</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Filtros de la lista */}
           <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">

@@ -1041,9 +1041,6 @@ export const ejecutarImportacionConfirmadaUS = async (
       (p) => p.tipoServicio === 'US' || p.grupo === 'US_SEGURIDAD'
     );
 
-    let rol1Counter = 0;
-    let rol2Counter = 0;
-
     for (let i = 0; i < validRows.length; i++) {
       const row = validRows[i];
       const match = existingUSPersonas.find(
@@ -1051,15 +1048,8 @@ export const ejecutarImportacionConfirmadaUS = async (
       );
 
       const empleoNorm = (row.empleo as Empleo) || 'ROL 2';
-      let ordenRotacion = i + 1;
-
-      if (empleoNorm === 'ROL 1') {
-        rol1Counter++;
-        ordenRotacion = rol1Counter;
-      } else {
-        rol2Counter++;
-        ordenRotacion = rol2Counter;
-      }
+      // Orden secuencial estricto idéntico a las filas del archivo Excel cargado
+      const ordenRotacion = i + 1;
 
       if (!match) {
         const newRef = doc(collection(db, 'personas'));
@@ -1143,16 +1133,19 @@ export const ejecutarImportacionConfirmadaUS = async (
       console.warn('Error sincronizando cuentas U.S.:', e);
     }
 
+    const rol1Count = validRows.filter((r) => r.empleo === 'ROL 1').length;
+    const rol2Count = validRows.filter((r) => r.empleo === 'ROL 2').length;
+
     await registrarAuditLog({
       adminUid: adminInfo.uid,
       adminNombre: adminInfo.nombre,
       accion: 'IMPORTAR_PERSONAL',
-      detalles: `Plantilla de la U.S. (Unidad de Seguridad) importada: ${validRows.length} usuarios activos (${rol1Counter} ROL 1 y ${rol2Counter} ROL 2). Historial conservado y U.G. no afectada.`,
+      detalles: `Plantilla de la U.S. (Unidad de Seguridad) importada: ${validRows.length} usuarios activos (${rol1Count} ROL 1 y ${rol2Count} ROL 2). Historial conservado y U.G. no afectada.`,
     });
 
     return {
       success: true,
-      message: `Plantilla U.S. actualizada correctamente con ${validRows.length} efectivos activos (${rol1Counter} ROL 1 y ${rol2Counter} ROL 2). Los datos históricos han sido preservados.`,
+      message: `Plantilla U.S. actualizada correctamente con ${validRows.length} efectivos activos (${rol1Count} ROL 1 y ${rol2Count} ROL 2). Los datos históricos han sido preservados.`,
       count: validRows.length,
     };
   } catch (error: any) {

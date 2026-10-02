@@ -57,6 +57,7 @@ import { CuadranteUSEdicionManualModal } from '../components/cuadrante/Cuadrante
 import { PlanificadorDia10USCard } from '../components/PlanificadorDia10USCard';
 import { AdminAusenciasUSModal } from '../components/ausencias/AdminAusenciasUSModal';
 import { getMapaAusenciasAprobadasUS } from '../services/ausenciasUSService';
+import { clasificarDiaUS } from '../services/cuadranteUSCalendarHelper';
 import {
   getImaginariasPendientesCompensacionUS,
   marcarImaginariasCompensadasUS,
@@ -617,7 +618,18 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
       const srvs = await getServiciosByCuadranteId(cuadrante.id);
       setSelectedCuadrante(cuadrante);
       if (cuadrante.tipoServicio === 'US' || (cuadrante as any).configuracionUS) {
-        setSelectedServiciosUS(srvs as any);
+        const srvsUSNormalizados: ServicioDiaUS[] = (srvs as any[]).map((s) => {
+          const infoDia = clasificarDiaUS(s.fecha);
+          return {
+            ...s,
+            esLaborable: infoDia.esLaborable,
+            esFestivo: infoDia.esFestivo,
+            esFinDeSemana: infoDia.esFinDeSemana,
+            esSabado: infoDia.esSabado,
+            esDomingo: infoDia.esDomingo,
+          };
+        });
+        setSelectedServiciosUS(srvsUSNormalizados);
       } else {
         setSelectedServiciosUG(srvs);
       }

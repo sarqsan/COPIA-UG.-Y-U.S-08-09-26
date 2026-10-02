@@ -218,10 +218,23 @@ export const getNotificaciones = async (
   // Filtrar y mapear estado de lectura específico para este usuario
   return memoryNotificacionesCache
     .filter((item) => {
-      if (isAdmin) return true; // El administrador ve todas las alertas y gestiones
+      // 1. Notificaciones expresamente dirigidas a este usuario por su personaId o UID
       if (personaId && item.destinatarioPersonaId === personaId) return true;
       if (uid && item.destinatarioUid === uid) return true;
+
+      // 2. Notificaciones globales para toda la plantilla
       if (item.esParaTodos) return true;
+
+      // 3. Si el usuario actual es Administrador:
+      if (isAdmin) {
+        // Recibe notificaciones dirigidas al rol de administración o que requieran gestión administrativa
+        if (item.esParaAdmin) return true;
+        // Si no tiene destinatario específico de persona ni UID, es un aviso global/sistema para el Administrador
+        if (!item.destinatarioPersonaId && !item.destinatarioUid) return true;
+        // NUNCA recibir notificaciones personales privadas dirigidas a otros usuarios
+        return false;
+      }
+
       return false;
     })
     .map((item) => {
@@ -305,10 +318,23 @@ export const subscribeNotificaciones = (
 
         const resultado = memoryNotificacionesCache
           .filter((item) => {
-            if (isAdmin) return true;
+            // 1. Notificaciones expresamente dirigidas a este usuario por su personaId o UID
             if (personaId && item.destinatarioPersonaId === personaId) return true;
             if (uid && item.destinatarioUid === uid) return true;
+
+            // 2. Notificaciones globales para toda la plantilla
             if (item.esParaTodos) return true;
+
+            // 3. Si el usuario actual es Administrador:
+            if (isAdmin) {
+              // Recibe notificaciones dirigidas al rol de administración o que requieran gestión administrativa
+              if (item.esParaAdmin) return true;
+              // Si no tiene destinatario específico de persona ni UID, es un aviso global/sistema para el Administrador
+              if (!item.destinatarioPersonaId && !item.destinatarioUid) return true;
+              // NUNCA recibir notificaciones personales privadas dirigidas a otros usuarios
+              return false;
+            }
+
             return false;
           })
           .map((item) => {

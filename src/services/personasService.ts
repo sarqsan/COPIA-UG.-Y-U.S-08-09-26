@@ -149,7 +149,12 @@ export const getPersonas = async (options?: {
       if (options?.cicloId) {
         resultado = resultado.filter((p) => p.cicloId === options.cicloId);
       }
-      return resultado;
+      return resultado.sort((a, b) => {
+        const ordA = a.ordenRotacion !== undefined && a.ordenRotacion !== null ? a.ordenRotacion : 9999;
+        const ordB = b.ordenRotacion !== undefined && b.ordenRotacion !== null ? b.ordenRotacion : 9999;
+        if (ordA !== ordB) return ordA - ordB;
+        return a.nombre.localeCompare(b.nombre);
+      });
     }
   } catch (error: any) {
     console.warn('Lectura Firestore diferida (usando memoria):', error.message || error);

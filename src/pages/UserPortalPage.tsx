@@ -36,6 +36,7 @@ import { ChatModal } from '../components/chat/ChatModal';
 import { CambiarPasswordModal } from '../components/auth/CambiarPasswordModal';
 import { CuadranteMensualView } from '../components/cuadrante/CuadranteMensualView';
 import { CuadranteUSMensualView } from '../components/cuadrante/CuadranteUSMensualView';
+import { clasificarDiaUS } from '../services/cuadranteUSCalendarHelper';
 import { ServicioDiaUS, SolicitudAusenciaUS } from '../types/usTypes';
 import { SolicitarAusenciaUSModal } from '../components/ausencias/SolicitarAusenciaUSModal';
 import { asegurarBackupDiario } from '../services/backupRestoreService';
@@ -138,7 +139,22 @@ export const UserPortalPage: React.FC = () => {
 
       if (activo) {
         const srvs = await getServiciosByCuadranteId(activo.id);
-        setServicios(srvs);
+        if (userTipoServicio === 'US' || (activo as any).configuracionUS) {
+          const srvsUS = srvs.map((s) => {
+            const infoDia = clasificarDiaUS(s.fecha);
+            return {
+              ...s,
+              esLaborable: infoDia.esLaborable,
+              esFestivo: infoDia.esFestivo,
+              esFinDeSemana: infoDia.esFinDeSemana,
+              esSabado: infoDia.esSabado,
+              esDomingo: infoDia.esDomingo,
+            };
+          });
+          setServicios(srvsUS);
+        } else {
+          setServicios(srvs);
+        }
 
         const incs = await getIncidenciasAusencia(activo.id);
         setIncidencias(incs);

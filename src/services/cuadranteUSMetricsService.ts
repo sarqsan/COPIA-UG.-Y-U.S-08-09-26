@@ -85,9 +85,14 @@ export const calcularMetricasCuadranteUS = (
 
   servicios.forEach((s, diaIdx) => {
     const infoDia = clasificarDiaUS(s.fecha);
-    const esRealmenteFestivo = infoDia.esFestivo || Boolean((s as any).esFestivo);
-    const esRealmenteFinSemana = infoDia.esFinDeSemana || Boolean(s.esFinDeSemana);
-    const esRealmenteLaborable = !esRealmenteFestivo && !esRealmenteFinSemana && infoDia.esLaborable;
+    const esRealmenteFestivo = infoDia.esFestivo;
+    const esRealmenteFinSemana = infoDia.esFinDeSemana;
+    const esRealmenteLaborable = infoDia.esLaborable;
+
+    // Asegurar que el objeto servicio mantenga las propiedades canónicas sincronizadas
+    s.esFestivo = esRealmenteFestivo;
+    s.esFinDeSemana = esRealmenteFinSemana;
+    s.esLaborable = esRealmenteLaborable;
 
     // Conjunto de personas con ausencia computable (en día laborable) en este día.
     // Regla de exclusión mutua: si existe ausencia computable para esa persona en día laborable,
