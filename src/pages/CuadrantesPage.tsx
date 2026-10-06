@@ -18,6 +18,7 @@ import {
   getServiciosByCuadranteId,
   confirmarCuadrante,
   modificarServicioManual,
+  permutarServicioImaginariaRol2Admin,
   modificarServicioUSManual,
   eliminarCuadrante,
   eliminarTodosCuadrantes,
@@ -91,6 +92,7 @@ import {
   UserCheck,
   UserPlus,
   ShieldCheck,
+  ArrowLeftRight,
 } from 'lucide-react';
 
 interface CuadrantesPageProps {
@@ -148,6 +150,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
   // Estado de edición manual UG
   const [editingServicioUG, setEditingServicioUG] = useState<ServicioDia | null>(null);
   const [editingSlotUG, setEditingSlotUG] = useState<SlotServicioTipo | 'rol1_1' | 'rol1_2' | 'rol2_1' | 'rol2_2' | 'rol1_imag' | 'rol2_imag'>('rol1_1');
+  const [editUGInitialMode, setEditUGInitialMode] = useState<'REASIGNACION' | 'PERMUTA_ROL2'>('REASIGNACION');
   const [isEditUGModalOpen, setIsEditUGModalOpen] = useState(false);
 
   // Estado de edición manual US
@@ -679,11 +682,50 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
   // Abrir modal de edición manual UG
   const handleAbrirEdicionManualUG = (
     servicio: ServicioDia,
-    slotTipo: SlotServicioTipo | 'rol1_1' | 'rol1_2' | 'rol2_1' | 'rol2_2' | 'rol1_imag' | 'rol2_imag'
+    slotTipo: SlotServicioTipo | 'rol1_1' | 'rol1_2' | 'rol2_1' | 'rol2_2' | 'rol1_imag' | 'rol2_imag',
+    mode: 'REASIGNACION' | 'PERMUTA_ROL2' = 'REASIGNACION'
   ) => {
     setEditingServicioUG(servicio);
     setEditingSlotUG(slotTipo);
+    setEditUGInitialMode(mode);
     setIsEditUGModalOpen(true);
+  };
+
+  // Ejecutar permuta directa administrativa Servicio ↔ Imaginaria (ROL 2)
+  const handlePermutarServicioImaginariaUG = async (params: {
+    servicioId: string;
+    fecha: string;
+    usuarioServicioId: string;
+    usuarioImaginariaId: string;
+    motivo: string;
+  }) => {
+    if (!selectedCuadrante) return;
+
+    const res = await permutarServicioImaginariaRol2Admin({
+      cuadranteId: selectedCuadrante.id,
+      servicioId: params.servicioId,
+      fecha: params.fecha,
+      usuarioServicioId: params.usuarioServicioId,
+      usuarioImaginariaId: params.usuarioImaginariaId,
+      motivo: params.motivo,
+      personas,
+      adminInfo: {
+        uid: adminInfo.uid,
+        nombre: adminInfo.nombre,
+        rol: isAdmin ? 'ADMIN' : currentCuenta?.rol,
+      },
+    });
+
+    if (!res.success) {
+      throw new Error(res.message);
+    }
+
+    const srvsActualizados = await getServiciosByCuadranteId(selectedCuadrante.id);
+    setSelectedServiciosUG([...srvsActualizados]);
+    const cActualizado = (await getCuadrantes({ tipoServicio: 'GUARDIA' })).find(
+      (c) => c.id === selectedCuadrante.id
+    );
+    if (cActualizado) setSelectedCuadrante({ ...cActualizado });
   };
 
   // Guardar edición manual UG
@@ -1342,14 +1384,33 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
                 )}
 
                 {!esCuadranteSeleccionadoUS && isAdmin && (
-                  <button
-                    type="button"
-                    onClick={() => setIsIncorporarModalOpen(true)}
-                    className="flex items-center gap-1.5 rounded-2xl border border-blue-200 bg-blue-50 px-3.5 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100 dark:border-blue-900/60 dark:bg-blue-950/40 dark:text-blue-300 transition cursor-pointer"
-                  >
-                    <UserPlus className="h-4 w-4 text-blue-600" />
-                    <span>Incorporar ROL 2</span>
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const hoyStr = new Date().toISOString().split('T')[0];
+                        const srvInicial =
+                          selectedServiciosUG.find((s) => s.fecha === hoyStr) ||
+                          selectedServiciosUG[0];
+                        if (srvInicial) {
+                          handleAbrirEdicionManualUG(srvInicial, 'rol2_1', 'PERMUTA_ROL2');
+                        }
+                      }}
+                      className="flex items-center gap-1.5 rounded-2xl border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-xs font-bold text-emerald-800 hover:bg-emerald-100 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300 transition cursor-pointer"
+                    >
+                      <ArrowLeftRight className="h-4 w-4 text-emerald-600" />
+                      <span>Permutar Servicio ↔ Imaginaria</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsIncorporarModalOpen(true)}
+                      className="flex items-center gap-1.5 rounded-2xl border border-blue-200 bg-blue-50 px-3.5 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100 dark:border-blue-900/60 dark:bg-blue-950/40 dark:text-blue-300 transition cursor-pointer"
+                    >
+                      <UserPlus className="h-4 w-4 text-blue-600" />
+                      <span>Incorporar ROL 2</span>
+                    </button>
+                  </>
                 )}
 
                 {isAdmin && (
@@ -1796,6 +1857,9 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
           slotTipo={editingSlotUG}
           personas={personas}
           onSave={handleGuardarEdicionManualUG}
+          initialMode={editUGInitialMode}
+          serviciosDisponibles={selectedServiciosUG}
+          onPermutarRol2={handlePermutarServicioImaginariaUG}
         />
       )}
 
