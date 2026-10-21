@@ -54,6 +54,15 @@ export const normalizeCuadrante = (c: any): CuadranteMaestro => ({
   grupoId: c.grupoId || (c.id?.includes('-us-') || c.configuracionUS ? 'US' : 'GUARDIA'),
 });
 
+// Helpers de caché para tests automatizados
+export const setMemoryServiciosTest = (cuadranteId: string, servicios: ServicioDia[]) => {
+  memoryServiciosCache.set(cuadranteId, servicios);
+};
+
+export const clearMemoryServiciosTest = () => {
+  memoryServiciosCache.clear();
+};
+
 const loadLocalCache = () => {
   if (typeof window === 'undefined' || !window.localStorage) return;
   try {
@@ -246,10 +255,13 @@ export const getServiciosByCuadranteId = async (
 
 /**
  * Obtiene los IDs y nombres de los efectivos que se encuentran asignados
- * DE SERVICIO (Titulares 24h) o DE IMAGINARIA.
- * Regla de compatibilidad estricta:
- * - Patrulla en D => No Servicio en D, No Imaginaria en D-1, D, D+1.
- * Esta lista se utiliza para excluirlos completamente de la selección de patrullas.
+ * DE SERVICIO (Titulares 24h) o DE IMAGINARIA incompatibles con patrullas.
+ * Regla de compatibilidad de patrulla:
+ * - Patrulla en D => No Servicio titular en D (24h), No Saliente de guardia (Titular en D-1),
+ *   No Imaginaria en D, No Imaginaria en D+1.
+ * - EXCEPCIÓN NORMATIVA: El personal que estuvo de IMAGINARIA el día anterior (D-1)
+ *   SÍ puede ser nombrado para una patrulla al día siguiente (D).
+ * Esta lista se utiliza para excluirlos de la selección de patrullas.
  */
 export const obtenerEfectivosEnServicioOImaginaria = async (fecha: string): Promise<{
   titularesIds: string[];
@@ -319,7 +331,10 @@ export const obtenerEfectivosEnServicioOImaginaria = async (fecha: string): Prom
       }
     }
 
-    // 2. Día D-1 (Ayer): Titulares de guardia 24h (Saliente de guardia en Día D) e Imaginarias
+    // 2. Día D-1 (Ayer): Titulares de guardia 24h (Saliente de guardia en Día D).
+    // EXCEPCIÓN NORMATIVA OBLIGATORIA: Quien estuvo de IMAGINARIA el día anterior (D-1)
+    // SÍ puede ser nombrado para patrulla al día siguiente (D).
+    // Se mantiene intacto el bloqueo para los titulares de servicio ordinario de 24h (salientes de guardia).
     const srvAyer = serviciosList.find((s) => s && s.fecha === fechaAyer);
     if (srvAyer) {
       encontroDiaAyer = true;
@@ -331,14 +346,7 @@ export const obtenerEfectivosEnServicioOImaginaria = async (fecha: string): Prom
         const id = t?.personaIdReal || t?.personaIdOriginal || (t as any)?.personaId;
         registrarPersona(id, `Saliente de guardia 24h R2 #${i + 1} (Día anterior D-1)`, 'SALIENTE_GUARDIA');
       });
-      if (srvAyer.imaginarias?.rol1) {
-        const id = srvAyer.imaginarias.rol1.personaIdReal || srvAyer.imaginarias.rol1.personaIdOriginal || (srvAyer.imaginarias.rol1 as any)?.personaId;
-        registrarPersona(id, 'Imaginaria R1 día anterior (D-1)', 'IMAGINARIA');
-      }
-      if (srvAyer.imaginarias?.rol2) {
-        const id = srvAyer.imaginarias.rol2.personaIdReal || srvAyer.imaginarias.rol2.personaIdOriginal || (srvAyer.imaginarias.rol2 as any)?.personaId;
-        registrarPersona(id, 'Imaginaria R2 día anterior (D-1)', 'IMAGINARIA');
-      }
+      // EXCEPCIÓN: Las imaginarias del día anterior (D-1) NO se añaden a la lista de exclusión.
     }
 
     // 3. Día D+1 (Mañana): Imaginarias

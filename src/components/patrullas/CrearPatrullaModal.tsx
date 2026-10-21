@@ -87,12 +87,8 @@ export const CrearPatrullaModal: React.FC<CrearPatrullaModalProps> = ({
     };
   }, [fecha]);
 
-  // Rol Candidato según la regla fundamental
-  const seleccionRol = useMemo(() => {
-    return determinarRolCandidato(personas, patrullasHistoricas);
-  }, [personas, patrullasHistoricas]);
-
-  const rolActivo = rolManual || seleccionRol.rolCandidato;
+  // Rol Candidato obligatorio: ROL 2 exclusivo para patrullas
+  const rolActivo: Empleo = 'ROL 2';
 
   // Candidatos ordenados equitativamente (excluyendo automáticamente los que están de servicio o imaginaria)
   const candidatos = useMemo(() => {
@@ -344,7 +340,7 @@ export const CrearPatrullaModal: React.FC<CrearPatrullaModalProps> = ({
                   </div>
 
                   <p className="mt-2 text-[10px] text-emerald-800 dark:text-emerald-300/90 bg-white/70 dark:bg-slate-900/60 p-2 rounded-xl border border-emerald-200/60 dark:border-emerald-900/40 leading-relaxed">
-                    La patrulla se nombra sola según las normas vigentes: menor carga de patrullas acumuladas y compatibilidad de descanso (sin servicio en D, sin imaginaria en D-1, D, D+1).
+                    La patrulla se nombra sola según las normas vigentes: menor carga de patrullas acumuladas y compatibilidad de descanso (sin servicio en D, sin saliente de guardia D-1, sin imaginaria en D o D+1; permitido si estuvo de imaginaria en D-1).
                   </p>
                 </div>
               ) : (
@@ -359,7 +355,7 @@ export const CrearPatrullaModal: React.FC<CrearPatrullaModalProps> = ({
                 <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-[10px] text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
                   <ShieldAlert className="h-3.5 w-3.5 text-amber-500 shrink-0" />
                   <span>
-                    <strong>{excluidosIds.length} excluidos:</strong> No están disponibles por servicio (D), saliente de guardia 24h (D-1) o imaginaria (D-1, D, D+1).
+                    <strong>{excluidosIds.length} excluidos:</strong> No están disponibles por servicio (D), saliente de guardia 24h (D-1) o imaginaria (D, D+1).
                   </span>
                 </div>
               )}
@@ -386,15 +382,11 @@ export const CrearPatrullaModal: React.FC<CrearPatrullaModalProps> = ({
                   <div className="mt-2 space-y-2 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/60 animate-fade-in text-xs">
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] text-slate-600 dark:text-slate-300">
-                        Rol: <strong>{rolActivo}</strong>
+                        Rol asignado: <strong>ROL 2 (Exclusivo)</strong>
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => setRolManual(rolActivo === 'ROL 1' ? 'ROL 2' : 'ROL 1')}
-                        className="text-[11px] font-bold text-blue-600 hover:underline dark:text-blue-400 cursor-pointer"
-                      >
-                        Cambiar a {rolActivo === 'ROL 1' ? 'ROL 2' : 'ROL 1'}
-                      </button>
+                      <span className="text-[10px] text-slate-400 font-medium">
+                        Patrullas exclusivas de ROL 2
+                      </span>
                     </div>
 
                     <div className="max-h-28 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800/60">
@@ -479,7 +471,7 @@ export const CrearPatrullaModal: React.FC<CrearPatrullaModalProps> = ({
                   Generación Automática de Rango
                 </p>
                 El sistema recorrerá día por día evaluando en cada fecha el rol mayoritario activo,
-                asignando el horario secuencial según calendario (en días laborables siempre horario de noche 17:00 / 18:00; en fines de semana y festivos rotación), <strong>excluyendo en cada día a los efectivos de servicio (24h) y de imaginaria (D-1, D, D+1)</strong> e integrando al efectivo que por normativa corresponde.
+                asignando el horario secuencial según calendario (en días laborables siempre horario de noche 17:00 / 18:00; en fines de semana y festivos rotación), <strong>excluyendo en cada día a los efectivos de servicio (24h), saliente de guardia (D-1) y de imaginaria (D, D+1)</strong> e integrando al efectivo que por normativa corresponde.
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

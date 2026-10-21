@@ -40,6 +40,17 @@ let memoryPatrullasCache: Patrulla[] = [];
 let memoryAuditCache: PatrullaAuditLog[] = [];
 let memoryUltimoSecuencial: number = 0;
 
+// Helpers de caché para tests automatizados
+export const setMemoryPatrullasTest = (patrullas: Patrulla[]) => {
+  memoryPatrullasCache = [...patrullas];
+};
+
+export const clearMemoryPatrullasTest = () => {
+  memoryPatrullasCache = [];
+  memoryAuditCache = [];
+  memoryUltimoSecuencial = 0;
+};
+
 // Inicialización de almacenamiento local L2
 const loadLocalStorage = () => {
   if (typeof localStorage === 'undefined') return;
@@ -319,60 +330,16 @@ export const determinarRolCandidato = (
   const totalR1 = r1Operativos.length;
   const totalR2 = r2Operativos.length;
 
-  if (totalR1 > totalR2) {
-    return {
-      rolCandidato: 'ROL 1',
-      totalR1Operativos: totalR1,
-      totalR2Operativos: totalR2,
-      motivoSeleccion: `ROL 1 mayoritario en plantilla activa (${totalR1} R1 vs ${totalR2} R2).`,
-    };
-  }
-
-  if (totalR2 > totalR1) {
-    return {
-      rolCandidato: 'ROL 2',
-      totalR1Operativos: totalR1,
-      totalR2Operativos: totalR2,
-      motivoSeleccion: `ROL 2 mayoritario en plantilla activa (${totalR2} R2 vs ${totalR1} R1).`,
-    };
-  }
-
-  // CASO DE EMPATE (totalR1 === totalR2):
-  // Criterio 1: Rol con menor número de patrullas acumuladas no canceladas
-  const patrullasValidas = patrullasHistoricas.filter((p) => p.estado !== 'CANCELADA');
-  const patrullasR1 = patrullasValidas.filter((p) => p.personaEmpleo === 'ROL 1').length;
-  const patrullasR2 = patrullasValidas.filter((p) => p.personaEmpleo === 'ROL 2').length;
-
-  if (patrullasR1 < patrullasR2) {
-    return {
-      rolCandidato: 'ROL 1',
-      totalR1Operativos: totalR1,
-      totalR2Operativos: totalR2,
-      motivoSeleccion: `Empate de plantilla (${totalR1} vs ${totalR2}). Desempate por menor carga histórica acumulada: ROL 1 (${patrullasR1} patrullas vs ${patrullasR2} R2).`,
-    };
-  }
-
-  if (patrullasR2 < patrullasR1) {
-    return {
-      rolCandidato: 'ROL 2',
-      totalR1Operativos: totalR1,
-      totalR2Operativos: totalR2,
-      motivoSeleccion: `Empate de plantilla (${totalR1} vs ${totalR2}). Desempate por menor carga histórica acumulada: ROL 2 (${patrullasR2} patrullas vs ${patrullasR1} R1).`,
-    };
-  }
-
-  // Criterio 2: Desempate determinista estable si también hay empate histórico
-  // Alternancia basada en la última patrulla registrada o criterio lexicográfico determinista
-  const ultimaPatrulla = patrullasValidas[patrullasValidas.length - 1];
-  const rolAlterno: Empleo = ultimaPatrulla?.personaEmpleo === 'ROL 1' ? 'ROL 2' : 'ROL 1';
-
+  // REGLA OBLIGATORIA: Las patrullas se asignan exclusivamente a efectivos de ROL 2.
   return {
-    rolCandidato: rolAlterno,
+    rolCandidato: 'ROL 2',
     totalR1Operativos: totalR1,
     totalR2Operativos: totalR2,
-    motivoSeleccion: `Empate total en plantilla (${totalR1}) y patrullas históricas (${patrullasR1}). Desempate determinista por alternancia con última patrulla registrada.`,
+    motivoSeleccion: `ROL 2 exclusivo: Las patrullas son exclusivas de ROL 2 (${totalR2} R2 operativos).`,
   };
 };
+
+
 
 /**
  * Selección equitativa de candidatos dentro del rol mayoritario (Paso 2):
@@ -524,10 +491,17 @@ export const crearPatrulla = async (params: {
     throw new Error(`Persona con ID ${params.personaId} no encontrada.`);
   }
 
+  // REGLA OBLIGATORIA: Las patrullas solo pueden asignarse a usuarios de Rol 2 (Rol 1 no puede ser nombrado)
+  if (persona.empleo !== 'ROL 2') {
+    throw new Error(
+      `Incompatibilidad de rol: Las patrullas son exclusivas de ROL 2 (${persona.nombre} es ${persona.empleo}).`
+    );
+  }
+
   // VALIDACIÓN DEFENSIVA ESTRICTA DE COMPATIBILIDAD (Bloque 4 / Nivel 2 de protección):
   // En D: NO puede tener servicio U.G. titular en D (24h).
   // En D: NO puede ser saliente de guardia de 24h del día anterior (D-1).
-  // NO puede tener imaginaria U.G. en D-1, D, o D+1.
+  // NO puede tener imaginaria U.G. en D o D+1 (EXCEPCIÓN: imaginaria en D-1 sí está permitida).
   const excluidos = await obtenerEfectivosEnServicioOImaginaria(params.fecha);
   if (excluidos.todosExcluidosIds.includes(persona.id)) {
     const det = excluidos.detalles.find((d) => d.id === persona.id);
@@ -541,7 +515,7 @@ export const crearPatrulla = async (params: {
     } else if (excluidos.titularesIds.includes(persona.id)) {
       motivo += ' por estar asignado/a como servicio titular de guardia (24h) en esta fecha (D).';
     } else {
-      motivo += ' por coincidencia de imaginaria de guardia (D-1, D, o D+1).';
+      motivo += ' por coincidencia de imaginaria de guardia (D o D+1).';
     }
     throw new Error(motivo);
   }
@@ -630,6 +604,8 @@ export const crearPatrulla = async (params: {
 
   return nuevaPatrulla;
 };
+
+export const crearPatrullaIndividual = crearPatrulla;
 
 /**
  * Genera automáticamente patrullas para un rango de fechas utilizando el algoritmo dinámico
@@ -728,6 +704,13 @@ export const sustituirPatrulla = async (params: {
     throw new Error(`Persona sustituta con ID ${nuevaPersonaId} no encontrada.`);
   }
 
+  // REGLA OBLIGATORIA: Las patrullas son exclusivas de Rol 2 (Rol 1 no puede ser nombrado)
+  if (nuevaPersona.empleo !== 'ROL 2') {
+    throw new Error(
+      `Incompatibilidad de rol en sustitución: Las patrullas son exclusivas de ROL 2 (${nuevaPersona.nombre} es ${nuevaPersona.empleo}).`
+    );
+  }
+
   // VALIDACIÓN DEFENSIVA ESTRICTA DE COMPATIBILIDAD (Bloque 4 / Nivel 2 de protección):
   const excluidos = await obtenerEfectivosEnServicioOImaginaria(patrulla.fecha);
   if (excluidos.todosExcluidosIds.includes(nuevaPersona.id)) {
@@ -742,7 +725,7 @@ export const sustituirPatrulla = async (params: {
     } else if (excluidos.titularesIds.includes(nuevaPersona.id)) {
       motivoExclusion += ' por tener servicio titular de guardia (24h) en esa fecha (D).';
     } else {
-      motivoExclusion += ' por coincidencia de imaginaria de guardia (D-1, D, o D+1).';
+      motivoExclusion += ' por coincidencia de imaginaria de guardia (D o D+1).';
     }
     throw new Error(motivoExclusion);
   }
