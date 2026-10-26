@@ -23,7 +23,7 @@ import {
 } from '../types';
 import { registrarAuditLog } from './auditService';
 import { crearNotificacion } from './notificacionesService';
-import { getServiciosByCuadranteId, aplicarCambioServiciosAutorizado } from './cuadranteService';
+import { getServiciosByCuadranteId, aplicarCambioServiciosAutorizado, getCuadrantes } from './cuadranteService';
 import { getPersonas } from './personasService';
 import { enviarDocumentoCambioPorGmail } from './emailCambioEnvioService';
 
@@ -103,6 +103,56 @@ const saveLocalCache = (notify: boolean = true) => {
 };
 
 loadLocalCache();
+
+/**
+ * Determina de forma fiable si una solicitud corresponde a la Unidad de Seguridad (U.S.)
+ * o a la Unidad de Guardia (U.G.), garantizando retrocompatibilidad con registros antiguos.
+ */
+export const getUnidadSolicitud = (s: SolicitudCambio): TipoServicio => {
+  if (s.tipoServicio === 'US' || s.solicitanteGrupo === 'US_SEGURIDAD' || s.destinatarioGrupo === 'US_SEGURIDAD') {
+    return 'US';
+  }
+  if (s.tipoServicio === 'GUARDIA' || s.solicitanteGrupo === 'U.G.' || s.destinatarioGrupo === 'U.G.') {
+    return 'GUARDIA';
+  }
+  // Detección por slots o identificadores específicos de la U.S.
+  const slotsUS = ['diurno_1', 'diurno_2', 'nocturno_1', 'nocturno_2', 'imaginaria_us'];
+  if (
+    (s.slotTipo && slotsUS.includes(s.slotTipo)) ||
+    (s.servicioDevolucionSlot && slotsUS.includes(s.servicioDevolucionSlot))
+  ) {
+    return 'US';
+  }
+  return 'GUARDIA';
+};
+
+/**
+ * Proporciona la descripción reglamentaria del turno/servicio afectado según la unidad (U.G. o U.S.)
+ */
+export const getDescripcionTurnoSolicitud = (s: SolicitudCambio, esDevolucion = false): string => {
+  const unidad = getUnidadSolicitud(s);
+  const slot = esDevolucion ? s.servicioDevolucionSlot : s.slotTipo;
+  const tipo = esDevolucion ? s.servicioDevolucionTipo : s.tipoCambio;
+
+  if (unidad === 'US') {
+    if (tipo === 'IMAGINARIA' || (slot as string) === 'imaginaria_us') {
+      return 'Imaginaria U.S. (Disponibilidad 24h)';
+    }
+    if (slot === 'diurno_1' || slot === 'diurno_2' || slot?.includes('diurno')) {
+      return 'Turno Diurno (12h • 07:00 a 19:00)';
+    }
+    if (slot === 'nocturno_1' || slot === 'nocturno_2' || slot?.includes('nocturno')) {
+      return 'Turno Nocturno (12h • 19:00 a 07:00)';
+    }
+    return 'Servicio U.S. (12h)';
+  }
+
+  // U.G.
+  if (tipo === 'IMAGINARIA' || slot?.includes('imag')) {
+    return 'Imaginaria Guardia U.G. (24h)';
+  }
+  return 'Guardia Ordinaria U.G. (24h)';
+};
 
 /**
  * Valida si un cambio entre dos personas es viable según las restricciones operativas:
@@ -1325,6 +1375,30 @@ export const subscribeSolicitudesCambio = (
   cuadranteId?: string,
   tipoServicio?: TipoServicio
 ): (() => void) => {
+  const emitCached = () => {
+    loadLocalCache();
+    const resultado = memorySolicitudesCache
+      .filter((s) => {
+        if (cuadranteId && s.cuadranteId && s.cuadranteId !== cuadranteId) return false;
+        const sTipo = s.tipoServicio || (s.solicitanteGrupo === 'US_SEGURIDAD' ? 'US' : 'GUARDIA');
+        if (tipoServicio && sTipo !== tipoServicio) return false;
+        return true;
+      })
+      .sort((a, b) => new Date(b.fechaSolicitud).getTime() - new Date(a.fechaSolicitud).getTime());
+    callback(resultado);
+  };
+
+  // Emitir inmediatamente el estado local / en memoria
+  emitCached();
+
+  const handleCustomEvent = () => {
+    emitCached();
+  };
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('cambios_updated', handleCustomEvent);
+  }
+
   try {
     const colRef = collection(db, SOLICITUDES_COLLECTION);
     const q = query(colRef, orderBy('fechaSolicitud', 'desc'));
@@ -1363,26 +1437,26 @@ export const subscribeSolicitudesCambio = (
         );
         saveLocalCache(false);
 
-        const resultado = memorySolicitudesCache
-          .filter((s) => {
-            if (cuadranteId && s.cuadranteId && s.cuadranteId !== cuadranteId) return false;
-            const sTipo = s.tipoServicio || (s.solicitanteGrupo === 'US_SEGURIDAD' ? 'US' : 'GUARDIA');
-            if (tipoServicio && sTipo !== tipoServicio) return false;
-            return true;
-          })
-          .sort((a, b) => new Date(b.fechaSolicitud).getTime() - new Date(a.fechaSolicitud).getTime());
-
-        callback(resultado);
+        emitCached();
       },
       (err) => {
         console.warn('Listener de solicitudes en tiempo real diferido:', err.message || err);
       }
     );
 
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('cambios_updated', handleCustomEvent);
+      }
+    };
   } catch (err: any) {
     console.warn('Error configurando listener de solicitudes:', err.message || err);
-    return () => {};
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('cambios_updated', handleCustomEvent);
+      }
+    };
   }
 };
 
@@ -1711,8 +1785,9 @@ export const resolverSolicitudAdmin = async (params: {
   firmaAdmin?: string;
   adminInfo: { uid: string; nombre: string };
   personas: Persona[];
+  servicios?: ServicioDia[];
 }): Promise<{ success: boolean; message: string; documentoId?: string }> => {
-  const { solicitudId, aprobada, motivoRechazo, firmaAdmin, adminInfo, personas } = params;
+  const { solicitudId, aprobada, motivoRechazo, firmaAdmin, adminInfo, personas, servicios: serviciosProp } = params;
   loadLocalCache();
 
   let sol = memorySolicitudesCache.find((s) => s.id === solicitudId);
@@ -1794,13 +1869,17 @@ export const resolverSolicitudAdmin = async (params: {
         sol.solicitanteNombre.toLowerCase().includes(p.nombre.toLowerCase())
     );
   }
+  const unidadSol = getUnidadSolicitud(sol);
+  const esUnidadUS = unidadSol === 'US';
+
   if (!solicitanteObj) {
     solicitanteObj = {
-      id: sol.solicitantePersonaId || 'solicitante-ug',
+      id: sol.solicitantePersonaId || (esUnidadUS ? 'solicitante-us' : 'solicitante-ug'),
       nombre: sol.solicitanteNombre || 'Efectivo Solicitante',
-      empleo: sol.puesto || 'ROL 1',
+      empleo: sol.puesto || (esUnidadUS ? 'ROL 2' : 'ROL 1'),
       activo: true,
-      grupo: 'U.G.',
+      grupo: sol.solicitanteGrupo || (esUnidadUS ? 'US_SEGURIDAD' : 'U.G.'),
+      tipoServicio: esUnidadUS ? 'US' : 'GUARDIA',
       dni: '',
       telefono: '',
       fechaCreacion: now,
@@ -1816,13 +1895,15 @@ export const resolverSolicitudAdmin = async (params: {
         sol.destinatarioNombre.toLowerCase().includes(p.nombre.toLowerCase())
     );
   }
+
   if (!destinatarioObj) {
     destinatarioObj = {
-      id: sol.destinatarioPersonaId || 'destinatario-ug',
+      id: sol.destinatarioPersonaId || (esUnidadUS ? 'destinatario-us' : 'destinatario-ug'),
       nombre: sol.destinatarioNombre || 'Efectivo Destinatario',
-      empleo: sol.destinatarioEmpleo || sol.puesto || 'ROL 1',
+      empleo: sol.destinatarioEmpleo || sol.puesto || (esUnidadUS ? 'ROL 2' : 'ROL 1'),
       activo: true,
-      grupo: 'U.G.',
+      grupo: sol.destinatarioGrupo || (esUnidadUS ? 'US_SEGURIDAD' : 'U.G.'),
+      tipoServicio: esUnidadUS ? 'US' : 'GUARDIA',
       dni: '',
       telefono: '',
       fechaCreacion: now,
@@ -1830,7 +1911,20 @@ export const resolverSolicitudAdmin = async (params: {
     };
   }
 
-  const servicios = await getServiciosByCuadranteId(sol.cuadranteId);
+  // Resolver cuadrante correspondiente a la unidad si no viene fijado
+  let targetCuadranteId = sol.cuadranteId;
+  if (!targetCuadranteId) {
+    const cList = await getCuadrantes({ tipoServicio: esUnidadUS ? 'US' : 'GUARDIA' });
+    const activo = cList.find((c) => c.estado === 'CONFIRMADO' || c.estado === 'SIMULACION') || cList[0];
+    if (activo) {
+      targetCuadranteId = activo.id;
+      sol.cuadranteId = activo.id;
+    }
+  }
+
+  const servicios = (serviciosProp && serviciosProp.length > 0)
+    ? serviciosProp
+    : (targetCuadranteId ? await getServiciosByCuadranteId(targetCuadranteId) : []);
 
   const esPermuta = Boolean(sol.servicioDevolucionFecha) || sol.modalidad === 'PERMUTA';
 
@@ -1932,6 +2026,7 @@ export const resolverSolicitudAdmin = async (params: {
     codigoVerificacion,
     personas,
     adminInfo,
+    serviciosActuales: servicios,
   });
 
   if (!modRes.success) {
@@ -2114,6 +2209,7 @@ export const aprobarSolicitudAdmin = async (params: {
     firmaAdmin: params.firmaAdmin,
     adminInfo: params.adminInfo,
     personas: personasList,
+    servicios: params.servicios,
   });
 };
 
@@ -2187,5 +2283,26 @@ export const registrarDocumentoFirmadoDirecto = async (docFirmado: DocumentoCamb
   } catch (err: any) {
     console.warn('Persistencia diferida de documento firmado:', err?.message || err);
   }
+};
+
+/**
+ * Funciones de soporte para tests unitarios aislados
+ */
+export const setMemorySolicitudesTest = (items: SolicitudCambio[]) => {
+  memorySolicitudesCache = [...items];
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem(SOLICITUDES_STORAGE_KEY, JSON.stringify(items));
+  }
+  notifyCambiosListeners();
+};
+
+export const clearMemorySolicitudesTest = () => {
+  memorySolicitudesCache = [];
+  memoryDocumentosFirmadosCache = [];
+  if (typeof localStorage !== 'undefined') {
+    localStorage.removeItem(SOLICITUDES_STORAGE_KEY);
+    localStorage.removeItem(DOCS_STORAGE_KEY);
+  }
+  notifyCambiosListeners();
 };
 

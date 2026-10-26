@@ -63,6 +63,10 @@ export const clearMemoryServiciosTest = () => {
   memoryServiciosCache.clear();
 };
 
+export const setMemoryCuadrantesTest = (cuadrantes: CuadranteMaestro[]) => {
+  memoryCuadrantesCache = cuadrantes.map(normalizeCuadrante);
+};
+
 const loadLocalCache = () => {
   if (typeof window === 'undefined' || !window.localStorage) return;
   try {
@@ -1572,6 +1576,12 @@ export const aplicarCambioServiciosAutorizado = async (params: {
 
   // 4. Guardar en memoria y persistir localmente
   memoryServiciosCache.set(cuadranteId, copiaServicios);
+  if (serviciosActuales && serviciosActuales[srvIndex]) {
+    Object.assign(serviciosActuales[srvIndex], srvActual);
+    if (srvDevActual && srvDevIndex !== -1 && serviciosActuales[srvDevIndex]) {
+      Object.assign(serviciosActuales[srvDevIndex], srvDevActual);
+    }
+  }
 
   const cuadrante = memoryCuadrantesCache.find((c) => c.id === cuadranteId);
   if (cuadrante) {
@@ -1589,20 +1599,20 @@ export const aplicarCambioServiciosAutorizado = async (params: {
   try {
     const batch = writeBatch(db);
     const srvRef = doc(db, CUADRANTES_COLLECTION, cuadranteId, 'servicios', srvActual.id);
-    batch.update(srvRef, { ...srvActual });
+    batch.update(srvRef, sanitizeForFirestore({ ...srvActual }));
 
     if (srvDevActual) {
       const srvDevRef = doc(db, CUADRANTES_COLLECTION, cuadranteId, 'servicios', srvDevActual.id);
-      batch.update(srvDevRef, { ...srvDevActual });
+      batch.update(srvDevRef, sanitizeForFirestore({ ...srvDevActual }));
     }
 
     const cuadranteRef = doc(db, CUADRANTES_COLLECTION, cuadranteId);
-    batch.update(cuadranteRef, {
+    batch.update(cuadranteRef, sanitizeForFirestore({
       ...(cuadrante?.metricasEquilibrio ? { metricasEquilibrio: cuadrante.metricasEquilibrio } : {}),
       ...(cuadrante?.metricasEquilibrioUS ? { metricasEquilibrioUS: cuadrante.metricasEquilibrioUS } : {}),
       fechaModificacion: new Date().toISOString(),
       modificadoPorUid: adminInfo.uid,
-    });
+    }));
 
     await batch.commit();
   } catch (err: any) {

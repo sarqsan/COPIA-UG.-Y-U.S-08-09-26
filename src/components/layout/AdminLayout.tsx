@@ -373,6 +373,7 @@ export const AdminLayout: React.FC = () => {
                 {activeTab === 'inicio' && (
                   <AdminDashboardPage
                     personas={personasFiltradas}
+                    todasLasPersonas={personas}
                     cuentas={cuentasFiltradas}
                     stats={stats}
                     recentLogs={auditLogs}

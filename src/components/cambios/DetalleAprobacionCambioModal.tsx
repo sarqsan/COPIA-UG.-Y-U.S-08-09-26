@@ -5,9 +5,12 @@ import {
   aprobarSolicitudAdmin,
   rechazarSolicitudAdmin,
   getDocumentoFirmado,
+  getUnidadSolicitud,
+  getDescripcionTurnoSolicitud,
 } from '../../services/cambiosService';
 import { generarYDescargarDocumentoCambioExcel } from '../../services/documentoCambioExcelService';
-import { getServiciosByCuadranteId } from '../../services/cuadranteService';
+import { getServiciosByCuadranteId, getCuadrantes } from '../../services/cuadranteService';
+import { getPersonas } from '../../services/personasService';
 import { enviarDocumentoCambioPorGmail } from '../../services/emailCambioEnvioService';
 import { comprobarEnvioPrevio } from '../../services/emailPersonalConfigService';
 import {
@@ -136,12 +139,23 @@ export const DetalleAprobacionCambioModal: React.FC<DetalleAprobacionCambioModal
 
         setSolicitud(solObj);
 
-        if (solObj?.cuadranteId) {
-          if (propServicios && propServicios.length > 0) {
-            setServiciosCuadrante(propServicios);
-          } else {
-            const srvs = await getServiciosByCuadranteId(solObj.cuadranteId);
-            setServiciosCuadrante(srvs);
+        if (solObj) {
+          const unidadSol = getUnidadSolicitud(solObj);
+          let targetCid = solObj.cuadranteId;
+          if (!targetCid) {
+            const cuadrantes = await getCuadrantes({ tipoServicio: unidadSol });
+            const cActivo = cuadrantes.find((c) => c.estado === 'CONFIRMADO' || c.estado === 'SIMULACION') || cuadrantes[0];
+            targetCid = cActivo?.id;
+            solObj.cuadranteId = targetCid || '';
+          }
+
+          if (targetCid) {
+            if (propServicios && propServicios.length > 0 && propServicios[0]?.cuadranteId === targetCid) {
+              setServiciosCuadrante(propServicios);
+            } else {
+              const srvs = await getServiciosByCuadranteId(targetCid);
+              setServiciosCuadrante(srvs);
+            }
           }
         }
       } catch (err: any) {
@@ -199,23 +213,30 @@ export const DetalleAprobacionCambioModal: React.FC<DetalleAprobacionCambioModal
   };
 
   const handleAutorizar = async () => {
-    if (!solicitud) return;
+    if (!solicitud || procesando) return;
 
     setProcesando(true);
     setErrorMsg(null);
     setExitoMsg(null);
 
     try {
+      const personalCompleto = personas && personas.length > 0 ? personas : await getPersonas();
+      const unidadSol = getUnidadSolicitud(solicitud);
       const res = await aprobarSolicitudAdmin({
         solicitud,
         adminInfo,
         cuadranteId: solicitud.cuadranteId,
-        personas,
+        personas: personalCompleto,
         servicios: serviciosCuadrante,
       });
 
       if (res.success) {
-        setExitoMsg(res.message || 'Cambio de servicio autorizado y aplicado correctamente al cuadrante de la U.G.');
+        setExitoMsg(
+          res.message ||
+            (unidadSol === 'US'
+              ? 'Permuta autorizada y aplicada correctamente al cuadrante de la U.S.'
+              : 'Cambio de servicio autorizado y aplicado correctamente al cuadrante de la U.G.')
+        );
         if (res.documentoId) {
           setDocGeneradoId(res.documentoId);
           // Disparar la descarga inmediata del Excel con cuadrante tras autorizar
@@ -244,7 +265,7 @@ export const DetalleAprobacionCambioModal: React.FC<DetalleAprobacionCambioModal
   };
 
   const handleRechazar = async () => {
-    if (!solicitud) return;
+    if (!solicitud || procesando) return;
 
     if (!motivoRechazo.trim()) {
       setErrorMsg('Debes especificar un motivo reglamentario u operativo para denegar el cambio.');
@@ -256,11 +277,12 @@ export const DetalleAprobacionCambioModal: React.FC<DetalleAprobacionCambioModal
     setExitoMsg(null);
 
     try {
+      const personalCompleto = personas && personas.length > 0 ? personas : await getPersonas();
       const res = await rechazarSolicitudAdmin({
         solicitud,
         adminInfo,
         motivoRechazo: motivoRechazo.trim(),
-        personas,
+        personas: personalCompleto,
       });
 
       if (res.success) {
@@ -294,15 +316,15 @@ export const DetalleAprobacionCambioModal: React.FC<DetalleAprobacionCambioModal
           {/* Header */}
           <div className="px-4 sm:px-6 py-3.5 sm:py-4 bg-slate-900 text-white flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2.5 sm:gap-3">
-              <div className="p-2 sm:p-2.5 bg-blue-500/20 text-blue-400 rounded-xl">
+              <div className={`p-2 sm:p-2.5 rounded-xl ${solicitud && getUnidadSolicitud(solicitud) === 'US' ? 'bg-teal-500/20 text-teal-400' : 'bg-blue-500/20 text-blue-400'}`}>
                 <ArrowRightLeft className="w-4 h-4 sm:w-5 sm:h-5" />
               </div>
               <div>
-                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-blue-400 block">
-                  {NOMBRE_GRUPO_UG} — Gestión y Autorización de Mando
+                <span className={`text-[9px] sm:text-[10px] font-black uppercase tracking-wider block ${solicitud && getUnidadSolicitud(solicitud) === 'US' ? 'text-teal-400' : 'text-blue-400'}`}>
+                  {solicitud && getUnidadSolicitud(solicitud) === 'US' ? 'U.S. SEGURIDAD — Gestión y Autorización de Mando' : `${NOMBRE_GRUPO_UG} — Gestión y Autorización de Mando`}
                 </span>
                 <h3 className="text-sm sm:text-base font-black truncate">
-                  Solicitud de Cambio de Servicio
+                  {solicitud && getUnidadSolicitud(solicitud) === 'US' ? 'Solicitud de Permuta / Cambio de Turno (U.S.)' : 'Solicitud de Cambio de Servicio (U.G.)'}
                 </h3>
               </div>
             </div>
@@ -343,7 +365,7 @@ export const DetalleAprobacionCambioModal: React.FC<DetalleAprobacionCambioModal
                     <ShieldCheck className="w-5 h-5 shrink-0" />
                     <div>
                       <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider block opacity-75">
-                        Estado Actual del Trámite ({NOMBRE_GRUPO_UG})
+                        Estado Actual del Trámite ({getUnidadSolicitud(solicitud) === 'US' ? 'U.S. - SEGURIDAD' : NOMBRE_GRUPO_UG})
                       </span>
                       <span className="text-xs font-black">
                         {solicitud.estado === 'PENDIENTE_ADMIN'
@@ -408,17 +430,17 @@ export const DetalleAprobacionCambioModal: React.FC<DetalleAprobacionCambioModal
                   <div className="p-3.5 sm:p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
-                        1. Efectivo Solicitante
+                        1. Efectivo Solicitante ({getUnidadSolicitud(solicitud) === 'US' ? 'U.S.' : 'U.G.'})
                       </span>
                       <span className="px-2 py-0.5 bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 rounded text-[10px] font-bold">
                         {getRolUG(solicitud.solicitanteEmpleo)}
                       </span>
                     </div>
                     <div className="text-sm font-bold text-slate-900 dark:text-white">
-                      {formatUsuarioUG(solicitud.solicitanteNombre, solicitud.solicitanteEmpleo)}
+                      {getUnidadSolicitud(solicitud) === 'US' ? solicitud.solicitanteNombre : formatUsuarioUG(solicitud.solicitanteNombre, solicitud.solicitanteEmpleo)}
                     </div>
                     <div className="text-xs text-slate-500">
-                      Grupo: <strong>{NOMBRE_GRUPO_UG}</strong>
+                      Grupo: <strong>{solicitud.solicitanteGrupo || (getUnidadSolicitud(solicitud) === 'US' ? 'US_SEGURIDAD' : 'U.G.')}</strong>
                     </div>
                     <div className="pt-2 border-t border-slate-200 dark:border-slate-700 text-[11px] text-slate-600 dark:text-slate-400 flex items-center justify-between">
                       <span>Firma Electrónica:</span>
@@ -432,17 +454,17 @@ export const DetalleAprobacionCambioModal: React.FC<DetalleAprobacionCambioModal
                   <div className="p-3.5 sm:p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
-                        2. Compañero Destinatario
+                        2. Compañero Destinatario ({getUnidadSolicitud(solicitud) === 'US' ? 'U.S.' : 'U.G.'})
                       </span>
                       <span className="px-2 py-0.5 bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 rounded text-[10px] font-bold">
                         {getRolUG(solicitud.destinatarioEmpleo)}
                       </span>
                     </div>
                     <div className="text-sm font-bold text-slate-900 dark:text-white">
-                      {formatUsuarioUG(solicitud.destinatarioNombre, solicitud.destinatarioEmpleo)}
+                      {getUnidadSolicitud(solicitud) === 'US' ? solicitud.destinatarioNombre : formatUsuarioUG(solicitud.destinatarioNombre, solicitud.destinatarioEmpleo)}
                     </div>
                     <div className="text-xs text-slate-500">
-                      Grupo: <strong>{NOMBRE_GRUPO_UG}</strong>
+                      Grupo: <strong>{solicitud.destinatarioGrupo || (getUnidadSolicitud(solicitud) === 'US' ? 'US_SEGURIDAD' : 'U.G.')}</strong>
                     </div>
                     <div className="pt-2 border-t border-slate-200 dark:border-slate-700 text-[11px] text-slate-600 dark:text-slate-400 flex items-center justify-between">
                       <span>Conformidad Compañero:</span>
@@ -475,10 +497,10 @@ export const DetalleAprobacionCambioModal: React.FC<DetalleAprobacionCambioModal
                         {solicitud.fechaServicio}
                       </div>
                       <div className="text-slate-600 dark:text-slate-300 mt-0.5">
-                        Tipo: <strong>{solicitud.tipoCambio === 'IMAGINARIA' ? 'Imaginaria (24h)' : 'Guardia Titular (24h)'}</strong>
+                        Tipo: <strong>{getDescripcionTurnoSolicitud(solicitud, false)}</strong>
                       </div>
                       <div className="mt-2 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
-                        ↳ Realizará: {formatUsuarioUG(solicitud.destinatarioNombre, solicitud.destinatarioEmpleo)}
+                        ↳ Realizará: {getUnidadSolicitud(solicitud) === 'US' ? solicitud.destinatarioNombre : formatUsuarioUG(solicitud.destinatarioNombre, solicitud.destinatarioEmpleo)}
                       </div>
                     </div>
 
@@ -493,10 +515,10 @@ export const DetalleAprobacionCambioModal: React.FC<DetalleAprobacionCambioModal
                             {solicitud.servicioDevolucionFecha}
                           </div>
                           <div className="text-slate-600 dark:text-slate-300 mt-0.5">
-                            Tipo: <strong>Guardia Titular (24h)</strong>
+                            Tipo: <strong>{getDescripcionTurnoSolicitud(solicitud, true)}</strong>
                           </div>
                           <div className="mt-2 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
-                            ↳ Realizará: {formatUsuarioUG(solicitud.solicitanteNombre, solicitud.solicitanteEmpleo)}
+                            ↳ Realizará: {getUnidadSolicitud(solicitud) === 'US' ? solicitud.solicitanteNombre : formatUsuarioUG(solicitud.solicitanteNombre, solicitud.solicitanteEmpleo)}
                           </div>
                         </>
                       ) : (
