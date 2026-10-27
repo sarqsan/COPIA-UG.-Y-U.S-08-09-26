@@ -18,6 +18,7 @@ import {
   getServiciosByCuadranteId,
   confirmarCuadrante,
   modificarServicioManual,
+  permutarServicioImaginariaAdmin,
   permutarServicioImaginariaRol2Admin,
   modificarServicioUSManual,
   eliminarCuadrante,
@@ -691,7 +692,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
     setIsEditUGModalOpen(true);
   };
 
-  // Ejecutar permuta directa administrativa Servicio ↔ Imaginaria (ROL 2)
+  // Ejecutar permuta directa administrativa Servicio ↔ Imaginaria (ROL 1 o ROL 2)
   const handlePermutarServicioImaginariaUG = async (params: {
     servicioId: string;
     fecha: string;
@@ -701,7 +702,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
   }) => {
     if (!selectedCuadrante) return;
 
-    const res = await permutarServicioImaginariaRol2Admin({
+    const res = await permutarServicioImaginariaAdmin({
       cuadranteId: selectedCuadrante.id,
       servicioId: params.servicioId,
       fecha: params.fecha,

@@ -847,14 +847,14 @@ export const modificarServicioManual = async (params: {
 };
 
 /**
- * Permuta directa administrativa entre un usuario ROL 2 que está de SERVICIO
- * y un usuario ROL 2 que está de IMAGINARIA en una misma fecha concreta.
- * - Valida exclusivamente rol ADMIN, pertenencia de ambos a ROL 2, asignación respectiva
- *   en esa fecha a Servicio e Imaginaria y ausencia de asignaciones imposibles o duplicadas.
+ * Permuta directa administrativa entre un usuario (ROL 1 o ROL 2) que está de SERVICIO
+ * y un usuario del mismo empleo que está de IMAGINARIA en una misma fecha concreta.
+ * - Valida exclusivamente rol ADMIN, pertenencia de ambos al mismo empleo (ROL 1 o ROL 2),
+ *   asignación respectiva en esa fecha a Servicio e Imaginaria y ausencia de asignaciones imposibles o duplicadas.
  * - Actualiza de forma puntual y atómica el servicio en caché, LocalStorage y Firestore,
  *   registrando la trazabilidad completa en auditoría.
  */
-export const permutarServicioImaginariaRol2Admin = async (params: {
+export const permutarServicioImaginariaAdmin = async (params: {
   cuadranteId: string;
   servicioId?: string;
   fecha: string;
@@ -874,7 +874,7 @@ export const permutarServicioImaginariaRol2Admin = async (params: {
     fecha,
     usuarioServicioId,
     usuarioImaginariaId,
-    motivo = 'Permuta directa administrativa Servicio ↔ Imaginaria (ROL 2)',
+    motivo,
     personas,
     adminInfo,
   } = params;
@@ -898,7 +898,7 @@ export const permutarServicioImaginariaRol2Admin = async (params: {
   if (!usuarioServicioId || !usuarioImaginariaId) {
     return {
       success: false,
-      message: 'Debe seleccionar tanto el usuario ROL 2 en Servicio como el usuario ROL 2 en Imaginaria.',
+      message: 'Debe seleccionar tanto el usuario en Servicio como el usuario en Imaginaria.',
     };
   }
 
@@ -909,7 +909,7 @@ export const permutarServicioImaginariaRol2Admin = async (params: {
     };
   }
 
-  // 2. Validar que ambos usuarios existen y pertenecen a ROL 2
+  // 2. Validar que ambos usuarios existen y pertenecen al mismo empleo (ROL 1 o ROL 2)
   const personaServicio = personas.find((p) => p.id === usuarioServicioId);
   const personaImaginaria = personas.find((p) => p.id === usuarioImaginariaId);
 
@@ -920,12 +920,22 @@ export const permutarServicioImaginariaRol2Admin = async (params: {
     };
   }
 
-  if (personaServicio.empleo !== 'ROL 2' || personaImaginaria.empleo !== 'ROL 2') {
+  if (personaServicio.empleo !== personaImaginaria.empleo) {
     return {
       success: false,
-      message: 'Validación denegada: Ambos usuarios deben pertenecer exclusivamente a ROL 2.',
+      message: `Validación denegada: Ambos usuarios deben pertenecer al mismo empleo (${personaServicio.empleo} vs ${personaImaginaria.empleo}).`,
     };
   }
+
+  const empleo = personaServicio.empleo;
+  if (empleo !== 'ROL 1' && empleo !== 'ROL 2') {
+    return {
+      success: false,
+      message: 'Validación denegada: La permuta Servicio ↔ Imaginaria solo aplica a usuarios de ROL 1 o ROL 2.',
+    };
+  }
+
+  const motivoFinal = motivo?.trim() || `Permuta directa administrativa Servicio ↔ Imaginaria (${empleo})`;
 
   // 3. Localizar el servicio de la fecha indicada
   const servicios = await getServiciosByCuadranteId(cuadranteId);
@@ -942,28 +952,53 @@ export const permutarServicioImaginariaRol2Admin = async (params: {
 
   const srvActual: ServicioDia = JSON.parse(JSON.stringify(servicios[srvIndex]));
 
-  // 4. Validar que en esa fecha están asignados respectivamente a SERVICIO (ROL 2) e IMAGINARIA (ROL 2)
-  const titRol2 = srvActual.titulares?.rol2 || [];
-  const slotTitularIndex = titRol2.findIndex((t) => t?.personaIdReal === usuarioServicioId);
+  // 4. Validar que en esa fecha están asignados respectivamente a SERVICIO e IMAGINARIA según el empleo
+  let puestoServicioNombre = '';
+  let slotTitularIndex = -1;
 
-  if (slotTitularIndex === -1) {
-    return {
-      success: false,
-      message: `El efectivo ${personaServicio.nombre} no figura asignado de SERVICIO (ROL 2) en la fecha ${srvActual.fecha}.`,
-    };
+  if (empleo === 'ROL 1') {
+    const titRol1 = srvActual.titulares?.rol1 || [];
+    slotTitularIndex = titRol1.findIndex((t) => t?.personaIdReal === usuarioServicioId);
+
+    if (slotTitularIndex === -1) {
+      return {
+        success: false,
+        message: `El efectivo ${personaServicio.nombre} no figura asignado de SERVICIO (ROL 1) en la fecha ${srvActual.fecha}.`,
+      };
+    }
+
+    const slotImaginariaRol1 = srvActual.imaginarias?.rol1;
+    if (!slotImaginariaRol1 || slotImaginariaRol1.personaIdReal !== usuarioImaginariaId) {
+      return {
+        success: false,
+        message: `El efectivo ${personaImaginaria.nombre} no figura asignado de IMAGINARIA (ROL 1) en la fecha ${srvActual.fecha}.`,
+      };
+    }
+
+    puestoServicioNombre = slotTitularIndex === 0 ? 'ROL 1 Titular 1' : 'ROL 1 Titular 2';
+  } else {
+    const titRol2 = srvActual.titulares?.rol2 || [];
+    slotTitularIndex = titRol2.findIndex((t) => t?.personaIdReal === usuarioServicioId);
+
+    if (slotTitularIndex === -1) {
+      return {
+        success: false,
+        message: `El efectivo ${personaServicio.nombre} no figura asignado de SERVICIO (ROL 2) en la fecha ${srvActual.fecha}.`,
+      };
+    }
+
+    const slotImaginariaRol2 = srvActual.imaginarias?.rol2;
+    if (!slotImaginariaRol2 || slotImaginariaRol2.personaIdReal !== usuarioImaginariaId) {
+      return {
+        success: false,
+        message: `El efectivo ${personaImaginaria.nombre} no figura asignado de IMAGINARIA (ROL 2) en la fecha ${srvActual.fecha}.`,
+      };
+    }
+
+    puestoServicioNombre = slotTitularIndex === 0 ? 'ROL 2 Titular 1' : 'ROL 2 Titular 2';
   }
 
-  const slotImaginariaRol2 = srvActual.imaginarias?.rol2;
-  if (!slotImaginariaRol2 || slotImaginariaRol2.personaIdReal !== usuarioImaginariaId) {
-    return {
-      success: false,
-      message: `El efectivo ${personaImaginaria.nombre} no figura asignado de IMAGINARIA (ROL 2) en la fecha ${srvActual.fecha}.`,
-    };
-  }
-
-  const puestoServicioNombre = slotTitularIndex === 0 ? 'ROL 2 Titular 1' : 'ROL 2 Titular 2';
   const nowIso = new Date().toISOString();
-  const motivoFinal = motivo.trim() || 'Permuta directa administrativa Servicio ↔ Imaginaria (ROL 2)';
 
   // 5. Ejecutar el intercambio:
   // - El usuario que estaba de SERVICIO pasa a IMAGINARIA
@@ -976,29 +1011,55 @@ export const permutarServicioImaginariaRol2Admin = async (params: {
     usuarioEnImaginariaNombre: personaImaginaria.nombre,
   };
 
-  srvActual.titulares.rol2[slotTitularIndex] = {
-    ...srvActual.titulares.rol2[slotTitularIndex],
-    personaIdOriginal: usuarioImaginariaId,
-    personaIdReal: usuarioImaginariaId,
-    empleoRequerido: 'ROL 2',
-    estadoAsignacion: 'CAMBIADO',
-    tipoOrigen: 'MODIFICADO_MANUAL',
-    motivoCambio: motivoFinal,
-    modificadoPorUid: adminInfo.uid,
-    fechaModificacion: nowIso,
-  };
+  if (empleo === 'ROL 1') {
+    srvActual.titulares.rol1[slotTitularIndex] = {
+      ...srvActual.titulares.rol1[slotTitularIndex],
+      personaIdOriginal: usuarioImaginariaId,
+      personaIdReal: usuarioImaginariaId,
+      empleoRequerido: 'ROL 1',
+      estadoAsignacion: 'CAMBIADO',
+      tipoOrigen: 'MODIFICADO_MANUAL',
+      motivoCambio: motivoFinal,
+      modificadoPorUid: adminInfo.uid,
+      fechaModificacion: nowIso,
+    };
 
-  srvActual.imaginarias.rol2 = {
-    ...srvActual.imaginarias.rol2,
-    personaIdOriginal: usuarioServicioId,
-    personaIdReal: usuarioServicioId,
-    empleoRequerido: 'ROL 2',
-    estadoAsignacion: 'CAMBIADO',
-    tipoOrigen: 'MODIFICADO_MANUAL',
-    motivoCambio: motivoFinal,
-    modificadoPorUid: adminInfo.uid,
-    fechaModificacion: nowIso,
-  };
+    srvActual.imaginarias.rol1 = {
+      ...srvActual.imaginarias.rol1,
+      personaIdOriginal: usuarioServicioId,
+      personaIdReal: usuarioServicioId,
+      empleoRequerido: 'ROL 1',
+      estadoAsignacion: 'CAMBIADO',
+      tipoOrigen: 'MODIFICADO_MANUAL',
+      motivoCambio: motivoFinal,
+      modificadoPorUid: adminInfo.uid,
+      fechaModificacion: nowIso,
+    };
+  } else {
+    srvActual.titulares.rol2[slotTitularIndex] = {
+      ...srvActual.titulares.rol2[slotTitularIndex],
+      personaIdOriginal: usuarioImaginariaId,
+      personaIdReal: usuarioImaginariaId,
+      empleoRequerido: 'ROL 2',
+      estadoAsignacion: 'CAMBIADO',
+      tipoOrigen: 'MODIFICADO_MANUAL',
+      motivoCambio: motivoFinal,
+      modificadoPorUid: adminInfo.uid,
+      fechaModificacion: nowIso,
+    };
+
+    srvActual.imaginarias.rol2 = {
+      ...srvActual.imaginarias.rol2,
+      personaIdOriginal: usuarioServicioId,
+      personaIdReal: usuarioServicioId,
+      empleoRequerido: 'ROL 2',
+      estadoAsignacion: 'CAMBIADO',
+      tipoOrigen: 'MODIFICADO_MANUAL',
+      motivoCambio: motivoFinal,
+      modificadoPorUid: adminInfo.uid,
+      fechaModificacion: nowIso,
+    };
+  }
 
   // 6. Validar que la operación no genera una asignación imposible o duplicada en el día
   const idsAsignadosEnDia = [
@@ -1068,15 +1129,15 @@ export const permutarServicioImaginariaRol2Admin = async (params: {
     personaIdReal: usuarioImaginariaId,
     personaNombre: `${personaServicio.nombre} ↔ ${personaImaginaria.nombre}`,
     motivo: motivoFinal,
-    detalles: `PERMUTA DIRECTA ADMIN (SERVICIO ↔ IMAGINARIA ROL 2) ejecutada por ${adminInfo.nombre} (${adminInfo.uid}) en fecha ${srvActual.fecha}. Usuarios afectados: ${estadoAnterior.usuarioEnServicioNombre} (ROL 2) y ${estadoAnterior.usuarioEnImaginariaNombre} (ROL 2). Estado anterior: [${estadoAnterior.usuarioEnServicioNombre}: SERVICIO (${estadoAnterior.servicioSlot}) | ${estadoAnterior.usuarioEnImaginariaNombre}: IMAGINARIA (ROL 2)] -> Estado posterior: [${estadoAnterior.usuarioEnServicioNombre}: IMAGINARIA (ROL 2) | ${estadoAnterior.usuarioEnImaginariaNombre}: SERVICIO (${estadoAnterior.servicioSlot})]. Motivo: ${motivoFinal}.`,
+    detalles: `PERMUTA DIRECTA ADMIN (SERVICIO ↔ IMAGINARIA ${empleo}) ejecutada por ${adminInfo.nombre} (${adminInfo.uid}) en fecha ${srvActual.fecha}. Usuarios afectados: ${estadoAnterior.usuarioEnServicioNombre} (${empleo}) y ${estadoAnterior.usuarioEnImaginariaNombre} (${empleo}). Estado anterior: [${estadoAnterior.usuarioEnServicioNombre}: SERVICIO (${estadoAnterior.servicioSlot}) | ${estadoAnterior.usuarioEnImaginariaNombre}: IMAGINARIA (${empleo})] -> Estado posterior: [${estadoAnterior.usuarioEnServicioNombre}: IMAGINARIA (${empleo}) | ${estadoAnterior.usuarioEnImaginariaNombre}: SERVICIO (${estadoAnterior.servicioSlot})]. Motivo: ${motivoFinal}.`,
     cambios: [
       {
-        campo: `titulares.rol2[${slotTitularIndex}] (${puestoServicioNombre})`,
+        campo: `${empleo === 'ROL 1' ? 'titulares.rol1' : 'titulares.rol2'}[${slotTitularIndex}] (${puestoServicioNombre})`,
         anterior: `${personaServicio.nombre} (SERVICIO)`,
         nuevo: `${personaImaginaria.nombre} (SERVICIO)`,
       },
       {
-        campo: 'imaginarias.rol2 (ROL 2 Imaginaria)',
+        campo: `${empleo === 'ROL 1' ? 'imaginarias.rol1 (ROL 1 Imaginaria)' : 'imaginarias.rol2 (ROL 2 Imaginaria)'}`,
         anterior: `${personaImaginaria.nombre} (IMAGINARIA)`,
         nuevo: `${personaServicio.nombre} (IMAGINARIA)`,
       },
@@ -1085,10 +1146,13 @@ export const permutarServicioImaginariaRol2Admin = async (params: {
 
   return {
     success: true,
-    message: `Permuta Servicio ↔ Imaginaria (ROL 2) ejecutada con éxito para el día ${srvActual.fecha}: ${personaServicio.nombre} pasa a Imaginaria y ${personaImaginaria.nombre} pasa a Servicio.`,
+    message: `Permuta Servicio ↔ Imaginaria (${empleo}) ejecutada con éxito para el día ${srvActual.fecha}: ${personaServicio.nombre} pasa a Imaginaria y ${personaImaginaria.nombre} pasa a Servicio.`,
     servicioActualizado: srvActual,
   };
 };
+
+/** Alias retrocompatible para permutas exclusivas o históricas */
+export const permutarServicioImaginariaRol2Admin = permutarServicioImaginariaAdmin;
 
 /**
  * Guarda y propaga una modificación manual sobre un servicio diario de la Unidad de Seguridad (U.S.).

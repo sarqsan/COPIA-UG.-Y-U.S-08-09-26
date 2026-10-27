@@ -544,10 +544,15 @@ export const validarViabilidadPermuta = (
     };
   }
 
-  if (fechaServicioA === fechaServicioB) {
+  const esPermutaMismoDiaServicioImaginaria =
+    fechaServicioA === fechaServicioB &&
+    ((tipoCambioA === 'SERVICIO' && tipoCambioB === 'IMAGINARIA') ||
+      (tipoCambioA === 'IMAGINARIA' && tipoCambioB === 'SERVICIO'));
+
+  if (fechaServicioA === fechaServicioB && !esPermutaMismoDiaServicioImaginaria) {
     return {
       valido: false,
-      motivo: 'Las fechas de los servicios a intercambiar deben ser distintas.',
+      motivo: 'Las fechas de los servicios a intercambiar deben ser distintas (salvo permuta Guardia ↔ Imaginaria el mismo día).',
     };
   }
 
@@ -607,7 +612,22 @@ export const validarViabilidadPermuta = (
 
     // Función que evalúa la asignación de una persona en cualquier fecha en el ESTADO RESULTANTE tras la permuta
     const asignacionEnFechaResultante = (personaId: string, fechaStr: string) => {
-      if (fechaStr === fechaServicioA) {
+      if (fechaServicioA === fechaServicioB && esPermutaMismoDiaServicioImaginaria) {
+        if (fechaStr === fechaServicioA) {
+          if (personaId === solicitante.id) {
+            return {
+              titular: tipoCambioB === 'SERVICIO',
+              imaginaria: tipoCambioB === 'IMAGINARIA',
+            };
+          }
+          if (personaId === destinatario.id) {
+            return {
+              titular: tipoCambioA === 'SERVICIO',
+              imaginaria: tipoCambioA === 'IMAGINARIA',
+            };
+          }
+        }
+      } else if (fechaStr === fechaServicioA) {
         if (personaId === solicitante.id) {
           // El solicitante ha permutado este servicio: queda LIBRE en fechaServicioA
           return { titular: false, imaginaria: false };
@@ -649,65 +669,67 @@ export const validarViabilidadPermuta = (
     };
 
     // 2. Comprobar que no haya duplicidades en el mismo día (que el efectivo no ocupe otro puesto adicional ese día)
-    // En srvA: verificar si destinatario ya tenía OTRO puesto distinto al que se intercambia
-    const titularesA = [
-      ...(srvA.titulares?.rol1 || []),
-      ...(srvA.titulares?.rol2 || []),
-    ];
-    const otrosTitularesA = titularesA.filter((t: any) => t.personaIdReal !== solicitante.id);
-    if (otrosTitularesA.some((t: any) => t.personaIdReal === destinatario.id)) {
-      return {
-        valido: false,
-        motivo: `${destinatario.nombre} ya tiene asignado otro puesto titular el día ${fechaServicioA}.`,
-      };
-    }
-    const imagA = [
-      srvA.imaginarias?.rol1?.personaIdReal,
-      srvA.imaginarias?.rol2?.personaIdReal,
-    ].filter(Boolean);
-    if (tipoCambioA !== 'IMAGINARIA' && imagA.includes(destinatario.id)) {
-      return {
-        valido: false,
-        motivo: `${destinatario.nombre} ya está asignado como imaginaria el día ${fechaServicioA}.`,
-      };
-    } else if (tipoCambioA === 'IMAGINARIA') {
-      const otrasImagA = imagA.filter((id) => id !== solicitante.id);
-      if (otrasImagA.includes(destinatario.id)) {
+    if (!esPermutaMismoDiaServicioImaginaria) {
+      // En srvA: verificar si destinatario ya tenía OTRO puesto distinto al que se intercambia
+      const titularesA = [
+        ...(srvA.titulares?.rol1 || []),
+        ...(srvA.titulares?.rol2 || []),
+      ];
+      const otrosTitularesA = titularesA.filter((t: any) => t.personaIdReal !== solicitante.id);
+      if (otrosTitularesA.some((t: any) => t.personaIdReal === destinatario.id)) {
         return {
           valido: false,
-          motivo: `${destinatario.nombre} ya tiene asignada otra imaginaria el día ${fechaServicioA}.`,
+          motivo: `${destinatario.nombre} ya tiene asignado otro puesto titular el día ${fechaServicioA}.`,
         };
       }
-    }
-
-    // En srvB: verificar si solicitante ya tenía OTRO puesto distinto al que se intercambia
-    const titularesB = [
-      ...(srvB.titulares?.rol1 || []),
-      ...(srvB.titulares?.rol2 || []),
-    ];
-    const otrosTitularesB = titularesB.filter((t: any) => t.personaIdReal !== destinatario.id);
-    if (otrosTitularesB.some((t: any) => t.personaIdReal === solicitante.id)) {
-      return {
-        valido: false,
-        motivo: `${solicitante.nombre} ya tiene asignado otro puesto titular el día ${fechaServicioB}.`,
-      };
-    }
-    const imagB = [
-      srvB.imaginarias?.rol1?.personaIdReal,
-      srvB.imaginarias?.rol2?.personaIdReal,
-    ].filter(Boolean);
-    if (tipoCambioB !== 'IMAGINARIA' && imagB.includes(solicitante.id)) {
-      return {
-        valido: false,
-        motivo: `${solicitante.nombre} ya está asignado como imaginaria el día ${fechaServicioB}.`,
-      };
-    } else if (tipoCambioB === 'IMAGINARIA') {
-      const otrasImagB = imagB.filter((id) => id !== destinatario.id);
-      if (otrasImagB.includes(solicitante.id)) {
+      const imagA = [
+        srvA.imaginarias?.rol1?.personaIdReal,
+        srvA.imaginarias?.rol2?.personaIdReal,
+      ].filter(Boolean);
+      if (tipoCambioA !== 'IMAGINARIA' && imagA.includes(destinatario.id)) {
         return {
           valido: false,
-          motivo: `${solicitante.nombre} ya tiene asignada otra imaginaria el día ${fechaServicioB}.`,
+          motivo: `${destinatario.nombre} ya está asignado como imaginaria el día ${fechaServicioA}.`,
         };
+      } else if (tipoCambioA === 'IMAGINARIA') {
+        const otrasImagA = imagA.filter((id) => id !== solicitante.id);
+        if (otrasImagA.includes(destinatario.id)) {
+          return {
+            valido: false,
+            motivo: `${destinatario.nombre} ya tiene asignada otra imaginaria el día ${fechaServicioA}.`,
+          };
+        }
+      }
+
+      // En srvB: verificar si solicitante ya tenía OTRO puesto distinto al que se intercambia
+      const titularesB = [
+        ...(srvB.titulares?.rol1 || []),
+        ...(srvB.titulares?.rol2 || []),
+      ];
+      const otrosTitularesB = titularesB.filter((t: any) => t.personaIdReal !== destinatario.id);
+      if (otrosTitularesB.some((t: any) => t.personaIdReal === solicitante.id)) {
+        return {
+          valido: false,
+          motivo: `${solicitante.nombre} ya tiene asignado otro puesto titular el día ${fechaServicioB}.`,
+        };
+      }
+      const imagB = [
+        srvB.imaginarias?.rol1?.personaIdReal,
+        srvB.imaginarias?.rol2?.personaIdReal,
+      ].filter(Boolean);
+      if (tipoCambioB !== 'IMAGINARIA' && imagB.includes(solicitante.id)) {
+        return {
+          valido: false,
+          motivo: `${solicitante.nombre} ya está asignado como imaginaria el día ${fechaServicioB}.`,
+        };
+      } else if (tipoCambioB === 'IMAGINARIA') {
+        const otrasImagB = imagB.filter((id) => id !== destinatario.id);
+        if (otrasImagB.includes(solicitante.id)) {
+          return {
+            valido: false,
+            motivo: `${solicitante.nombre} ya tiene asignada otra imaginaria el día ${fechaServicioB}.`,
+          };
+        }
       }
     }
 
@@ -904,9 +926,12 @@ export const getCandidatosViablesPermuta = (
     (servicios || []).forEach((sRaw) => {
       const s = sRaw as any;
       if (!s || !s.fecha) return;
-      if (s.fecha < hoyStr || s.fecha === fechaServicioA) return;
+      if (s.fecha < hoyStr) return;
+      const esMismoDia = s.fecha === fechaServicioA;
+      if (esMismoDia && isUS) return;
 
       if (isUS) {
+        if (esMismoDia) return;
         const dTit = s.diurno?.titulares || [];
         const nTit = s.nocturno?.titulares || [];
         if (dTit.some((t: any) => t?.personaIdReal === comp.id)) {
@@ -982,7 +1007,7 @@ export const getCandidatosViablesPermuta = (
 
         if (comp.empleo === 'ROL 1') {
           // Guardia ordinaria titular ROL 1
-          if (tRol1.some((c: any) => c?.personaIdReal === comp.id)) {
+          if ((!esMismoDia || tipoCambioA === 'IMAGINARIA') && tRol1.some((c: any) => c?.personaIdReal === comp.id)) {
             const check = validarViabilidadPermuta({
               solicitante,
               destinatario: comp,
@@ -999,13 +1024,13 @@ export const getCandidatosViablesPermuta = (
                 servicioId: s.id,
                 fecha: s.fecha,
                 slotTipo: 'rol1_1',
-                label: `${s.fecha} (${s.esFinDeSemana ? 'Fin de Semana' : 'Laborable'}) — ROL 1 (24h)`,
+                label: `${s.fecha} (${s.esFinDeSemana ? 'Fin de Semana' : 'Laborable'}) — ROL 1 (24h${esMismoDia ? ' • Mismo Día' : ''})`,
                 tipoCambio: 'SERVICIO',
               });
             }
           }
           // Imaginaria ROL 1 asignada al compañero
-          if (s.imaginarias?.rol1?.personaIdReal === comp.id) {
+          if ((!esMismoDia || tipoCambioA === 'SERVICIO') && s.imaginarias?.rol1?.personaIdReal === comp.id) {
             const check = validarViabilidadPermuta({
               solicitante,
               destinatario: comp,
@@ -1022,14 +1047,14 @@ export const getCandidatosViablesPermuta = (
                 servicioId: s.id,
                 fecha: s.fecha,
                 slotTipo: 'imaginaria_rol1',
-                label: `${s.fecha} (${s.esFinDeSemana ? 'Fin de Semana' : 'Laborable'}) — IMAGINARIA ROL 1 (24h)`,
+                label: `${s.fecha} (${s.esFinDeSemana ? 'Fin de Semana' : 'Laborable'}) — IMAGINARIA ROL 1 (24h${esMismoDia ? ' • Mismo Día' : ''})`,
                 tipoCambio: 'IMAGINARIA',
               });
             }
           }
         } else if (comp.empleo === 'ROL 2') {
           // Guardia ordinaria titular ROL 2
-          if (tRol2.some((so: any) => so?.personaIdReal === comp.id)) {
+          if ((!esMismoDia || tipoCambioA === 'IMAGINARIA') && tRol2.some((so: any) => so?.personaIdReal === comp.id)) {
             const check = validarViabilidadPermuta({
               solicitante,
               destinatario: comp,
@@ -1046,13 +1071,13 @@ export const getCandidatosViablesPermuta = (
                 servicioId: s.id,
                 fecha: s.fecha,
                 slotTipo: 'rol2_1',
-                label: `${s.fecha} (${s.esFinDeSemana ? 'Fin de Semana' : 'Laborable'}) — ROL 2 (24h)`,
+                label: `${s.fecha} (${s.esFinDeSemana ? 'Fin de Semana' : 'Laborable'}) — ROL 2 (24h${esMismoDia ? ' • Mismo Día' : ''})`,
                 tipoCambio: 'SERVICIO',
               });
             }
           }
           // Imaginaria ROL 2 asignada al compañero
-          if (s.imaginarias?.rol2?.personaIdReal === comp.id) {
+          if ((!esMismoDia || tipoCambioA === 'SERVICIO') && s.imaginarias?.rol2?.personaIdReal === comp.id) {
             const check = validarViabilidadPermuta({
               solicitante,
               destinatario: comp,
@@ -1069,7 +1094,7 @@ export const getCandidatosViablesPermuta = (
                 servicioId: s.id,
                 fecha: s.fecha,
                 slotTipo: 'imaginaria_rol2',
-                label: `${s.fecha} (${s.esFinDeSemana ? 'Fin de Semana' : 'Laborable'}) — IMAGINARIA ROL 2 (24h)`,
+                label: `${s.fecha} (${s.esFinDeSemana ? 'Fin de Semana' : 'Laborable'}) — IMAGINARIA ROL 2 (24h${esMismoDia ? ' • Mismo Día' : ''})`,
                 tipoCambio: 'IMAGINARIA',
               });
             }

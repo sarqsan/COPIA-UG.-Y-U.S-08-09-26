@@ -61,12 +61,17 @@ export const CuadranteEdicionManualModal: React.FC<CuadranteEdicionManualModalPr
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Estados para Permuta Directa Admin ROL 2 (Servicio ↔ Imaginaria)
+  // Estados para Permuta Directa Admin (Servicio ↔ Imaginaria para ROL 1 o ROL 2)
+  const esSlotInicialRol1 =
+    String(slotTipo).includes('rol1') || String(slotTipo).includes('r1');
+  const [rolPermuta, setRolPermuta] = useState<'ROL 1' | 'ROL 2'>(
+    esSlotInicialRol1 ? 'ROL 1' : 'ROL 2'
+  );
   const [fechaPermuta, setFechaPermuta] = useState(servicio.fecha);
   const [usuarioServicioRol2Id, setUsuarioServicioRol2Id] = useState('');
   const [usuarioImaginariaRol2Id, setUsuarioImaginariaRol2Id] = useState('');
   const [motivoPermuta, setMotivoPermuta] = useState(
-    'Permuta directa administrativa Servicio ↔ Imaginaria (ROL 2)'
+    `Permuta directa administrativa Servicio ↔ Imaginaria (${esSlotInicialRol1 ? 'ROL 1' : 'ROL 2'})`
   );
 
   const servicioPermutaActual =
@@ -75,26 +80,37 @@ export const CuadranteEdicionManualModal: React.FC<CuadranteEdicionManualModalPr
   useEffect(() => {
     setModoOperacion(initialMode);
     setFechaPermuta(servicio.fecha);
+    const esR1 =
+      String(slotTipo).includes('rol1') || String(slotTipo).includes('r1');
+    setRolPermuta(esR1 ? 'ROL 1' : 'ROL 2');
     setErrorMsg(null);
   }, [initialMode, servicio.fecha, slotTipo, isOpen]);
 
   useEffect(() => {
     if (!servicioPermutaActual) return;
-    const tit0 = servicioPermutaActual.titulares?.rol2?.[0]?.personaIdReal || '';
-    const tit1 = servicioPermutaActual.titulares?.rol2?.[1]?.personaIdReal || '';
-    const imagR2 = servicioPermutaActual.imaginarias?.rol2?.personaIdReal || '';
+    const esR1 = rolPermuta === 'ROL 1';
+    const titulares = esR1
+      ? servicioPermutaActual.titulares?.rol1 || []
+      : servicioPermutaActual.titulares?.rol2 || [];
+    const imagId = esR1
+      ? servicioPermutaActual.imaginarias?.rol1?.personaIdReal || ''
+      : servicioPermutaActual.imaginarias?.rol2?.personaIdReal || '';
+
+    const tit0 = titulares[0]?.personaIdReal || '';
+    const tit1 = titulares[1]?.personaIdReal || '';
 
     if (
       servicioPermutaActual.fecha === servicio.fecha &&
-      slotTipo === 'rol2_2' &&
+      (slotTipo === 'rol1_2' || slotTipo === 'rol2_2') &&
       tit1
     ) {
       setUsuarioServicioRol2Id(tit1);
     } else {
       setUsuarioServicioRol2Id(tit0 || tit1);
     }
-    setUsuarioImaginariaRol2Id(imagR2);
-  }, [servicioPermutaActual, servicio.fecha, slotTipo]);
+    setUsuarioImaginariaRol2Id(imagId);
+    setMotivoPermuta(`Permuta directa administrativa Servicio ↔ Imaginaria (${rolPermuta})`);
+  }, [servicioPermutaActual, servicio.fecha, slotTipo, rolPermuta]);
 
   const hoyStr = new Date().toISOString().split('T')[0];
   const esServicioPasado = servicio.fecha < hoyStr;
@@ -169,26 +185,49 @@ export const CuadranteEdicionManualModal: React.FC<CuadranteEdicionManualModalPr
 
   const candidatoOcupadoEnEsteDia = idsOcupadosHoy.includes(nuevaPersonaId);
 
-  // Datos de los efectivos ROL 2 para la permuta directa Servicio ↔ Imaginaria en la fecha seleccionada
-  const opcionesServicioRol2 = [
-    {
-      slotLabel: 'ROL 2 Titular 1 (Servicio)',
-      personaId: servicioPermutaActual.titulares?.rol2?.[0]?.personaIdReal || '',
-      persona: personas.find(
-        (p) => p.id === servicioPermutaActual.titulares?.rol2?.[0]?.personaIdReal
-      ),
-    },
-    {
-      slotLabel: 'ROL 2 Titular 2 (Servicio)',
-      personaId: servicioPermutaActual.titulares?.rol2?.[1]?.personaIdReal || '',
-      persona: personas.find(
-        (p) => p.id === servicioPermutaActual.titulares?.rol2?.[1]?.personaIdReal
-      ),
-    },
-  ].filter((o) => Boolean(o.personaId));
+  // Datos de los efectivos para la permuta directa Servicio ↔ Imaginaria en la fecha seleccionada según rolPermuta
+  const opcionesServicio = (
+    rolPermuta === 'ROL 1'
+      ? [
+          {
+            slotLabel: 'ROL 1 Titular 1 (Servicio)',
+            personaId: servicioPermutaActual.titulares?.rol1?.[0]?.personaIdReal || '',
+            persona: personas.find(
+              (p) => p.id === servicioPermutaActual.titulares?.rol1?.[0]?.personaIdReal
+            ),
+          },
+          {
+            slotLabel: 'ROL 1 Titular 2 (Servicio)',
+            personaId: servicioPermutaActual.titulares?.rol1?.[1]?.personaIdReal || '',
+            persona: personas.find(
+              (p) => p.id === servicioPermutaActual.titulares?.rol1?.[1]?.personaIdReal
+            ),
+          },
+        ]
+      : [
+          {
+            slotLabel: 'ROL 2 Titular 1 (Servicio)',
+            personaId: servicioPermutaActual.titulares?.rol2?.[0]?.personaIdReal || '',
+            persona: personas.find(
+              (p) => p.id === servicioPermutaActual.titulares?.rol2?.[0]?.personaIdReal
+            ),
+          },
+          {
+            slotLabel: 'ROL 2 Titular 2 (Servicio)',
+            personaId: servicioPermutaActual.titulares?.rol2?.[1]?.personaIdReal || '',
+            persona: personas.find(
+              (p) => p.id === servicioPermutaActual.titulares?.rol2?.[1]?.personaIdReal
+            ),
+          },
+        ]
+  ).filter((o) => Boolean(o.personaId));
 
-  const imagRol2IdDia = servicioPermutaActual.imaginarias?.rol2?.personaIdReal || '';
-  const personaImaginariaRol2Dia = personas.find((p) => p.id === imagRol2IdDia);
+  const imagIdDia =
+    rolPermuta === 'ROL 1'
+      ? servicioPermutaActual.imaginarias?.rol1?.personaIdReal || ''
+      : servicioPermutaActual.imaginarias?.rol2?.personaIdReal || '';
+
+  const personaImaginariaDia = personas.find((p) => p.id === imagIdDia);
   const personaServicioSeleccionada = personas.find((p) => p.id === usuarioServicioRol2Id);
   const personaImaginariaSeleccionada = personas.find((p) => p.id === usuarioImaginariaRol2Id);
 
@@ -201,7 +240,7 @@ export const CuadranteEdicionManualModal: React.FC<CuadranteEdicionManualModalPr
         return;
       }
       if (!usuarioServicioRol2Id || !usuarioImaginariaRol2Id) {
-        setErrorMsg('Debes seleccionar ambos usuarios de ROL 2 (Servicio e Imaginaria).');
+        setErrorMsg(`Debes seleccionar ambos usuarios de ${rolPermuta} (Servicio e Imaginaria).`);
         return;
       }
 
@@ -215,7 +254,7 @@ export const CuadranteEdicionManualModal: React.FC<CuadranteEdicionManualModalPr
           usuarioImaginariaId: usuarioImaginariaRol2Id,
           motivo:
             motivoPermuta.trim() ||
-            'Permuta directa administrativa Servicio ↔ Imaginaria (ROL 2)',
+            `Permuta directa administrativa Servicio ↔ Imaginaria (${rolPermuta})`,
         });
         onClose();
       } catch (err: any) {
@@ -260,8 +299,8 @@ export const CuadranteEdicionManualModal: React.FC<CuadranteEdicionManualModalPr
             <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
               {modoOperacion === 'PERMUTA_ROL2' ? (
                 <>
-                  <ArrowLeftRight className="h-4 w-4 text-emerald-600" />
-                  Permuta Directa Admin: Servicio ↔ Imaginaria (ROL 2)
+                  <ArrowLeftRight className={`h-4 w-4 ${rolPermuta === 'ROL 1' ? 'text-indigo-600' : 'text-emerald-600'}`} />
+                  Permuta Directa Admin: Servicio ↔ Imaginaria ({rolPermuta})
                 </>
               ) : (
                 <>
@@ -273,7 +312,7 @@ export const CuadranteEdicionManualModal: React.FC<CuadranteEdicionManualModalPr
             <p className="text-xs text-slate-500">
               {modoOperacion === 'PERMUTA_ROL2' ? (
                 <>
-                  Fecha: <span className="font-semibold text-slate-800 dark:text-slate-200">{servicioPermutaActual.fecha}</span> • Rol Operativo: <span className="font-semibold text-emerald-600 dark:text-emerald-400">ROL 2</span>
+                  Fecha: <span className="font-semibold text-slate-800 dark:text-slate-200">{servicioPermutaActual.fecha}</span> • Rol Operativo: <span className={`font-semibold ${rolPermuta === 'ROL 1' ? 'text-indigo-600 dark:text-indigo-400' : 'text-emerald-600 dark:text-emerald-400'}`}>{rolPermuta}</span>
                 </>
               ) : (
                 <>
@@ -329,12 +368,50 @@ export const CuadranteEdicionManualModal: React.FC<CuadranteEdicionManualModalPr
         <form onSubmit={handleSubmit} className="mt-4 space-y-4 text-xs">
           {modoOperacion === 'PERMUTA_ROL2' ? (
             <>
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 p-3 dark:border-emerald-900/50 dark:bg-emerald-950/30 flex items-start gap-2 text-emerald-900 dark:text-emerald-200">
-                <ArrowLeftRight className="h-4 w-4 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
+              {/* Selector de Rol Operativo para la Permuta: ROL 1 vs ROL 2 */}
+              <div className="flex items-center gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRolPermuta('ROL 1');
+                    setErrorMsg(null);
+                  }}
+                  className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition cursor-pointer text-center ${
+                    rolPermuta === 'ROL 1'
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+                  }`}
+                >
+                  ROL 1 (Guardia Titular ↔ Imaginaria)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRolPermuta('ROL 2');
+                    setErrorMsg(null);
+                  }}
+                  className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition cursor-pointer text-center ${
+                    rolPermuta === 'ROL 2'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+                  }`}
+                >
+                  ROL 2 (Guardia Titular ↔ Imaginaria)
+                </button>
+              </div>
+
+              <div className={`rounded-xl border p-3 flex items-start gap-2 ${
+                rolPermuta === 'ROL 1'
+                  ? 'border-indigo-200 bg-indigo-50/80 dark:border-indigo-900/50 dark:bg-indigo-950/30 text-indigo-900 dark:text-indigo-200'
+                  : 'border-emerald-200 bg-emerald-50/80 dark:border-emerald-900/50 dark:bg-emerald-950/30 text-emerald-900 dark:text-emerald-200'
+              }`}>
+                <ArrowLeftRight className={`h-4 w-4 shrink-0 mt-0.5 ${
+                  rolPermuta === 'ROL 1' ? 'text-indigo-600 dark:text-indigo-400' : 'text-emerald-600 dark:text-emerald-400'
+                }`} />
                 <div>
-                  <p className="font-bold text-[12px]">Permuta Directa Administrativa (ROL 2)</p>
-                  <p className="text-[11px] text-emerald-800/90 dark:text-emerald-300/90 mt-0.5">
-                    Intercambia directamente en la fecha seleccionada a un efectivo de <strong>ROL 2 en SERVICIO</strong> con el efectivo de <strong>ROL 2 en IMAGINARIA</strong>, sin regenerar el cuadrante ni alterar rotaciones.
+                  <p className="font-bold text-[12px]">Permuta Directa Administrativa ({rolPermuta})</p>
+                  <p className="text-[11px] opacity-90 mt-0.5">
+                    Intercambia directamente en la fecha seleccionada a un efectivo de <strong>{rolPermuta} en SERVICIO</strong> con el efectivo de <strong>{rolPermuta} en IMAGINARIA</strong>, sin regenerar el cuadrante ni alterar rotaciones.
                   </p>
                 </div>
               </div>
@@ -362,10 +439,10 @@ export const CuadranteEdicionManualModal: React.FC<CuadranteEdicionManualModalPr
                 </div>
               )}
 
-              {/* Selector 1: Usuario ROL 2 en SERVICIO */}
+              {/* Selector 1: Usuario en SERVICIO */}
               <div className="space-y-1">
                 <label className="font-bold text-slate-700 dark:text-slate-300">
-                  1. Usuario ROL 2 en SERVICIO ({servicioPermutaActual.fecha}) <span className="text-rose-500">*</span>
+                  1. Usuario {rolPermuta} en SERVICIO ({servicioPermutaActual.fecha}) <span className="text-rose-500">*</span>
                 </label>
                 <select
                   value={usuarioServicioRol2Id}
@@ -373,8 +450,8 @@ export const CuadranteEdicionManualModal: React.FC<CuadranteEdicionManualModalPr
                   required
                   className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
                 >
-                  <option value="">-- Seleccionar usuario ROL 2 de Servicio --</option>
-                  {opcionesServicioRol2.map((op) => (
+                  <option value="">-- Seleccionar usuario {rolPermuta} de Servicio --</option>
+                  {opcionesServicio.map((op) => (
                     <option key={op.personaId} value={op.personaId}>
                       {op.persona ? formatUsuarioUG(op.persona) : op.personaId} — {op.slotLabel}
                     </option>
@@ -382,10 +459,10 @@ export const CuadranteEdicionManualModal: React.FC<CuadranteEdicionManualModalPr
                 </select>
               </div>
 
-              {/* Selector 2: Usuario ROL 2 en IMAGINARIA */}
+              {/* Selector 2: Usuario en IMAGINARIA */}
               <div className="space-y-1">
                 <label className="font-bold text-slate-700 dark:text-slate-300">
-                  2. Usuario ROL 2 en IMAGINARIA ({servicioPermutaActual.fecha}) <span className="text-rose-500">*</span>
+                  2. Usuario {rolPermuta} en IMAGINARIA ({servicioPermutaActual.fecha}) <span className="text-rose-500">*</span>
                 </label>
                 <select
                   value={usuarioImaginariaRol2Id}
@@ -393,13 +470,13 @@ export const CuadranteEdicionManualModal: React.FC<CuadranteEdicionManualModalPr
                   required
                   className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
                 >
-                  <option value="">-- Seleccionar usuario ROL 2 de Imaginaria --</option>
-                  {imagRol2IdDia && (
-                    <option value={imagRol2IdDia}>
-                      {personaImaginariaRol2Dia
-                        ? formatUsuarioUG(personaImaginariaRol2Dia)
-                        : imagRol2IdDia}{' '}
-                      — ROL 2 Imaginaria
+                  <option value="">-- Seleccionar usuario {rolPermuta} de Imaginaria --</option>
+                  {imagIdDia && (
+                    <option value={imagIdDia}>
+                      {personaImaginariaDia
+                        ? formatUsuarioUG(personaImaginariaDia)
+                        : imagIdDia}{' '}
+                      — {rolPermuta} Imaginaria
                     </option>
                   )}
                 </select>
@@ -409,7 +486,7 @@ export const CuadranteEdicionManualModal: React.FC<CuadranteEdicionManualModalPr
               {personaServicioSeleccionada && personaImaginariaSeleccionada && (
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950 space-y-2">
                   <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    Resultado de la Permuta ({servicioPermutaActual.fecha})
+                    Resultado de la Permuta ({servicioPermutaActual.fecha}) — {rolPermuta}
                   </div>
                   <div className="flex items-center justify-between gap-2 text-xs">
                     <span className="font-bold text-slate-800 dark:text-slate-200">
@@ -451,7 +528,7 @@ export const CuadranteEdicionManualModal: React.FC<CuadranteEdicionManualModalPr
                   type="text"
                   value={motivoPermuta}
                   onChange={(e) => setMotivoPermuta(e.target.value)}
-                  placeholder="Permuta directa administrativa Servicio ↔ Imaginaria (ROL 2)"
+                  placeholder={`Permuta directa administrativa Servicio ↔ Imaginaria (${rolPermuta})`}
                   className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
                 />
               </div>
