@@ -417,7 +417,8 @@ export type SlotServicioTipo =
   | 'diurno_1'
   | 'diurno_2'
   | 'nocturno_1'
-  | 'nocturno_2';
+  | 'nocturno_2'
+  | 'imaginaria_us';
 
 export interface SolicitudCambio {
   id: string;

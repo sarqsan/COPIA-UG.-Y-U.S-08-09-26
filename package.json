@@ -15,8 +15,9 @@
     "test:backups": "tsx tests/backupRestoreModule.test.ts",
     "test:patrullas-imaginarias": "tsx tests/patrullasExcepcionImaginarias.test.ts",
     "test:permutas-us": "tsx tests/permutasUSAdmin.test.ts",
+    "test:permutas-us-mismo-dia": "tsx tests/permutasUSMismoDia.test.ts",
     "test:permutas-rol1": "tsx tests/permutasRol1UG.test.ts",
-    "test": "tsx tests/backupRestoreModule.test.ts && tsx tests/matriculasModule.test.ts && tsx tests/imaginariasYRobustezOcr.test.ts && tsx tests/patrullasExcepcionImaginarias.test.ts && tsx tests/permutasUSAdmin.test.ts && tsx tests/permutasRol1UG.test.ts"
+    "test": "tsx tests/backupRestoreModule.test.ts && tsx tests/matriculasModule.test.ts && tsx tests/imaginariasYRobustezOcr.test.ts && tsx tests/patrullasExcepcionImaginarias.test.ts && tsx tests/permutasUSAdmin.test.ts && tsx tests/permutasRol1UG.test.ts && tsx tests/permutasUSMismoDia.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

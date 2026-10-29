@@ -544,18 +544,6 @@ export const validarViabilidadPermuta = (
     };
   }
 
-  const esPermutaMismoDiaServicioImaginaria =
-    fechaServicioA === fechaServicioB &&
-    ((tipoCambioA === 'SERVICIO' && tipoCambioB === 'IMAGINARIA') ||
-      (tipoCambioA === 'IMAGINARIA' && tipoCambioB === 'SERVICIO'));
-
-  if (fechaServicioA === fechaServicioB && !esPermutaMismoDiaServicioImaginaria) {
-    return {
-      valido: false,
-      motivo: 'Las fechas de los servicios a intercambiar deben ser distintas (salvo permuta Guardia ↔ Imaginaria el mismo día).',
-    };
-  }
-
   // Detectar si el cuadrante o el personal pertenece a la U.S. (Unidad de Seguridad)
   const isUS =
     solicitante.tipoServicio === 'US' ||
@@ -563,6 +551,36 @@ export const validarViabilidadPermuta = (
     solicitante.grupo === 'US_SEGURIDAD' ||
     destinatario.grupo === 'US_SEGURIDAD' ||
     (servicios.length > 0 && servicios[0]?.diurno !== undefined);
+
+  const esPermutaMismoDiaServicioImaginaria =
+    fechaServicioA === fechaServicioB &&
+    ((tipoCambioA === 'SERVICIO' && tipoCambioB === 'IMAGINARIA') ||
+      (tipoCambioA === 'IMAGINARIA' && tipoCambioB === 'SERVICIO'));
+
+  const getCategoriaTurnoUS = (slot?: SlotServicioTipo | string, tipo?: 'SERVICIO' | 'IMAGINARIA') => {
+    if (slot?.includes('diurno')) return 'DIURNO';
+    if (slot?.includes('nocturno')) return 'NOCTURNO';
+    if (slot?.includes('imaginaria') || tipo === 'IMAGINARIA') return 'IMAGINARIA';
+    return 'DESCONOCIDO';
+  };
+
+  if (!isUS && fechaServicioA === fechaServicioB && !esPermutaMismoDiaServicioImaginaria) {
+    return {
+      valido: false,
+      motivo: 'Las fechas de los servicios a intercambiar deben ser distintas (salvo permuta Guardia ↔ Imaginaria el mismo día).',
+    };
+  }
+
+  if (isUS && fechaServicioA === fechaServicioB) {
+    const catA = getCategoriaTurnoUS(slotTipoA, tipoCambioA);
+    const catB = getCategoriaTurnoUS(slotTipoB, tipoCambioB);
+    if (catA === 'DESCONOCIDO' || catB === 'DESCONOCIDO' || catA === catB) {
+      return {
+        valido: false,
+        motivo: 'En la Unidad de Seguridad no se puede permutar el mismo tipo de turno en la misma fecha.',
+      };
+    }
+  }
 
   // Helper determinista de cálculo de fechas (UTC, inmune a zona horaria y DST)
   const getOffsetDate = (baseDateStr: string, offsetDays: number): string => {
@@ -777,28 +795,36 @@ export const validarViabilidadPermuta = (
   // =========================================================================
   // RAMA A: UNIDAD DE SEGURIDAD (U.S. - 12 HORAS)
   // =========================================================================
+  const parseSlotUS = (slot?: SlotServicioTipo | string, tipoCambio?: 'SERVICIO' | 'IMAGINARIA') => {
+    const isNocturno = slot?.includes('nocturno') ?? false;
+    const isImaginaria = (slot?.includes('imaginaria') ?? false) || tipoCambio === 'IMAGINARIA';
+    const isDiurno = (slot?.includes('diurno') ?? false) || (!isNocturno && !isImaginaria && tipoCambio === 'SERVICIO');
+    return { diurno: isDiurno, nocturno: isNocturno, imaginaria: isImaginaria };
+  };
+
   const getEstadoUSResultante = (fechaStr: string, personaId: string) => {
-    if (fechaStr === fechaServicioA) {
+    const esMismoDia = fechaServicioA === fechaServicioB;
+
+    if (esMismoDia && fechaStr === fechaServicioA) {
+      if (personaId === solicitante.id) {
+        return parseSlotUS(slotTipoB, tipoCambioB);
+      }
+      if (personaId === destinatario.id) {
+        return parseSlotUS(slotTipoA, tipoCambioA);
+      }
+    } else if (fechaStr === fechaServicioA) {
       if (personaId === solicitante.id) {
         return { diurno: false, nocturno: false, imaginaria: false };
       }
       if (personaId === destinatario.id) {
-        return {
-          diurno: slotTipoA?.includes('diurno') || tipoCambioA === 'SERVICIO',
-          nocturno: slotTipoA?.includes('nocturno'),
-          imaginaria: tipoCambioA === 'IMAGINARIA',
-        };
+        return parseSlotUS(slotTipoA, tipoCambioA);
       }
     } else if (fechaStr === fechaServicioB) {
       if (personaId === destinatario.id) {
         return { diurno: false, nocturno: false, imaginaria: false };
       }
       if (personaId === solicitante.id) {
-        return {
-          diurno: slotTipoB?.includes('diurno') || tipoCambioB === 'SERVICIO',
-          nocturno: slotTipoB?.includes('nocturno'),
-          imaginaria: tipoCambioB === 'IMAGINARIA',
-        };
+        return parseSlotUS(slotTipoB, tipoCambioB);
       }
     }
 
@@ -812,6 +838,34 @@ export const validarViabilidadPermuta = (
       imaginaria: s.imaginaria?.personaIdReal === personaId,
     };
   };
+
+  if (fechaServicioA !== fechaServicioB) {
+    const srvBCuadrante = servicios.find((item) => item.fecha === fechaServicioB);
+    const solTeniaEnB = srvBCuadrante ? (
+      (srvBCuadrante.diurno?.titulares || []).some((t: any) => t?.personaIdReal === solicitante.id) ||
+      (srvBCuadrante.nocturno?.titulares || []).some((t: any) => t?.personaIdReal === solicitante.id) ||
+      srvBCuadrante.imaginaria?.personaIdReal === solicitante.id
+    ) : false;
+    if (solTeniaEnB) {
+      return {
+        valido: false,
+        motivo: `${solicitante.nombre} ya tiene un turno asignado el día ${fechaServicioB}.`,
+      };
+    }
+
+    const srvACuadrante = servicios.find((item) => item.fecha === fechaServicioA);
+    const destTeniaEnA = srvACuadrante ? (
+      (srvACuadrante.diurno?.titulares || []).some((t: any) => t?.personaIdReal === destinatario.id) ||
+      (srvACuadrante.nocturno?.titulares || []).some((t: any) => t?.personaIdReal === destinatario.id) ||
+      srvACuadrante.imaginaria?.personaIdReal === destinatario.id
+    ) : false;
+    if (destTeniaEnA) {
+      return {
+        valido: false,
+        motivo: `${destinatario.nombre} ya tiene un turno asignado el día ${fechaServicioA}.`,
+      };
+    }
+  }
 
   const estSolEnB = getEstadoUSResultante(fechaServicioB, solicitante.id);
   const antB = getOffsetDate(fechaServicioB, -1);
@@ -928,77 +982,87 @@ export const getCandidatosViablesPermuta = (
       if (!s || !s.fecha) return;
       if (s.fecha < hoyStr) return;
       const esMismoDia = s.fecha === fechaServicioA;
-      if (esMismoDia && isUS) return;
 
       if (isUS) {
-        if (esMismoDia) return;
         const dTit = s.diurno?.titulares || [];
         const nTit = s.nocturno?.titulares || [];
+
+        // Turno DIURNO
         if (dTit.some((t: any) => t?.personaIdReal === comp.id)) {
-          const check = validarViabilidadPermuta({
-            solicitante,
-            destinatario: comp,
-            fechaServicioA,
-            fechaServicioB: s.fecha,
-            servicios,
-            slotTipoA,
-            slotTipoB: 'diurno_1',
-            tipoCambioA,
-            tipoCambioB: 'SERVICIO',
-          });
-          if (check.valido) {
-            serviciosViables.push({
-              servicioId: s.id,
-              fecha: s.fecha,
-              slotTipo: 'diurno_1',
-              label: `${s.fecha} — Turno DIURNO (12h • 07:00 a 19:00)`,
-              tipoCambio: 'SERVICIO',
+          if (!esMismoDia || !slotTipoA?.includes('diurno')) {
+            const check = validarViabilidadPermuta({
+              solicitante,
+              destinatario: comp,
+              fechaServicioA,
+              fechaServicioB: s.fecha,
+              servicios,
+              slotTipoA,
+              slotTipoB: 'diurno_1',
+              tipoCambioA,
+              tipoCambioB: 'SERVICIO',
             });
+            if (check.valido) {
+              serviciosViables.push({
+                servicioId: s.id,
+                fecha: s.fecha,
+                slotTipo: 'diurno_1',
+                label: `${s.fecha} — Turno DIURNO (12h • 07:00 a 19:00)${esMismoDia ? ' • Mismo Día' : ''}`,
+                tipoCambio: 'SERVICIO',
+              });
+            }
           }
         }
+
+        // Turno NOCTURNO
         if (nTit.some((t: any) => t?.personaIdReal === comp.id)) {
-          const check = validarViabilidadPermuta({
-            solicitante,
-            destinatario: comp,
-            fechaServicioA,
-            fechaServicioB: s.fecha,
-            servicios,
-            slotTipoA,
-            slotTipoB: 'nocturno_1',
-            tipoCambioA,
-            tipoCambioB: 'SERVICIO',
-          });
-          if (check.valido) {
-            serviciosViables.push({
-              servicioId: s.id,
-              fecha: s.fecha,
-              slotTipo: 'nocturno_1',
-              label: `${s.fecha} — Turno NOCTURNO (12h • 19:00 a 07:00)`,
-              tipoCambio: 'SERVICIO',
+          if (!esMismoDia || !slotTipoA?.includes('nocturno')) {
+            const check = validarViabilidadPermuta({
+              solicitante,
+              destinatario: comp,
+              fechaServicioA,
+              fechaServicioB: s.fecha,
+              servicios,
+              slotTipoA,
+              slotTipoB: 'nocturno_1',
+              tipoCambioA,
+              tipoCambioB: 'SERVICIO',
             });
+            if (check.valido) {
+              serviciosViables.push({
+                servicioId: s.id,
+                fecha: s.fecha,
+                slotTipo: 'nocturno_1',
+                label: `${s.fecha} — Turno NOCTURNO (12h • 19:00 a 07:00)${esMismoDia ? ' • Mismo Día' : ''}`,
+                tipoCambio: 'SERVICIO',
+              });
+            }
           }
         }
+
         // U.S. Imaginaria
         if (s.imaginaria?.personaIdReal === comp.id) {
-          const check = validarViabilidadPermuta({
-            solicitante,
-            destinatario: comp,
-            fechaServicioA,
-            fechaServicioB: s.fecha,
-            servicios,
-            slotTipoA,
-            slotTipoB: 'imaginaria_us' as SlotServicioTipo,
-            tipoCambioA,
-            tipoCambioB: 'IMAGINARIA',
-          });
-          if (check.valido) {
-            serviciosViables.push({
-              servicioId: s.id,
-              fecha: s.fecha,
-              slotTipo: 'imaginaria_us' as SlotServicioTipo,
-              label: `${s.fecha} — IMAGINARIA (Disponibilidad 24h)`,
-              tipoCambio: 'IMAGINARIA',
+          const solEsImaginaria = (slotTipoA?.includes('imaginaria') ?? false) || tipoCambioA === 'IMAGINARIA';
+          if (!esMismoDia || !solEsImaginaria) {
+            const check = validarViabilidadPermuta({
+              solicitante,
+              destinatario: comp,
+              fechaServicioA,
+              fechaServicioB: s.fecha,
+              servicios,
+              slotTipoA,
+              slotTipoB: 'imaginaria_us' as SlotServicioTipo,
+              tipoCambioA,
+              tipoCambioB: 'IMAGINARIA',
             });
+            if (check.valido) {
+              serviciosViables.push({
+                servicioId: s.id,
+                fecha: s.fecha,
+                slotTipo: 'imaginaria_us' as SlotServicioTipo,
+                label: `${s.fecha} — IMAGINARIA (Disponibilidad 24h)${esMismoDia ? ' • Mismo Día' : ''}`,
+                tipoCambio: 'IMAGINARIA',
+              });
+            }
           }
         }
       } else {
