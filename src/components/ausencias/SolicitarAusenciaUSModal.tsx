@@ -1,4 +1,4 @@
-import { useState, useEffect, FC } from 'react';
+import { useState, useEffect, useMemo, FC } from 'react';
 import { Persona } from '../../types';
 import {
   solicitarAusenciaUS,
@@ -157,10 +157,30 @@ export const SolicitarAusenciaUSModal: FC<SolicitarAusenciaUSModalProps> = ({
     checkCuposYSaldo();
   }, [fechaInicio, fechaFin, tipoAusencia, cupoMaximo, persona]);
 
+  // Regla obligatoria: Del 15 de diciembre al 15 de enero nadie puede solicitar permisos, AP ni vacaciones
+  const esPeriodoNavidadRestringido = useMemo(() => {
+    if (!fechaInicio || !fechaFin) return false;
+    const fechas = expandirRangoFechas(fechaInicio, fechaFin);
+    return fechas.some((f) => {
+      const partes = f.split('-');
+      if (partes.length !== 3) return false;
+      const m = parseInt(partes[1], 10);
+      const d = parseInt(partes[2], 10);
+      return (m === 12 && d >= 15) || (m === 1 && d <= 15);
+    });
+  }, [fechaInicio, fechaFin]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fechaInicio || !fechaFin) {
       setErrorMsg('Selecciona las fechas de inicio y fin.');
+      return;
+    }
+
+    if (esPeriodoNavidadRestringido) {
+      setErrorMsg(
+        'PERIODO RESTRINGIDO: Del 15 de diciembre al 15 de enero no está permitido solicitar días de permiso, asuntos propios ni vacaciones. Solo los administradores pueden asignarlos en caso necesario.'
+      );
       return;
     }
 
@@ -557,6 +577,19 @@ export const SolicitarAusenciaUSModal: FC<SolicitarAusenciaUSModalProps> = ({
             />
           </div>
 
+          {/* Advertencia Periodo Restringido Navidad (15 Dic - 15 Ene) */}
+          {esPeriodoNavidadRestringido && (
+            <div className="p-3 bg-rose-50 dark:bg-rose-950/50 rounded-2xl border border-rose-300 dark:border-rose-800 text-xs text-rose-900 dark:text-rose-200 flex items-start gap-2.5">
+              <ShieldAlert className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <span className="font-bold">Periodo Restringido de Navidad (15 Dic – 15 Ene):</span>
+                <p className="text-[11px] leading-relaxed">
+                  Del 15 de diciembre al 15 de enero no está permitido solicitar días de permiso, asuntos propios ni vacaciones. Solo los administradores pueden asignarlos en caso necesario.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Botones */}
           <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
             <button
@@ -573,6 +606,7 @@ export const SolicitarAusenciaUSModal: FC<SolicitarAusenciaUSModalProps> = ({
                 hayDiasCompletos ||
                 !fechaInicio ||
                 !fechaFin ||
+                esPeriodoNavidadRestringido ||
                 (infoPlazo ? !infoPlazo.esValidaHoy : false) ||
                 (desgloseCómputo ? !desgloseCómputo.suficiente : false)
               }
@@ -580,6 +614,8 @@ export const SolicitarAusenciaUSModal: FC<SolicitarAusenciaUSModalProps> = ({
             >
               {loading
                 ? 'Enviando...'
+                : esPeriodoNavidadRestringido
+                ? 'Periodo Restringido (15 Dic - 15 Ene)'
                 : infoPlazo && !infoPlazo.esValidaHoy
                 ? 'Plazo Cerrado'
                 : desgloseCómputo && !desgloseCómputo.suficiente

@@ -602,21 +602,30 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
                     <th
                       key={s.fecha}
                       className={`p-1.5 text-center min-w-[36px] border-r border-slate-800/60 transition group ${
-                        s.esFinDeSemana ? 'bg-slate-800 text-amber-300' : ''
+                        s.esFestivo
+                          ? 'bg-amber-950/80 text-amber-300 border-amber-800/50'
+                          : s.esFinDeSemana
+                          ? 'bg-slate-800 text-amber-300'
+                          : ''
                       } ${isAdmin && onEditDia ? 'cursor-pointer hover:bg-blue-800' : ''}`}
                       onClick={() => {
                         if (isAdmin && onEditDia) onEditDia(s);
                       }}
                       title={
-                        isAdmin && onEditDia
+                        s.esFestivo
+                          ? `Día ${s.fecha}: FESTIVO OFICIAL${s.nombreFestivo ? ` (${s.nombreFestivo})` : ''}${isAdmin && onEditDia ? ' - Haz clic para editar' : ''}`
+                          : isAdmin && onEditDia
                           ? `Día ${s.fecha} - Haz clic para editar asignaciones/presentes/permisos`
                           : undefined
                       }
                     >
-                      <div className="font-extrabold text-[11px] group-hover:scale-110 transition-transform">
-                        {numDia}
+                      <div className="font-extrabold text-[11px] group-hover:scale-110 transition-transform flex flex-col items-center">
+                        <span>{numDia}</span>
+                        {s.esFestivo && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-0.5" title={s.nombreFestivo || 'Festivo Oficial'} />
+                        )}
                       </div>
-                      <div className="text-[9px] opacity-70">{nombreDia}</div>
+                      <div className={`text-[9px] ${s.esFestivo ? 'font-bold text-amber-300' : 'opacity-70'}`}>{nombreDia}</div>
                     </th>
                   );
                 })}

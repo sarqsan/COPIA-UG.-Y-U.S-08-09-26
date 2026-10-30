@@ -238,7 +238,7 @@ export const CuadranteUSEdicionManualModal: FC<CuadranteUSEdicionManualModalProp
               Edición de Asignación U.S. (12 Horas)
             </h2>
             <p className="text-xs text-slate-500 font-mono mt-0.5">
-              Fecha: {servicio.fecha} ({servicio.esLaborable ? 'Día Laborable' : 'Fin de Semana'})
+              Fecha: {servicio.fecha} ({servicio.esFestivo ? `Festivo Oficial${servicio.nombreFestivo ? `: ${servicio.nombreFestivo}` : ''}` : servicio.esLaborable ? 'Día Laborable' : 'Fin de Semana'})
             </p>
           </div>
           <button

@@ -166,8 +166,16 @@ export const CuadranteUSTableView: FC<CuadranteUSTableViewProps> = ({
                     <span className="text-xs font-bold capitalize text-slate-900 dark:text-white">
                       {formatearFecha(s.fecha)}
                     </span>
-                    {s.esFinDeSemana && (
-                      <span className="px-1.5 py-0.5 rounded-md bg-amber-500 text-white font-extrabold text-[9px] uppercase">
+                    {s.esFestivo && (
+                      <span
+                        className="px-1.5 py-0.5 rounded-md bg-amber-500 text-white font-extrabold text-[9px] uppercase"
+                        title={s.nombreFestivo || 'Festivo Oficial'}
+                      >
+                        Festivo
+                      </span>
+                    )}
+                    {s.esFinDeSemana && !s.esFestivo && (
+                      <span className="px-1.5 py-0.5 rounded-md bg-amber-500/80 text-white font-extrabold text-[9px] uppercase">
                         Fin de semana
                       </span>
                     )}

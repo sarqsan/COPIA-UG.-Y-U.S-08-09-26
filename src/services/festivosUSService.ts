@@ -38,19 +38,18 @@ const cacheFestivosMovilesPorAnio = new Map<number, Map<string, string>>();
 const pad = (n: number) => n.toString().padStart(2, '0');
 
 /**
- * Nombres oficiales de los festivos fijos nacionales y autonómicos
+ * Nombres oficiales de los festivos fijos nacionales y locales de Alicante capital / Comunitat Valenciana
  */
 const FESTIVOS_FIJOS_NACIONALES: Record<string, string> = {
   '01-01': 'Año Nuevo',
   '01-06': 'Epifanía del Señor / Reyes Magos',
   '03-19': 'San José',
   '05-01': 'Fiesta del Trabajo',
-  '05-02': 'Fiesta de la Comunidad de Madrid',
-  '07-25': 'Santiago Apóstol',
+  '06-24': 'San Juan / Fogueres de Sant Joan (Festivo Alicante)',
   '08-15': 'Asunción de la Virgen',
+  '10-09': 'Día de la Comunitat Valenciana',
   '10-12': 'Fiesta Nacional de España / Virgen del Pilar',
   '11-01': 'Todos los Santos',
-  '11-09': 'Nuestra Señora de la Almudena',
   '12-06': 'Día de la Constitución Española',
   '12-08': 'Inmaculada Concepción',
   '12-24': 'Nochebuena',
@@ -93,7 +92,7 @@ const getFestivosTrasladadosAnio = (year: number): Map<string, string> => {
 /**
  * Calcula las fechas de Jueves Santo y Viernes Santo para cualquier año dado.
  */
-const getFestivosMovilesAnio = (year: number): Map<string, string> => {
+export const getFestivosMovilesAnio = (year: number): Map<string, string> => {
   const map = new Map<string, string>();
   const a = year % 19;
   const b = Math.floor(year / 100);
@@ -121,6 +120,18 @@ const getFestivosMovilesAnio = (year: number): Map<string, string> => {
   viernesSanto.setUTCDate(pascua.getUTCDate() - 2);
   const vsStr = viernesSanto.toISOString().split('T')[0];
   map.set(vsStr, 'Viernes Santo');
+
+  // Lunes de Pascua (festivo en Comunitat Valenciana)
+  const lunesPascua = new Date(pascua);
+  lunesPascua.setUTCDate(pascua.getUTCDate() + 1);
+  const lpStr = lunesPascua.toISOString().split('T')[0];
+  map.set(lpStr, 'Lunes de Pascua');
+
+  // Santa Faz (Festivo Local de Alicante capital: segundo jueves tras Jueves Santo)
+  const santaFaz = new Date(juevesSanto);
+  santaFaz.setUTCDate(juevesSanto.getUTCDate() + 14);
+  const sfStr = santaFaz.toISOString().split('T')[0];
+  map.set(sfStr, 'Santa Faz (Festivo Local Alicante)');
 
   return map;
 };
@@ -173,7 +184,10 @@ export const getFestivoInfoUS = (fechaStr: string): FestivoInfoUS => {
       descLower.includes('fiesta nacional') ||
       descLower.includes('asunción') ||
       descLower.includes('san josé') ||
-      descLower.includes('almudena') ||
+      descLower.includes('santa faz') ||
+      descLower.includes('san juan') ||
+      descLower.includes('fogueres') ||
+      descLower.includes('comunitat valenciana') ||
       descLower.includes('festivo')
     ) {
       return {

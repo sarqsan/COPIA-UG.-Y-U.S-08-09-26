@@ -234,6 +234,23 @@ export const solicitarAusenciaUS = async (params: {
 
   // 1. Validar plazo mensual (a menos que sea asignado por el administrador)
   if (!forzarPorAdmin) {
+    // Regla obligatoria: Del 15 de diciembre al 15 de enero nadie puede solicitar permisos, AP ni vacaciones.
+    // Solo los administradores pueden asignarlos en caso necesario (forzarPorAdmin: true).
+    const fechaEnPeriodoNavidad = fechas.find((f) => {
+      const partes = f.split('-');
+      if (partes.length !== 3) return false;
+      const m = parseInt(partes[1], 10);
+      const d = parseInt(partes[2], 10);
+      return (m === 12 && d >= 15) || (m === 1 && d <= 15);
+    });
+
+    if (fechaEnPeriodoNavidad) {
+      return {
+        success: false,
+        message: 'PERIODO RESTRINGIDO: Del 15 de diciembre al 15 de enero no está permitido solicitar días de permiso, asuntos propios ni vacaciones. Solo los administradores pueden asignarlos en caso necesario.',
+      };
+    }
+
     // Comprobar cada mes afectado por las fechas
     const mesesAfectados = new Set<string>();
     fechas.forEach((f) => {

@@ -52,6 +52,7 @@ export interface ServicioDiaUS {
   esFinDeSemana: boolean;
   esLaborable: boolean; // Lunes a Viernes no festivo
   esFestivo?: boolean; // Festivo oficial nacional o autonómico
+  nombreFestivo?: string; // Nombre del festivo oficial si aplica
   esNocturnoProlongado: boolean; // true si el día siguiente es laborable (19:00 a 07:45 = 12.75h)
   
   // Turnos de 12 horas (2 efectivos cada uno)
