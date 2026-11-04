@@ -157,21 +157,24 @@ export const validarCuadranteUS = (params: {
     }
 
     // US-09: DESCANSO OBLIGATORIO TRAS TURNO NOCTURNO
-    // Quien hizo Noche en diaIdx-1 termina en diaIdx mañana. NO puede hacer Diurno ni Nocturno en diaIdx
+    // Quien hizo Noche en diaIdx-1 termina en diaIdx mañana a las 07:00.
+    // - NO puede hacer Diurno en diaIdx (07:00 a 19:00): generaría un empalme de 24 horas continuas sin descanso.
+    // - SÍ puede hacer Nocturno en diaIdx (19:00 a 07:00): cuenta con 12 horas de descanso reglamentario (07:00 a 19:00).
+    // (Las imaginarias quedan prohibidas de forma independiente por la regla US-08).
     if (diaAnterior) {
       const nAnt1 = diaAnterior.nocturno?.titulares?.[0]?.personaIdReal;
       const nAnt2 = diaAnterior.nocturno?.titulares?.[1]?.personaIdReal;
       const salientesNoche = [nAnt1, nAnt2].filter(Boolean);
 
       salientesNoche.forEach((pId) => {
-        if (serviciosHoy.includes(pId)) {
+        if (diurnos.includes(pId)) {
           items.push({
             codigo: 'US-09',
             severidad: 'ERROR',
             fecha: s.fecha,
             personaId: pId,
             personaNombre: personasMap.get(pId)?.nombre || pId,
-            descripcion: `Incumplimiento de descanso obligatorio: ${personasMap.get(pId)?.nombre || pId} realizó turno nocturno el ${diaAnterior.fecha} y tiene servicio asignado el ${s.fecha} (saliente de noche sin descanso reglamentario).`,
+            descripcion: `Incumplimiento de descanso obligatorio (empalme de 24 horas continuas): ${personasMap.get(pId)?.nombre || pId} realizó turno nocturno el ${diaAnterior.fecha} y tiene servicio diurno asignado el ${s.fecha} sin descanso reglamentario (salida 07:00 e inicio continuo 07:00).`,
           });
         }
       });

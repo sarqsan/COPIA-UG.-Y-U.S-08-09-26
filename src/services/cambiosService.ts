@@ -175,7 +175,329 @@ export const getDescripcionTurnoSolicitud = (s: SolicitudCambio, esDevolucion = 
  *        (en caso de activarse la imaginaria se solaparía con el servicio teniendo que trabajar 24 horas).
  *      * Ni tampoco si el mismo día D se tiene asignada Imaginaria o Ausencia (V, P, AP).
  *      * Si el cambio es para asumir IMAGINARIA en D: no se puede tener ningún servicio ni imaginaria en D-1, D ni D+1.
+/**
+ * Helper determinista de cálculo de fechas (UTC, inmune a zona horaria y DST)
  */
+export const getOffsetDate = (baseDateStr: string, offsetDays: number): string => {
+  const [y, m, d] = baseDateStr.split('-').map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d + offsetDays));
+  return date.toISOString().split('T')[0];
+};
+
+export interface MotivoIncompatibilidad {
+  categoria: 'DESCANSO' | 'DISPONIBILIDAD' | 'SOLAPAMIENTO' | 'RECIPROCIDAD' | 'OTRO';
+  descripcion: string;
+  fechaAfectada?: string;
+  servicioAsignado?: string;
+  servicioPretendido?: string;
+  codigoRegla?: string;
+}
+
+export interface EvaluacionCandidatoUS {
+  persona: Persona;
+  estado: 'COMPATIBLE' | 'INCOMPATIBLE' | 'SIN_RECIPROCIDAD';
+  motivos: MotivoIncompatibilidad[];
+  serviciosViables?: Array<{
+    servicioId: string;
+    fecha: string;
+    slotTipo: SlotServicioTipo;
+    label: string;
+    tipoCambio: 'SERVICIO' | 'IMAGINARIA';
+  }>;
+}
+
+export interface ResultadoTransparenciaCandidatosUS {
+  compatibles: EvaluacionCandidatoUS[];
+  sinReciprocidad: EvaluacionCandidatoUS[]; // Exclusivo de permutas
+  incompatibles: EvaluacionCandidatoUS[];
+  todos: EvaluacionCandidatoUS[];
+  totalEvaluados: number;
+}
+
+/**
+ * Evalúa de forma exhaustiva TODOS los motivos de incompatibilidad de un candidato
+ * para un cambio o asunción de servicio/imaginaria en la Unidad de Seguridad (U.S.).
+ * A diferencia de las validaciones de corte rápido, no se detiene en el primer fallo,
+ * sino que recopila la totalidad de causas con fechas, turnos y reglas afectadas.
+ */
+export const evaluarMotivosIncompatibilidadCambioUS = (params: {
+  solicitante: Persona;
+  destinatario: Persona;
+  fechaServicio: string;
+  servicios: (ServicioDia | any)[];
+  tipoCambio?: 'SERVICIO' | 'IMAGINARIA';
+  slotTipo?: SlotServicioTipo | string;
+  tipoTurnoUSParam?: 'DIURNO' | 'NOCTURNO' | 'IMAGINARIA';
+}): MotivoIncompatibilidad[] => {
+  const {
+    solicitante,
+    destinatario,
+    fechaServicio,
+    servicios,
+    tipoCambio = 'SERVICIO',
+    slotTipo,
+    tipoTurnoUSParam,
+  } = params;
+
+  const motivos: MotivoIncompatibilidad[] = [];
+
+  if (!destinatario.activo) {
+    motivos.push({
+      categoria: 'DISPONIBILIDAD',
+      descripcion: `El compañero ${destinatario.nombre} no se encuentra en estado ACTIVO.`,
+      fechaAfectada: fechaServicio,
+      codigoRegla: 'US-ESTADO-INACTIVO',
+    });
+    return motivos;
+  }
+
+  if (solicitante.id === destinatario.id) {
+    motivos.push({
+      categoria: 'DISPONIBILIDAD',
+      descripcion: 'No puedes solicitar un cambio de servicio o imaginaria a ti mismo.',
+      fechaAfectada: fechaServicio,
+      codigoRegla: 'US-MISMO-USUARIO',
+    });
+    return motivos;
+  }
+
+  const srvDia = servicios.find((s) => s.fecha === fechaServicio);
+  if (!srvDia) {
+    motivos.push({
+      categoria: 'OTRO',
+      descripcion: `No se encontró el servicio para la fecha ${fechaServicio}.`,
+      fechaAfectada: fechaServicio,
+      codigoRegla: 'US-FECHA-INEXISTENTE',
+    });
+    return motivos;
+  }
+
+  const strAnt = getOffsetDate(fechaServicio, -1);
+  const strSig = getOffsetDate(fechaServicio, 1);
+
+  const getEstadoUS = (fechaStr: string, personaId: string) => {
+    const s = servicios.find((item) => item.fecha === fechaStr);
+    if (!s) return { diurno: false, nocturno: false, imaginaria: false, ausencia: false, presente: false };
+
+    const dTit = s.diurno?.titulares || [];
+    const nTit = s.nocturno?.titulares || [];
+    const diurno = dTit.some((t: any) => t?.personaIdReal === personaId);
+    const nocturno = nTit.some((t: any) => t?.personaIdReal === personaId);
+    const imaginaria = s.imaginaria?.personaIdReal === personaId;
+    const ausencia = (s.ausencias || []).some((a: any) => a?.personaId === personaId);
+    const presente = (s.presentes || []).some((pr: any) => pr?.personaIdReal === personaId);
+
+    return { diurno, nocturno, imaginaria, ausencia, presente, srv: s };
+  };
+
+  let tipoTurnoUS: 'DIURNO' | 'NOCTURNO' | 'IMAGINARIA' = tipoTurnoUSParam || 'DIURNO';
+  if (tipoCambio === 'IMAGINARIA' || slotTipo === 'imaginaria_us' || slotTipo?.includes('imaginaria')) {
+    tipoTurnoUS = 'IMAGINARIA';
+  } else if (slotTipo === 'diurno_1' || slotTipo === 'diurno_2' || slotTipo === 'rol1_1' || slotTipo === 'rol1_2') {
+    tipoTurnoUS = 'DIURNO';
+  } else if (slotTipo === 'nocturno_1' || slotTipo === 'nocturno_2' || slotTipo === 'rol2_1' || slotTipo === 'rol2_2') {
+    tipoTurnoUS = 'NOCTURNO';
+  } else {
+    const estSol = getEstadoUS(fechaServicio, solicitante.id);
+    if (estSol.diurno) tipoTurnoUS = 'DIURNO';
+    else if (estSol.nocturno) tipoTurnoUS = 'NOCTURNO';
+    else if (estSol.imaginaria) tipoTurnoUS = 'IMAGINARIA';
+    else tipoTurnoUS = 'DIURNO';
+  }
+
+  const nombreTurnoPretendido =
+    tipoTurnoUS === 'DIURNO'
+      ? 'Turno Diurno (07:00 a 19:00)'
+      : tipoTurnoUS === 'NOCTURNO'
+      ? 'Turno Nocturno (19:00 a 07:00)'
+      : 'Imaginaria U.S. (Disponibilidad 24h)';
+
+  const estHoy = getEstadoUS(fechaServicio, destinatario.id);
+  const estAnt = getEstadoUS(strAnt, destinatario.id);
+  const estSig = getEstadoUS(strSig, destinatario.id);
+
+  // 1. Ausencias o permisos concedidos en día D
+  if (estHoy.ausencia) {
+    motivos.push({
+      categoria: 'DISPONIBILIDAD',
+      descripcion: `${destinatario.nombre} tiene vacaciones o permiso concedido el día ${fechaServicio}.`,
+      fechaAfectada: fechaServicio,
+      servicioAsignado: 'Vacaciones / Permiso oficial',
+      servicioPretendido: nombreTurnoPretendido,
+      codigoRegla: 'US-AUSENCIA',
+    });
+  }
+
+  // 2. Evaluaciones específicas por turno
+  if (tipoTurnoUS === 'DIURNO') {
+    if (estHoy.diurno) {
+      motivos.push({
+        categoria: 'DISPONIBILIDAD',
+        descripcion: `${destinatario.nombre} ya tiene asignado el turno Diurno el día ${fechaServicio}.`,
+        fechaAfectada: fechaServicio,
+        servicioAsignado: 'Turno Diurno (07:00 a 19:00)',
+        servicioPretendido: nombreTurnoPretendido,
+        codigoRegla: 'US-SOLAPAMIENTO',
+      });
+    }
+    if (estHoy.nocturno) {
+      motivos.push({
+        categoria: 'DESCANSO',
+        descripcion: `${destinatario.nombre} ya realiza turno Nocturno el día ${fechaServicio}. Realizar turno Diurno y Nocturno el mismo día generaría 24 horas consecutivas (prohibido en la U.S.).`,
+        fechaAfectada: fechaServicio,
+        servicioAsignado: 'Turno Nocturno (19:00 a 07:00)',
+        servicioPretendido: nombreTurnoPretendido,
+        codigoRegla: 'US-09',
+      });
+    }
+    if (estHoy.imaginaria) {
+      motivos.push({
+        categoria: 'DISPONIBILIDAD',
+        descripcion: `${destinatario.nombre} está de Imaginaria el día ${fechaServicio}. No puede realizar servicio e imaginaria simultáneamente.`,
+        fechaAfectada: fechaServicio,
+        servicioAsignado: 'Imaginaria U.S. (24h)',
+        servicioPretendido: nombreTurnoPretendido,
+        codigoRegla: 'US-08',
+      });
+    }
+
+    // Día Anterior (D-1): Nocturno prohibido (empalme 24h); Imaginaria prohibida
+    if (estAnt.nocturno) {
+      motivos.push({
+        categoria: 'DESCANSO',
+        descripcion: `${destinatario.nombre} realiza turno Nocturno el día anterior (${strAnt}) finalizando a las 07:00 h. Entrar de Diurno el ${fechaServicio} (07:00 h) supondría trabajar 24 horas continuas, lo cual está prohibido en la U.S.`,
+        fechaAfectada: strAnt,
+        servicioAsignado: 'Turno Nocturno (19:00 a 07:00)',
+        servicioPretendido: nombreTurnoPretendido,
+        codigoRegla: 'US-09',
+      });
+    }
+    if (estAnt.imaginaria) {
+      motivos.push({
+        categoria: 'DESCANSO',
+        descripcion: `${destinatario.nombre} tiene asignada Imaginaria el día anterior (${strAnt}). No se puede entrar de servicio si el día anterior tienes imaginaria (en caso de activarse se solaparía trabajando 24 horas).`,
+        fechaAfectada: strAnt,
+        servicioAsignado: 'Imaginaria U.S. (24h)',
+        servicioPretendido: nombreTurnoPretendido,
+        codigoRegla: 'US-08',
+      });
+    }
+
+    // Día Siguiente (D+1): Imaginaria prohibida
+    if (estSig.imaginaria) {
+      motivos.push({
+        categoria: 'DESCANSO',
+        descripcion: `${destinatario.nombre} tiene asignada Imaginaria el día siguiente (${strSig}). No se puede entrar de servicio si el día posterior tienes imaginaria (en caso de activarse se solaparía trabajando 24 horas).`,
+        fechaAfectada: strSig,
+        servicioAsignado: 'Imaginaria U.S. (24h)',
+        servicioPretendido: nombreTurnoPretendido,
+        codigoRegla: 'US-08',
+      });
+    }
+
+  } else if (tipoTurnoUS === 'NOCTURNO') {
+    if (estHoy.nocturno) {
+      motivos.push({
+        categoria: 'DISPONIBILIDAD',
+        descripcion: `${destinatario.nombre} ya tiene asignado el turno Nocturno el día ${fechaServicio}.`,
+        fechaAfectada: fechaServicio,
+        servicioAsignado: 'Turno Nocturno (19:00 a 07:00)',
+        servicioPretendido: nombreTurnoPretendido,
+        codigoRegla: 'US-SOLAPAMIENTO',
+      });
+    }
+    if (estHoy.diurno) {
+      motivos.push({
+        categoria: 'DESCANSO',
+        descripcion: `${destinatario.nombre} ya realiza turno Diurno el día ${fechaServicio}. Realizar Diurno y Nocturno seguidos generaría 24 horas continuas (prohibido en la U.S.).`,
+        fechaAfectada: fechaServicio,
+        servicioAsignado: 'Turno Diurno (07:00 a 19:00)',
+        servicioPretendido: nombreTurnoPretendido,
+        codigoRegla: 'US-09',
+      });
+    }
+    if (estHoy.imaginaria) {
+      motivos.push({
+        categoria: 'DISPONIBILIDAD',
+        descripcion: `${destinatario.nombre} está de Imaginaria el día ${fechaServicio}.`,
+        fechaAfectada: fechaServicio,
+        servicioAsignado: 'Imaginaria U.S. (24h)',
+        servicioPretendido: nombreTurnoPretendido,
+        codigoRegla: 'US-08',
+      });
+    }
+
+    // Día Anterior (D-1): Nocturno previo SÍ está permitido (descanso 12h: salida 07:00 / entrada 19:00); Imaginaria prohibida
+    if (estAnt.imaginaria) {
+      motivos.push({
+        categoria: 'DESCANSO',
+        descripcion: `${destinatario.nombre} tiene asignada Imaginaria el día anterior (${strAnt}). No se puede entrar de servicio nocturno si el día anterior tienes imaginaria (riesgo de trabajar 24 horas por activación).`,
+        fechaAfectada: strAnt,
+        servicioAsignado: 'Imaginaria U.S. (24h)',
+        servicioPretendido: nombreTurnoPretendido,
+        codigoRegla: 'US-08',
+      });
+    }
+
+    // Día Siguiente (D+1): Diurno prohibido (empalme 24h: salida nocturno 07:00 / entrada diurno 07:00); Imaginaria prohibida
+    if (estSig.diurno) {
+      motivos.push({
+        categoria: 'DESCANSO',
+        descripcion: `${destinatario.nombre} tiene turno Diurno el día posterior (${strSig}). El turno Nocturno del ${fechaServicio} finaliza a las 07:00 h de ${strSig} y entraría directamente a Diurno (07:00 h), sumando 24 horas continuas de servicio (prohibido en la U.S.).`,
+        fechaAfectada: strSig,
+        servicioAsignado: 'Turno Diurno (07:00 a 19:00)',
+        servicioPretendido: nombreTurnoPretendido,
+        codigoRegla: 'US-09',
+      });
+    }
+    if (estSig.imaginaria) {
+      motivos.push({
+        categoria: 'DESCANSO',
+        descripcion: `${destinatario.nombre} tiene asignada Imaginaria el día posterior (${strSig}). No se puede entrar de servicio si el día posterior tienes imaginaria (riesgo de trabajar 24 horas por activación).`,
+        fechaAfectada: strSig,
+        servicioAsignado: 'Imaginaria U.S. (24h)',
+        servicioPretendido: nombreTurnoPretendido,
+        codigoRegla: 'US-08',
+      });
+    }
+
+  } else {
+    // IMAGINARIA EN U.S. (24 horas)
+    if (estHoy.diurno || estHoy.nocturno || estHoy.imaginaria) {
+      motivos.push({
+        categoria: 'DISPONIBILIDAD',
+        descripcion: `${destinatario.nombre} ya tiene servicio o imaginaria asignada el día ${fechaServicio}.`,
+        fechaAfectada: fechaServicio,
+        servicioAsignado: estHoy.diurno ? 'Turno Diurno' : estHoy.nocturno ? 'Turno Nocturno' : 'Imaginaria',
+        servicioPretendido: nombreTurnoPretendido,
+        codigoRegla: 'US-SOLAPAMIENTO',
+      });
+    }
+    if (estAnt.diurno || estAnt.nocturno || estAnt.imaginaria) {
+      motivos.push({
+        categoria: 'DESCANSO',
+        descripcion: `${destinatario.nombre} tiene servicio o imaginaria el día anterior (${strAnt}). En la U.S. no se puede ser imaginaria el día después de un servicio (riesgo de 24 horas por activación).`,
+        fechaAfectada: strAnt,
+        servicioAsignado: estAnt.diurno ? 'Turno Diurno' : estAnt.nocturno ? 'Turno Nocturno' : 'Imaginaria',
+        servicioPretendido: nombreTurnoPretendido,
+        codigoRegla: 'US-08',
+      });
+    }
+    if (estSig.diurno || estSig.nocturno || estSig.imaginaria) {
+      motivos.push({
+        categoria: 'DESCANSO',
+        descripcion: `${destinatario.nombre} tiene servicio o imaginaria el día siguiente (${strSig}). En la U.S. no se puede ser imaginaria el día previo a un servicio (riesgo de 24 horas por activación).`,
+        fechaAfectada: strSig,
+        servicioAsignado: estSig.diurno ? 'Turno Diurno' : estSig.nocturno ? 'Turno Nocturno' : 'Imaginaria',
+        servicioPretendido: nombreTurnoPretendido,
+        codigoRegla: 'US-08',
+      });
+    }
+  }
+
+  return motivos;
+};
+
 export const validarViabilidadCambio = (
   solicitante: Persona,
   destinatario: Persona,
@@ -208,182 +530,32 @@ export const validarViabilidadCambio = (
     destinatario.grupo === 'US_SEGURIDAD' ||
     (servicios.length > 0 && servicios[0]?.diurno !== undefined);
 
-  // Fechas adyacentes D-1 y D+1
-  const fechaDate = new Date(fechaServicio);
-  const fechaAnt = new Date(fechaDate);
-  fechaAnt.setDate(fechaAnt.getDate() - 1);
-  const strAnt = fechaAnt.toISOString().split('T')[0];
-
-  const fechaSig = new Date(fechaDate);
-  fechaSig.setDate(fechaSig.getDate() + 1);
-  const strSig = fechaSig.toISOString().split('T')[0];
-
   // =========================================================================
   // RAMA A: UNIDAD DE SEGURIDAD (U.S. - SERVICIOS DE 12 HORAS)
   // =========================================================================
   if (isUS) {
-    const srvDia = servicios.find((s) => s.fecha === fechaServicio);
-    if (!srvDia) {
-      return { valido: false, motivo: `No se encontró el servicio para la fecha ${fechaServicio}.` };
+    const motivos = evaluarMotivosIncompatibilidadCambioUS({
+      solicitante,
+      destinatario,
+      fechaServicio,
+      servicios,
+      tipoCambio,
+      slotTipo,
+      tipoTurnoUSParam,
+    });
+
+    if (motivos.length > 0) {
+      return { valido: false, motivo: motivos[0].descripcion };
     }
-
-    // Helper para inspeccionar estado de una persona en una fecha concreta en US
-    const getEstadoUS = (fechaStr: string, personaId: string) => {
-      const s = servicios.find((item) => item.fecha === fechaStr);
-      if (!s) return { diurno: false, nocturno: false, imaginaria: false, ausencia: false, presente: false };
-
-      const dTit = s.diurno?.titulares || [];
-      const nTit = s.nocturno?.titulares || [];
-      const diurno = dTit.some((t: any) => t?.personaIdReal === personaId);
-      const nocturno = nTit.some((t: any) => t?.personaIdReal === personaId);
-      const imaginaria = s.imaginaria?.personaIdReal === personaId;
-      const ausencia = (s.ausencias || []).some((a: any) => a?.personaId === personaId);
-      const presente = (s.presentes || []).some((pr: any) => pr?.personaIdReal === personaId);
-
-      return { diurno, nocturno, imaginaria, ausencia, presente, srv: s };
-    };
-
-    // Determinar el turno exacto de la U.S. que se pretende intercambiar
-    let tipoTurnoUS: 'DIURNO' | 'NOCTURNO' | 'IMAGINARIA' = tipoTurnoUSParam || 'DIURNO';
-    if (tipoCambio === 'IMAGINARIA' || slotTipo === 'imaginaria_us' || slotTipo?.includes('imaginaria')) {
-      tipoTurnoUS = 'IMAGINARIA';
-    } else if (slotTipo === 'diurno_1' || slotTipo === 'diurno_2' || slotTipo === 'rol1_1' || slotTipo === 'rol1_2') {
-      tipoTurnoUS = 'DIURNO';
-    } else if (slotTipo === 'nocturno_1' || slotTipo === 'nocturno_2' || slotTipo === 'rol2_1' || slotTipo === 'rol2_2') {
-      tipoTurnoUS = 'NOCTURNO';
-    } else {
-      // Deducir examinando dónde está asignado el solicitante en la fecha
-      const estSol = getEstadoUS(fechaServicio, solicitante.id);
-      if (estSol.diurno) tipoTurnoUS = 'DIURNO';
-      else if (estSol.nocturno) tipoTurnoUS = 'NOCTURNO';
-      else if (estSol.imaginaria) tipoTurnoUS = 'IMAGINARIA';
-      else tipoTurnoUS = 'DIURNO';
-    }
-
-    const estHoy = getEstadoUS(fechaServicio, destinatario.id);
-    const estAnt = getEstadoUS(strAnt, destinatario.id);
-    const estSig = getEstadoUS(strSig, destinatario.id);
-
-    // 1. Comprobaciones en el mismo día D
-    if (estHoy.ausencia) {
-      return {
-        valido: false,
-        motivo: `${destinatario.nombre} tiene vacaciones o permiso concedido el día ${fechaServicio}.`,
-      };
-    }
-
-    if (tipoTurnoUS === 'DIURNO') {
-      if (estHoy.diurno) {
-        return {
-          valido: false,
-          motivo: `${destinatario.nombre} ya tiene asignado el turno Diurno el día ${fechaServicio}.`,
-        };
-      }
-      if (estHoy.nocturno) {
-        return {
-          valido: false,
-          motivo: `${destinatario.nombre} ya realiza turno Nocturno el día ${fechaServicio}. Realizar turno Diurno y Nocturno el mismo día generaría 24 horas consecutivas (prohibido en la U.S.).`,
-        };
-      }
-      if (estHoy.imaginaria) {
-        return {
-          valido: false,
-          motivo: `${destinatario.nombre} está de Imaginaria el día ${fechaServicio}. No puede realizar servicio e imaginaria simultáneamente.`,
-        };
-      }
-
-      // Día Anterior (D-1): Diurno permitido; Nocturno PROHIBIDO (24h); Imaginaria PROHIBIDA (riesgo 24h por activación)
-      if (estAnt.nocturno) {
-        return {
-          valido: false,
-          motivo: `${destinatario.nombre} realiza turno Nocturno el día anterior (${strAnt}) finalizando a las 07:00 h. Entrar de Diurno el ${fechaServicio} (07:00 h) supondría trabajar 24 horas continuas, lo cual está prohibido en la U.S.`,
-        };
-      }
-      if (estAnt.imaginaria) {
-        return {
-          valido: false,
-          motivo: `${destinatario.nombre} tiene asignada Imaginaria el día anterior (${strAnt}). No se puede entrar de servicio si el día anterior tienes imaginaria (en caso de activarse se solaparía trabajando 24 horas).`,
-        };
-      }
-
-      // Día Siguiente (D+1): Diurno permitido; Nocturno permitido; Imaginaria PROHIBIDA (riesgo 24h por activación)
-      if (estSig.imaginaria) {
-        return {
-          valido: false,
-          motivo: `${destinatario.nombre} tiene asignada Imaginaria el día siguiente (${strSig}). No se puede entrar de servicio si el día posterior tienes imaginaria (en caso de activarse se solaparía trabajando 24 horas).`,
-        };
-      }
-
-    } else if (tipoTurnoUS === 'NOCTURNO') {
-      if (estHoy.nocturno) {
-        return {
-          valido: false,
-          motivo: `${destinatario.nombre} ya tiene asignado el turno Nocturno el día ${fechaServicio}.`,
-        };
-      }
-      if (estHoy.diurno) {
-        return {
-          valido: false,
-          motivo: `${destinatario.nombre} ya realiza turno Diurno el día ${fechaServicio}. Realizar Diurno y Nocturno seguidos generaría 24 horas continuas (prohibido en la U.S.).`,
-        };
-      }
-      if (estHoy.imaginaria) {
-        return {
-          valido: false,
-          motivo: `${destinatario.nombre} está de Imaginaria el día ${fechaServicio}.`,
-        };
-      }
-
-      // Día Anterior (D-1): Diurno permitido; Nocturno PERMITIDO (sale 07:00 descansa 12h y entra a las 19:00); Imaginaria PROHIBIDA
-      if (estAnt.imaginaria) {
-        return {
-          valido: false,
-          motivo: `${destinatario.nombre} tiene asignada Imaginaria el día anterior (${strAnt}). No se puede entrar de servicio nocturno si el día anterior tienes imaginaria (riesgo de trabajar 24 horas por activación).`,
-        };
-      }
-
-      // Día Siguiente (D+1): Diurno PROHIBIDO (sale 07:00 del nocturno y entraría a las 07:00 a diurno = 24h); Nocturno PERMITIDO; Imaginaria PROHIBIDA
-      if (estSig.diurno) {
-        return {
-          valido: false,
-          motivo: `${destinatario.nombre} tiene turno Diurno el día posterior (${strSig}). El turno Nocturno del ${fechaServicio} finaliza a las 07:00 h de ${strSig} y entraría directamente a Diurno (07:00 h), sumando 24 horas continuas de servicio (prohibido en la U.S.).`,
-        };
-      }
-      if (estSig.imaginaria) {
-        return {
-          valido: false,
-          motivo: `${destinatario.nombre} tiene asignada Imaginaria el día posterior (${strSig}). No se puede entrar de servicio si el día posterior tienes imaginaria (riesgo de trabajar 24 horas por activación).`,
-        };
-      }
-
-    } else {
-      // IMAGINARIA EN U.S. (24 horas)
-      if (estHoy.diurno || estHoy.nocturno || estHoy.imaginaria) {
-        return {
-          valido: false,
-          motivo: `${destinatario.nombre} ya tiene servicio o imaginaria asignada el día ${fechaServicio}.`,
-        };
-      }
-      if (estAnt.diurno || estAnt.nocturno || estAnt.imaginaria) {
-        return {
-          valido: false,
-          motivo: `${destinatario.nombre} tiene servicio o imaginaria el día anterior (${strAnt}). En la U.S. no se puede ser imaginaria el día después de un servicio (riesgo de 24 horas por activación).`,
-        };
-      }
-      if (estSig.diurno || estSig.nocturno || estSig.imaginaria) {
-        return {
-          valido: false,
-          motivo: `${destinatario.nombre} tiene servicio o imaginaria el día siguiente (${strSig}). En la U.S. no se puede ser imaginaria el día previo a un servicio (riesgo de 24 horas por activación).`,
-        };
-      }
-    }
-
     return { valido: true };
   }
 
   // =========================================================================
   // RAMA B: CUADRANTE DE 24 HORAS (U.G. / GUARDIAS 24H)
   // =========================================================================
+  const strAnt = getOffsetDate(fechaServicio, -1);
+  const strSig = getOffsetDate(fechaServicio, 1);
+
   // 1. Mismo empleo
   if (solicitante.empleo !== destinatario.empleo) {
     return {
@@ -581,13 +753,6 @@ export const validarViabilidadPermuta = (
       };
     }
   }
-
-  // Helper determinista de cálculo de fechas (UTC, inmune a zona horaria y DST)
-  const getOffsetDate = (baseDateStr: string, offsetDays: number): string => {
-    const [y, m, d] = baseDateStr.split('-').map(Number);
-    const date = new Date(Date.UTC(y, m - 1, d + offsetDays));
-    return date.toISOString().split('T')[0];
-  };
 
   const srvA = servicios.find((s) => s.fecha === fechaServicioA);
   const srvB = servicios.find((s) => s.fecha === fechaServicioB);
@@ -1177,6 +1342,343 @@ export const getCandidatosViablesPermuta = (
   });
 
   return resultado.sort((a, b) => a.persona.nombre.localeCompare(b.persona.nombre));
+};
+
+/**
+ * Evalúa a todos los compañeros de la U.S. para un CAMBIO INDIVIDUAL unilateral,
+ * clasificándolos en COMPATIBLES e INCOMPATIBLES con el desglose íntegro de motivos.
+ */
+export const evaluarCandidatosCambioIndividualUS = (params: {
+  solicitante: Persona;
+  fechaServicio: string;
+  servicios: (ServicioDia | any)[];
+  personas: Persona[];
+  slotTipo?: SlotServicioTipo | string;
+  tipoCambio?: 'SERVICIO' | 'IMAGINARIA';
+  tipoTurnoUSParam?: 'DIURNO' | 'NOCTURNO' | 'IMAGINARIA';
+}): ResultadoTransparenciaCandidatosUS => {
+  const {
+    solicitante,
+    fechaServicio,
+    servicios,
+    personas,
+    slotTipo,
+    tipoCambio = 'SERVICIO',
+    tipoTurnoUSParam,
+  } = params;
+
+  const companerosUS = personas.filter((p) => {
+    if (!p.activo || p.id === solicitante.id) return false;
+    return p.tipoServicio === 'US' || p.grupo === 'US_SEGURIDAD';
+  });
+
+  const compatibles: EvaluacionCandidatoUS[] = [];
+  const incompatibles: EvaluacionCandidatoUS[] = [];
+  const todos: EvaluacionCandidatoUS[] = [];
+
+  companerosUS.forEach((comp) => {
+    const motivos = evaluarMotivosIncompatibilidadCambioUS({
+      solicitante,
+      destinatario: comp,
+      fechaServicio,
+      servicios,
+      tipoCambio,
+      slotTipo,
+      tipoTurnoUSParam,
+    });
+
+    if (motivos.length === 0) {
+      const evaluacion: EvaluacionCandidatoUS = {
+        persona: comp,
+        estado: 'COMPATIBLE',
+        motivos: [],
+      };
+      compatibles.push(evaluacion);
+      todos.push(evaluacion);
+    } else {
+      const evaluacion: EvaluacionCandidatoUS = {
+        persona: comp,
+        estado: 'INCOMPATIBLE',
+        motivos,
+      };
+      incompatibles.push(evaluacion);
+      todos.push(evaluacion);
+    }
+  });
+
+  compatibles.sort((a, b) => a.persona.nombre.localeCompare(b.persona.nombre));
+  incompatibles.sort((a, b) => a.persona.nombre.localeCompare(b.persona.nombre));
+  todos.sort((a, b) => a.persona.nombre.localeCompare(b.persona.nombre));
+
+  return {
+    compatibles,
+    sinReciprocidad: [], // No aplica a cambio individual
+    incompatibles,
+    todos,
+    totalEvaluados: companerosUS.length,
+  };
+};
+
+/**
+ * Evalúa a todos los compañeros de la U.S. para una PERMUTA SIMULTÁNEA,
+ * clasificándolos de forma transparente en 3 apartados:
+ * 1. COMPATIBLES: Disponen de servicio viable para el intercambio recíproco.
+ * 2. SIN INTERCAMBIO RECÍPROCO: Podrían asumir el servicio solicitado pero no disponen de servicio para devolver.
+ * 3. INCOMPATIBLES: Incumplen descansos obligatorios, solapamientos o permisos en la fecha solicitada.
+ */
+export const evaluarCandidatosPermutaUS = (params: {
+  solicitante: Persona;
+  fechaServicioA: string;
+  servicios: (ServicioDia | any)[];
+  personas: Persona[];
+  slotTipoA?: SlotServicioTipo;
+  tipoCambioA?: 'SERVICIO' | 'IMAGINARIA';
+  hoyStr?: string;
+}): ResultadoTransparenciaCandidatosUS => {
+  const {
+    solicitante,
+    fechaServicioA,
+    servicios,
+    personas,
+    slotTipoA,
+    tipoCambioA = 'SERVICIO',
+    hoyStr = new Date().toISOString().split('T')[0],
+  } = params;
+
+  const companerosUS = personas.filter((p) => {
+    if (!p.activo || p.id === solicitante.id) return false;
+    return p.tipoServicio === 'US' || p.grupo === 'US_SEGURIDAD';
+  });
+
+  const compatibles: EvaluacionCandidatoUS[] = [];
+  const sinReciprocidad: EvaluacionCandidatoUS[] = [];
+  const incompatibles: EvaluacionCandidatoUS[] = [];
+  const todos: EvaluacionCandidatoUS[] = [];
+
+  companerosUS.forEach((comp) => {
+    const serviciosViables: CandidatoPermutaInfo['serviciosViables'] = [];
+    const intentosIncompatibles: Array<{
+      fechaB: string;
+      slotTipoB: string;
+      labelB: string;
+      motivo: string;
+    }> = [];
+
+    let tieneServiciosFuturos = false;
+
+    (servicios || []).forEach((sRaw) => {
+      const s = sRaw as any;
+      if (!s || !s.fecha || s.fecha < hoyStr) return;
+      const esMismoDia = s.fecha === fechaServicioA;
+
+      const dTit = s.diurno?.titulares || [];
+      const nTit = s.nocturno?.titulares || [];
+      const esDiurno = dTit.some((t: any) => t?.personaIdReal === comp.id);
+      const esNocturno = nTit.some((t: any) => t?.personaIdReal === comp.id);
+      const esImag = s.imaginaria?.personaIdReal === comp.id;
+
+      if (esDiurno || esNocturno || esImag) {
+        tieneServiciosFuturos = true;
+      }
+
+      // Probar Turno Diurno
+      if (esDiurno) {
+        if (!esMismoDia || !slotTipoA?.includes('diurno')) {
+          const check = validarViabilidadPermuta({
+            solicitante,
+            destinatario: comp,
+            fechaServicioA,
+            fechaServicioB: s.fecha,
+            servicios,
+            slotTipoA,
+            slotTipoB: 'diurno_1',
+            tipoCambioA,
+            tipoCambioB: 'SERVICIO',
+          });
+          if (check.valido) {
+            serviciosViables.push({
+              servicioId: s.id,
+              fecha: s.fecha,
+              slotTipo: 'diurno_1',
+              label: `${s.fecha} — Turno DIURNO (12h • 07:00 a 19:00)${esMismoDia ? ' • Mismo Día' : ''}`,
+              tipoCambio: 'SERVICIO',
+            });
+          } else {
+            intentosIncompatibles.push({
+              fechaB: s.fecha,
+              slotTipoB: 'diurno_1',
+              labelB: `${s.fecha} — Turno DIURNO`,
+              motivo: check.motivo || 'Restricción reglamentaria de descanso o solapamiento.',
+            });
+          }
+        }
+      }
+
+      // Probar Turno Nocturno
+      if (esNocturno) {
+        if (!esMismoDia || !slotTipoA?.includes('nocturno')) {
+          const check = validarViabilidadPermuta({
+            solicitante,
+            destinatario: comp,
+            fechaServicioA,
+            fechaServicioB: s.fecha,
+            servicios,
+            slotTipoA,
+            slotTipoB: 'nocturno_1',
+            tipoCambioA,
+            tipoCambioB: 'SERVICIO',
+          });
+          if (check.valido) {
+            serviciosViables.push({
+              servicioId: s.id,
+              fecha: s.fecha,
+              slotTipo: 'nocturno_1',
+              label: `${s.fecha} — Turno NOCTURNO (12h • 19:00 a 07:00)${esMismoDia ? ' • Mismo Día' : ''}`,
+              tipoCambio: 'SERVICIO',
+            });
+          } else {
+            intentosIncompatibles.push({
+              fechaB: s.fecha,
+              slotTipoB: 'nocturno_1',
+              labelB: `${s.fecha} — Turno NOCTURNO`,
+              motivo: check.motivo || 'Restricción reglamentaria de descanso o solapamiento.',
+            });
+          }
+        }
+      }
+
+      // Probar Imaginaria U.S.
+      if (esImag) {
+        const solEsImaginaria = (slotTipoA?.includes('imaginaria') ?? false) || tipoCambioA === 'IMAGINARIA';
+        if (!esMismoDia || !solEsImaginaria) {
+          const check = validarViabilidadPermuta({
+            solicitante,
+            destinatario: comp,
+            fechaServicioA,
+            fechaServicioB: s.fecha,
+            servicios,
+            slotTipoA,
+            slotTipoB: 'imaginaria_us' as SlotServicioTipo,
+            tipoCambioA,
+            tipoCambioB: 'IMAGINARIA',
+          });
+          if (check.valido) {
+            serviciosViables.push({
+              servicioId: s.id,
+              fecha: s.fecha,
+              slotTipo: 'imaginaria_us' as SlotServicioTipo,
+              label: `${s.fecha} — IMAGINARIA (Disponibilidad 24h)${esMismoDia ? ' • Mismo Día' : ''}`,
+              tipoCambio: 'IMAGINARIA',
+            });
+          } else {
+            intentosIncompatibles.push({
+              fechaB: s.fecha,
+              slotTipoB: 'imaginaria_us',
+              labelB: `${s.fecha} — IMAGINARIA U.S.`,
+              motivo: check.motivo || 'Restricción reglamentaria de descanso o solapamiento.',
+            });
+          }
+        }
+      }
+    });
+
+    if (serviciosViables.length > 0) {
+      serviciosViables.sort((a, b) => a.fecha.localeCompare(b.fecha));
+      const evaluacion: EvaluacionCandidatoUS = {
+        persona: comp,
+        estado: 'COMPATIBLE',
+        motivos: [],
+        serviciosViables,
+      };
+      compatibles.push(evaluacion);
+      todos.push(evaluacion);
+    } else {
+      // Evaluar si el compañero podría asumir el servicio solicitado (fechaServicioA)
+      const motivosAsuncionA = evaluarMotivosIncompatibilidadCambioUS({
+        solicitante,
+        destinatario: comp,
+        fechaServicio: fechaServicioA,
+        servicios,
+        tipoCambio: tipoCambioA,
+        slotTipo: slotTipoA,
+      });
+
+      if (motivosAsuncionA.length === 0) {
+        // Podría asumir fechaServicioA, pero no dispone de servicio recíproco viable
+        const motivosReciprocidad: MotivoIncompatibilidad[] = [
+          {
+            categoria: 'RECIPROCIDAD',
+            descripcion:
+              'Este compañero podría asumir el servicio seleccionado, pero actualmente no dispone de un servicio compatible para completar el intercambio recíproco.',
+            fechaAfectada: fechaServicioA,
+            codigoRegla: 'US-SIN-RECIPROCIDAD',
+          },
+        ];
+
+        if (intentosIncompatibles.length > 0) {
+          intentosIncompatibles.forEach((att) => {
+            motivosReciprocidad.push({
+              categoria: 'RECIPROCIDAD',
+              descripcion: `Servicio del ${att.labelB}: No se puede permutar porque ${att.motivo}`,
+              fechaAfectada: att.fechaB,
+              servicioAsignado: att.labelB,
+              codigoRegla: 'US-RECIPROCIDAD-DETALLE',
+            });
+          });
+        } else if (!tieneServiciosFuturos) {
+          motivosReciprocidad.push({
+            categoria: 'RECIPROCIDAD',
+            descripcion: `${comp.nombre} no tiene servicios futuros asignados en este ciclo para ofrecer a cambio.`,
+            codigoRegla: 'US-SIN-TURNOS-FUTUROS',
+          });
+        }
+
+        const evaluacion: EvaluacionCandidatoUS = {
+          persona: comp,
+          estado: 'SIN_RECIPROCIDAD',
+          motivos: motivosReciprocidad,
+          serviciosViables: [],
+        };
+        sinReciprocidad.push(evaluacion);
+        todos.push(evaluacion);
+      } else {
+        // Incompatibilidad reglamentaria en fechaServicioA
+        const motivosIncompatibilidad: MotivoIncompatibilidad[] = [...motivosAsuncionA];
+
+        intentosIncompatibles.forEach((att) => {
+          motivosIncompatibilidad.push({
+            categoria: 'DESCANSO',
+            descripcion: `Intercambio propuesto con ${att.labelB}: ${att.motivo}`,
+            fechaAfectada: att.fechaB,
+            servicioAsignado: att.labelB,
+            codigoRegla: 'US-PERMUTA-INCOMPATIBLE',
+          });
+        });
+
+        const evaluacion: EvaluacionCandidatoUS = {
+          persona: comp,
+          estado: 'INCOMPATIBLE',
+          motivos: motivosIncompatibilidad,
+          serviciosViables: [],
+        };
+        incompatibles.push(evaluacion);
+        todos.push(evaluacion);
+      }
+    }
+  });
+
+  compatibles.sort((a, b) => a.persona.nombre.localeCompare(b.persona.nombre));
+  sinReciprocidad.sort((a, b) => a.persona.nombre.localeCompare(b.persona.nombre));
+  incompatibles.sort((a, b) => a.persona.nombre.localeCompare(b.persona.nombre));
+  todos.sort((a, b) => a.persona.nombre.localeCompare(b.persona.nombre));
+
+  return {
+    compatibles,
+    sinReciprocidad,
+    incompatibles,
+    todos,
+    totalEvaluados: companerosUS.length,
+  };
 };
 
 /**

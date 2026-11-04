@@ -6,7 +6,11 @@ import {
   validarViabilidadPermuta,
   getCandidatosViablesPermuta,
   CandidatoPermuta,
+  evaluarCandidatosPermutaUS,
+  evaluarCandidatosCambioIndividualUS,
+  ResultadoTransparenciaCandidatosUS,
 } from '../../services/cambiosService';
+import { SelectorTransparenteCandidatosUS } from './SelectorTransparenteCandidatosUS';
 import {
   ArrowRightLeft,
   Calendar,
@@ -281,6 +285,22 @@ export const SolicitarCambioModal: React.FC<SolicitarCambioModalProps> = ({
     );
   }, [itemSeleccionado, currentPersona, servicios, personas, hoyStr]);
 
+  // Transparencia U.S. de Candidatos en PERMUTAS (Compatibles, Sin Reciprocidad e Incompatibles)
+  const resultadoTransparenciaPermutaUS: ResultadoTransparenciaCandidatosUS = useMemo(() => {
+    if (!isUS || !itemSeleccionado) {
+      return { compatibles: [], sinReciprocidad: [], incompatibles: [], todos: [], totalEvaluados: 0 };
+    }
+    return evaluarCandidatosPermutaUS({
+      solicitante: currentPersona,
+      fechaServicioA: itemSeleccionado.servicio.fecha,
+      servicios,
+      personas,
+      slotTipoA: itemSeleccionado.slotTipo,
+      tipoCambioA: itemSeleccionado.tipoCambio,
+      hoyStr,
+    });
+  }, [isUS, itemSeleccionado, currentPersona, servicios, personas, hoyStr]);
+
   // 2. Calcular compañeros COMPATIBLES para cambio individual unilateral
   const candidatosCompatibles = useMemo(() => {
     if (!itemSeleccionado) return [];
@@ -317,35 +337,72 @@ export const SolicitarCambioModal: React.FC<SolicitarCambioModalProps> = ({
     return compatibles.sort((a, b) => a.nombre.localeCompare(b.nombre));
   }, [itemSeleccionado, personas, currentPersona, servicios, isUS]);
 
+  // Transparencia U.S. de Candidatos en CAMBIOS INDIVIDUALES (Compatibles e Incompatibles con detalle)
+  const resultadoTransparenciaCambioUS: ResultadoTransparenciaCandidatosUS = useMemo(() => {
+    if (!isUS || !itemSeleccionado) {
+      return { compatibles: [], sinReciprocidad: [], incompatibles: [], todos: [], totalEvaluados: 0 };
+    }
+    return evaluarCandidatosCambioIndividualUS({
+      solicitante: currentPersona,
+      fechaServicio: itemSeleccionado.servicio.fecha,
+      servicios,
+      personas,
+      slotTipo: itemSeleccionado.slotTipo,
+      tipoCambio: itemSeleccionado.tipoCambio,
+      tipoTurnoUSParam: itemSeleccionado.tipoTurnoUS,
+    });
+  }, [isUS, itemSeleccionado, currentPersona, servicios, personas]);
+
   // Auto-seleccionar primer candidato compatible al cambiar de modalidad o servicio
   useEffect(() => {
     if (modalidad === 'PERMUTA') {
-      if (candidatosPermuta.length > 0) {
-        if (!destinatarioId || !candidatosPermuta.some((c) => c.persona.id === destinatarioId)) {
-          setDestinatarioId(candidatosPermuta[0].persona.id);
+      const listaCompatibles = isUS
+        ? resultadoTransparenciaPermutaUS.compatibles.map((c) => c.persona)
+        : candidatosPermuta.map((c) => c.persona);
+
+      if (listaCompatibles.length > 0) {
+        if (!destinatarioId || !listaCompatibles.some((p) => p.id === destinatarioId)) {
+          setDestinatarioId(listaCompatibles[0].id);
         }
       } else {
         setDestinatarioId('');
       }
     } else {
-      if (candidatosCompatibles.length > 0) {
-        if (!destinatarioId || !candidatosCompatibles.some((c) => c.id === destinatarioId)) {
-          setDestinatarioId(candidatosCompatibles[0].id);
+      const listaCompatibles = isUS
+        ? resultadoTransparenciaCambioUS.compatibles.map((c) => c.persona)
+        : candidatosCompatibles;
+
+      if (listaCompatibles.length > 0) {
+        if (!destinatarioId || !listaCompatibles.some((p) => p.id === destinatarioId)) {
+          setDestinatarioId(listaCompatibles[0].id);
         }
       } else {
         setDestinatarioId('');
       }
     }
-  }, [modalidad, candidatosPermuta, candidatosCompatibles]);
+  }, [
+    modalidad,
+    isUS,
+    candidatosPermuta,
+    candidatosCompatibles,
+    resultadoTransparenciaPermutaUS,
+    resultadoTransparenciaCambioUS,
+  ]);
 
   const destinatarioSeleccionado = personas.find((p) => p.id === destinatarioId);
 
   // Servicios disponibles del compañero para permutar
   const serviciosPermutaDisponibles = useMemo(() => {
     if (modalidad !== 'PERMUTA' || !destinatarioId) return [];
+    if (isUS) {
+      const candUS = resultadoTransparenciaPermutaUS.compatibles.find(
+        (c) => c.persona.id === destinatarioId
+      );
+      if (candUS && candUS.serviciosViables) return candUS.serviciosViables;
+    }
     const cand = candidatosPermuta.find((c) => c.persona.id === destinatarioId);
     return cand ? cand.serviciosViables : [];
-  }, [modalidad, destinatarioId, candidatosPermuta]);
+  }, [modalidad, destinatarioId, isUS, resultadoTransparenciaPermutaUS, candidatosPermuta]);
 
   useEffect(() => {
     if (modalidad === 'PERMUTA') {
@@ -780,66 +837,81 @@ export const SolicitarCambioModal: React.FC<SolicitarCambioModalProps> = ({
           {/* MODO PERMUTA: Selección simultánea con evaluación atómica sobre resultado final */}
           {modalidad === 'PERMUTA' ? (
             <>
-              {/* 2. Selección de Compañero para Permuta */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                    <User className="w-4 h-4 text-slate-500" />
-                    2. Compañero con el que Permutas ({currentPersona.empleo})
-                  </label>
-                  <span className="text-[11px] font-semibold text-slate-500">
-                    {candidatosPermuta.length} compañero(s) con guardias viables
-                  </span>
-                </div>
-
-                {candidatosPermuta.length === 0 ? (
-                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start gap-2">
-                    <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                    <div>
-                      <strong>No hay compañeros con servicios permutables para esta fecha:</strong>{' '}
-                      No se encuentran servicios de otros compañeros que, una vez intercambiados simultáneamente, permitan a ambos disfrutar del descanso reglamentario obligatorio (libre antes y libre después).
+              {isUS ? (
+                /* Selector Transparente para la Unidad de Seguridad (U.S.) */
+                <SelectorTransparenteCandidatosUS
+                  modalidad="PERMUTA"
+                  resultado={resultadoTransparenciaPermutaUS}
+                  destinatarioSeleccionadoId={destinatarioId}
+                  onSelectDestinatario={setDestinatarioId}
+                  servicioPermutaKey={servicioPermutaKey}
+                  onSelectServicioPermutaKey={setServicioPermutaKey}
+                />
+              ) : (
+                /* Selector estándar para la Unidad de Guardia (U.G. 24h) */
+                <>
+                  {/* 2. Selección de Compañero para Permuta */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                        <User className="w-4 h-4 text-slate-500" />
+                        2. Compañero con el que Permutas ({currentPersona.empleo})
+                      </label>
+                      <span className="text-[11px] font-semibold text-slate-500">
+                        {candidatosPermuta.length} compañero(s) con guardias viables
+                      </span>
                     </div>
+
+                    {candidatosPermuta.length === 0 ? (
+                      <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start gap-2">
+                        <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                        <div>
+                          <strong>No hay compañeros con servicios permutables para esta fecha:</strong>{' '}
+                          No se encuentran servicios de otros compañeros que, una vez intercambiados simultáneamente, permitan a ambos disfrutar del descanso reglamentario obligatorio (libre antes y libre después).
+                        </div>
+                      </div>
+                    ) : (
+                      <select
+                        value={destinatarioId}
+                        onChange={(e) => setDestinatarioId(e.target.value)}
+                        className="w-full text-xs font-semibold text-slate-900 bg-white border border-slate-300 rounded-xl px-3.5 py-2.5 focus:ring-2 focus:ring-slate-900 focus:outline-hidden"
+                      >
+                        {candidatosPermuta.map((c) => (
+                          <option key={c.persona.id} value={c.persona.id}>
+                            {c.persona.nombre} ({c.persona.grupo || 'U.G.'}) — {c.serviciosViables.length} servicio(s) intercambiable(s)
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </div>
-                ) : (
-                  <select
-                    value={destinatarioId}
-                    onChange={(e) => setDestinatarioId(e.target.value)}
-                    className="w-full text-xs font-semibold text-slate-900 bg-white border border-slate-300 rounded-xl px-3.5 py-2.5 focus:ring-2 focus:ring-slate-900 focus:outline-hidden"
-                  >
-                    {candidatosPermuta.map((c) => (
-                      <option key={c.persona.id} value={c.persona.id}>
-                        {c.persona.nombre} ({c.persona.grupo || 'U.G.'}) — {c.serviciosViables.length} servicio(s) intercambiable(s)
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
 
-              {/* 3. Selección del Servicio del Compañero a Intercambiar */}
-              {destinatarioSeleccionado && (
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1 flex items-center gap-1.5">
-                    <ArrowRightLeft className="w-4 h-4 text-blue-600" />
-                    3. Servicio de {destinatarioSeleccionado.nombre} que asumirás tú
-                  </label>
-                  {serviciosPermutaDisponibles.length === 0 ? (
-                    <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-500">
-                      Este compañero no tiene servicios viables para permutar con tu fecha.
+                  {/* 3. Selección del Servicio del Compañero a Intercambiar */}
+                  {destinatarioSeleccionado && (
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                        <ArrowRightLeft className="w-4 h-4 text-blue-600" />
+                        3. Servicio de {destinatarioSeleccionado.nombre} que asumirás tú
+                      </label>
+                      {serviciosPermutaDisponibles.length === 0 ? (
+                        <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-500">
+                          Este compañero no tiene servicios viables para permutar con tu fecha.
+                        </div>
+                      ) : (
+                        <select
+                          value={servicioPermutaKey}
+                          onChange={(e) => setServicioPermutaKey(e.target.value)}
+                          className="w-full text-xs font-semibold text-slate-900 bg-white border border-slate-300 rounded-xl px-3.5 py-2.5 focus:ring-2 focus:ring-slate-900 focus:outline-hidden"
+                        >
+                          {serviciosPermutaDisponibles.map((s) => (
+                            <option key={`${s.servicioId}_${s.slotTipo}`} value={`${s.servicioId}_${s.slotTipo}`}>
+                              {s.label}
+                            </option>
+                          ))}
+                        </select>
+                      )}
                     </div>
-                  ) : (
-                    <select
-                      value={servicioPermutaKey}
-                      onChange={(e) => setServicioPermutaKey(e.target.value)}
-                      className="w-full text-xs font-semibold text-slate-900 bg-white border border-slate-300 rounded-xl px-3.5 py-2.5 focus:ring-2 focus:ring-slate-900 focus:outline-hidden"
-                    >
-                      {serviciosPermutaDisponibles.map((s) => (
-                        <option key={`${s.servicioId}_${s.slotTipo}`} value={`${s.servicioId}_${s.slotTipo}`}>
-                          {s.label}
-                        </option>
-                      ))}
-                    </select>
                   )}
-                </div>
+                </>
               )}
 
               {/* Visualización del Resultado Final del Intercambio Simultáneo */}
@@ -865,7 +937,7 @@ export const SolicitarCambioModal: React.FC<SolicitarCambioModalProps> = ({
                     <div className="flex items-start gap-1.5 text-emerald-800 font-medium pt-1 text-[11px]">
                       <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                       <span>
-                        <strong>PERMUTA VÁLIDA:</strong> El resultado final cumple la normativa de descansos de 24h (libre antes y después) para ambos efectivos tras el intercambio simultáneo.
+                        <strong>PERMUTA VÁLIDA:</strong> El resultado final cumple la normativa de descansos reglamentarios para ambos efectivos tras el intercambio simultáneo.
                       </span>
                     </div>
                   )}
@@ -875,42 +947,50 @@ export const SolicitarCambioModal: React.FC<SolicitarCambioModalProps> = ({
           ) : (
             /* MODO CAMBIO INDIVIDUAL: Cesión unilateral */
             <>
-              {/* 2. Selección de Compañero Filtrado por Compatibilidad Estricta */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                    <User className="w-4 h-4 text-slate-500" />
-                    2. Compañero Destinatario ({isUS ? 'U.S. Seguridad' : currentPersona.empleo})
-                  </label>
-                  <span className="text-[11px] font-semibold text-slate-500">
-                    {candidatosCompatibles.length} compatible(s)
-                  </span>
-                </div>
-
-                {candidatosCompatibles.length === 0 ? (
-                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start gap-2">
-                    <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                    <div>
-                      <strong>Sin candidatos compatibles disponibles:</strong>{' '}
-                      {isUS
-                        ? 'Todos los compañeros de la U.S. tienen asignado servicio en esa fecha, incompatibilidad de solapamiento nocturno/diurno o imaginaria en días adyacentes.'
-                        : 'Todos los compañeros de tu empleo tienen servicio asignado en esa fecha o en días adyacentes.'}
-                    </div>
+              {isUS ? (
+                /* Selector Transparente para la Unidad de Seguridad (U.S.) */
+                <SelectorTransparenteCandidatosUS
+                  modalidad="CAMBIO_INDIVIDUAL"
+                  resultado={resultadoTransparenciaCambioUS}
+                  destinatarioSeleccionadoId={destinatarioId}
+                  onSelectDestinatario={setDestinatarioId}
+                />
+              ) : (
+                /* Selector estándar para la Unidad de Guardia (U.G. 24h) */
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                      <User className="w-4 h-4 text-slate-500" />
+                      2. Compañero Destinatario ({currentPersona.empleo})
+                    </label>
+                    <span className="text-[11px] font-semibold text-slate-500">
+                      {candidatosCompatibles.length} compatible(s)
+                    </span>
                   </div>
-                ) : (
-                  <select
-                    value={destinatarioId}
-                    onChange={(e) => setDestinatarioId(e.target.value)}
-                    className="w-full text-xs font-semibold text-slate-900 bg-white border border-slate-300 rounded-xl px-3.5 py-2.5 focus:ring-2 focus:ring-slate-900 focus:outline-hidden"
-                  >
-                    {candidatosCompatibles.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.nombre} ({p.grupo || (isUS ? 'U.S.' : 'U.G.')}) — Compatible
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
+
+                  {candidatosCompatibles.length === 0 ? (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start gap-2">
+                      <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div>
+                        <strong>Sin candidatos compatibles disponibles:</strong>{' '}
+                        Todos los compañeros de tu empleo tienen servicio asignado en esa fecha o en días adyacentes.
+                      </div>
+                    </div>
+                  ) : (
+                    <select
+                      value={destinatarioId}
+                      onChange={(e) => setDestinatarioId(e.target.value)}
+                      className="w-full text-xs font-semibold text-slate-900 bg-white border border-slate-300 rounded-xl px-3.5 py-2.5 focus:ring-2 focus:ring-slate-900 focus:outline-hidden"
+                    >
+                      {candidatosCompatibles.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.nombre} ({p.grupo || 'U.G.'}) — Compatible
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              )}
 
               {/* Indicador de Viabilidad Cambio Individual */}
               {validacionEnVivo && validacionEnVivo.valido && (

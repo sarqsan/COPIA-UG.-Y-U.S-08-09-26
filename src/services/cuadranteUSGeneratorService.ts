@@ -289,10 +289,14 @@ export const generarSimulacionCuadranteUS = (params: {
         const candidatosSustitutosBase = plantillaUS.filter((p) => {
           if (idsEnAusenciaHoy.has(p.id)) return false;
           if (idsOcupadosHoy.has(p.id)) return false;
-          if (salientesHoy.includes(p.id)) return false;
           const t = tracks[p.id];
-          if (t.ultimoTipoServicio === 'NOCTURNO' && diaIdx - t.ultimoServicioDiaIdx < 3) return false;
           if (t.ultimoTipoServicio === 'DIURNO' && diaIdx - t.ultimoServicioDiaIdx < 2) return false;
+          // Si su último servicio fue NOCTURNO:
+          // Un saliente de noche (diaIdx - t.ultimoServicioDiaIdx === 1) dispone de 12 horas reglamentarias
+          // de descanso (salida a las 07:00 y entrada al nocturno a las 19:00).
+          // Por tanto, puede cubrir un nocturno consecutivo.
+          // Solo se excluye si no cumple el descanso mínimo reglamentario de 12h.
+          if (t.ultimoTipoServicio === 'NOCTURNO' && diaIdx - t.ultimoServicioDiaIdx < 1) return false;
           return true;
         });
 

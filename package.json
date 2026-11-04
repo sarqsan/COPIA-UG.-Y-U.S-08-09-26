@@ -18,7 +18,9 @@
     "test:permutas-us-mismo-dia": "tsx tests/permutasUSMismoDia.test.ts",
     "test:permutas-rol1": "tsx tests/permutasRol1UG.test.ts",
     "test:festivos-navidad": "tsx tests/festivosAlicanteYRestriccionNavidad.test.ts",
-    "test": "tsx tests/backupRestoreModule.test.ts && tsx tests/matriculasModule.test.ts && tsx tests/imaginariasYRobustezOcr.test.ts && tsx tests/patrullasExcepcionImaginarias.test.ts && tsx tests/permutasUSAdmin.test.ts && tsx tests/permutasRol1UG.test.ts && tsx tests/permutasUSMismoDia.test.ts && tsx tests/festivosAlicanteYRestriccionNavidad.test.ts"
+    "test:us-09": "tsx tests/reglaUS09DescansoNocturno.test.ts",
+    "test:transparencia-us": "tsx tests/transparenciaCandidatosUS.test.ts",
+    "test": "tsx tests/backupRestoreModule.test.ts && tsx tests/matriculasModule.test.ts && tsx tests/imaginariasYRobustezOcr.test.ts && tsx tests/patrullasExcepcionImaginarias.test.ts && tsx tests/permutasUSAdmin.test.ts && tsx tests/permutasRol1UG.test.ts && tsx tests/permutasUSMismoDia.test.ts && tsx tests/festivosAlicanteYRestriccionNavidad.test.ts && tsx tests/reglaUS09DescansoNocturno.test.ts && tsx tests/transparenciaCandidatosUS.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
