@@ -2,7 +2,7 @@ import { useState, useMemo, FC } from 'react';
 import { ServicioDiaUS, MetricasCuadranteUS, MetricasIndividualesUS } from '../../types/usTypes';
 import { Persona, CuadranteMaestro } from '../../types';
 import { calcularMetricasCuadranteUS } from '../../services/cuadranteUSMetricsService';
-import { clasificarDiaUS } from '../../services/cuadranteUSCalendarHelper';
+import { clasificarDiaUS, calcularAjusteHorasPeriodoUS } from '../../services/cuadranteUSCalendarHelper';
 import {
   Calendar,
   Search,
@@ -332,7 +332,10 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
 
   // Métricas globales para todo el periodo (usadas cuando selectedMesKey === 'TODOS')
   const metricasGlobales = useMemo(() => {
-    const ajuste = (cuadrante as any)?.configuracionUS?.ajusteHoras ?? (cuadrante as any)?.ajusteHoras ?? 14;
+    const ajuste =
+      (cuadrante as any)?.configuracionUS?.ajusteHoras ??
+      (cuadrante as any)?.ajusteHoras ??
+      calcularAjusteHorasPeriodoUS(serviciosUS.length, undefined, 15);
     if (serviciosUS && serviciosUS.length > 0) {
       return calcularMetricasCuadranteUS(serviciosUS, personasUS || [], ajuste);
     }
@@ -346,16 +349,16 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
     );
   }, [metricasUS, serviciosUS, personasUS, (cuadrante as any)?.configuracionUS?.ajusteHoras, (cuadrante as any)?.ajusteHoras]);
 
-  // Métricas calculadas para el mes seleccionado
+  // Métricas calculadas para el mes seleccionado (1 mes individual = 15h de descuento base)
   const metricasMesSeleccionado = useMemo(() => {
     if (selectedMesKey === 'TODOS') return null;
-    const ajuste = (cuadrante as any)?.configuracionUS?.ajusteHoras ?? (cuadrante as any)?.ajusteHoras ?? 14;
+    const ajuste = 15;
     return calcularMetricasCuadranteUS(
       serviciosFiltradosPorMes || [],
       personasUS || [],
       ajuste
     );
-  }, [selectedMesKey, serviciosFiltradosPorMes, personasUS, (cuadrante as any)?.configuracionUS?.ajusteHoras, (cuadrante as any)?.ajusteHoras]);
+  }, [selectedMesKey, serviciosFiltradosPorMes, personasUS]);
 
   // FILTRO MENSUAL CRÍTICO:
   // Cuando selectedMesKey !== 'TODOS', las métricas se obtienen EXCLUSIVAMENTE de los servicios del mes seleccionado.
@@ -376,7 +379,12 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
     }
 
     if (!m) {
-      const ajuste = (cuadrante as any)?.configuracionUS?.ajusteHoras ?? (cuadrante as any)?.ajusteHoras ?? 14;
+      const ajuste =
+        selectedMesKey === 'TODOS'
+          ? (cuadrante as any)?.configuracionUS?.ajusteHoras ??
+            (cuadrante as any)?.ajusteHoras ??
+            calcularAjusteHorasPeriodoUS(serviciosUS.length, undefined, 15)
+          : 15;
       const serviciosContexto = selectedMesKey === 'TODOS' ? (serviciosUS || []) : (serviciosFiltradosPorMes || []);
       const res = calcularMetricasCuadranteUS(serviciosContexto, [p], ajuste);
       m = res.detallePorPersona[p.id];
@@ -554,34 +562,46 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
         </div>
       </div>
 
-      {/* Selector de Mes / Vista Semestral Completa */}
+      {/* Selector de Mes / Vista del Periodo Completo */}
       {mesesDisponibles.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 p-1.5 bg-slate-100 dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-700/60">
-          <button
-            type="button"
-            onClick={() => setSelectedMesKey('TODOS')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              selectedMesKey === 'TODOS'
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-200/60 dark:hover:bg-slate-700/60'
-            }`}
-          >
-            Semestre Completo ({serviciosUS.length} días)
-          </button>
-          {mesesDisponibles.map((m) => (
+        <div className="flex flex-wrap items-center justify-between gap-2 p-1.5 bg-slate-100 dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-700/60">
+          <div className="flex flex-wrap items-center gap-1.5">
             <button
-              key={m.key}
               type="button"
-              onClick={() => setSelectedMesKey(m.key)}
+              onClick={() => setSelectedMesKey('TODOS')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                selectedMesKey === m.key
+                selectedMesKey === 'TODOS'
                   ? 'bg-blue-600 text-white shadow-xs'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-200/60 dark:hover:bg-slate-700/60'
               }`}
             >
-              {m.label} ({m.count}d)
+              Periodo Completo ({serviciosUS.length} días)
             </button>
-          ))}
+            {mesesDisponibles.map((m) => (
+              <button
+                key={m.key}
+                type="button"
+                onClick={() => setSelectedMesKey(m.key)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  selectedMesKey === m.key
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-200/60 dark:hover:bg-slate-700/60'
+                }`}
+              >
+                {m.label} ({m.count}d)
+              </button>
+            ))}
+          </div>
+
+          <div className="px-3 py-1 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-mono flex items-center gap-2">
+            <span className="text-[10px] uppercase font-bold text-slate-400">Máx. Periodo:</span>
+            <span className="font-extrabold text-blue-600 dark:text-blue-400">
+              {metricasFinales?.horasMaximasReferencia ?? 0}h máx
+            </span>
+            <span className="text-[10px] text-slate-500 font-normal">
+              (tope {((metricasFinales?.totalDiasLaborables ?? 0) * 7.5).toFixed(1)}h | {metricasFinales?.totalDiasLaborables ?? 0} días lab.)
+            </span>
+          </div>
         </div>
       )}
 
@@ -641,8 +661,8 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
                 <th className="p-2 text-center bg-slate-950 text-white border-l border-slate-800 font-black">
                   Total Serv.
                 </th>
-                <th className="p-2 text-center bg-emerald-950 text-emerald-300 border-l border-slate-800 font-black">
-                  Horas Comp.
+                <th className="p-2 text-center bg-emerald-950 text-emerald-300 border-l border-slate-800 font-black min-w-[100px]">
+                  Horas / Máx
                 </th>
               </tr>
             </thead>
@@ -711,8 +731,13 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
                     <td className="p-2 text-center text-xs font-extrabold text-slate-900 dark:text-white border-l border-slate-200 dark:border-slate-800 font-mono">
                       {met?.totalServicios ?? '-'}
                     </td>
-                    <td className="p-2 text-center text-xs font-black text-emerald-700 dark:text-emerald-300 bg-emerald-50/40 dark:bg-emerald-950/30 border-l border-slate-200 dark:border-slate-800 font-mono">
-                      {met?.totalHorasComputables ?? '-'}h
+                    <td className="p-2 text-center text-xs border-l border-slate-200 dark:border-slate-800 bg-emerald-50/40 dark:bg-emerald-950/30 font-mono">
+                      <span className="font-black text-emerald-700 dark:text-emerald-300 block">
+                        {met?.totalHorasComputables != null ? `${met.totalHorasComputables}h` : '-'}
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-bold block">
+                        / {met?.horasMaximasAsignables ?? metricasFinales?.horasMaximasReferencia ?? '-'}h máx
+                      </span>
                     </td>
                   </tr>
                 );

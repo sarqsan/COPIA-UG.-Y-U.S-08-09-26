@@ -231,7 +231,7 @@ export const ejecutarPlanificadorAutomaticoUS = async (options?: {
       fechaInicio: estado.fechaInicioMesSiguiente,
       fechaFin: estado.fechaFinMesSiguiente,
       personasActivas: personalUS,
-      ajusteHoras: 14,
+      ajusteHoras: 15,
       creadoPorUid: adminInfo.uid,
       creadoPorNombre: adminInfo.nombre,
       mapaAusenciasPrecalculadas: mapaAusencias,

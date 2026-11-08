@@ -30,7 +30,7 @@ export const CuadranteUSMetricasPanel: FC<CuadranteUSMetricasPanelProps> = ({
   const totalDias = metricas?.totalDias ?? 30;
   const totalDiasLaborables = metricas?.totalDiasLaborables ?? 22;
   const horasMaximasReferencia = metricas?.horasMaximasReferencia ?? 140;
-  const ajusteHorasAplicado = metricas?.ajusteHorasAplicado ?? 14;
+  const ajusteHorasAplicado = metricas?.ajusteHorasAplicado ?? 15;
   const diferenciaServicios = metricas?.diferenciaServicios ?? 0;
   const diferenciaDiurnos = metricas?.diferenciaDiurnos ?? 0;
   const diferenciaNocturnos = metricas?.diferenciaNocturnos ?? 0;
@@ -82,13 +82,16 @@ export const CuadranteUSMetricasPanel: FC<CuadranteUSMetricasPanelProps> = ({
           </div>
           <div>
             <div className="text-[10px] uppercase font-bold text-slate-400">
-              Horas Máximas del Mes
+              Horas Máximas del Periodo
             </div>
             <div className="text-sm font-extrabold text-slate-900 dark:text-white font-mono">
-              {horasMaximasReferencia} horas
+              {horasMaximasReferencia}h máx{' '}
+              <span className="text-xs font-normal text-slate-400">
+                (tope {(totalDiasLaborables * 7.5).toFixed(1)}h)
+              </span>
             </div>
-            <div className="text-[10px] text-slate-500">
-              {totalDiasLaborables} días lab. × 7h − {ajusteHorasAplicado}h
+            <div className="text-[10px] text-slate-500 font-medium">
+              {totalDiasLaborables} días lab. × 7.5h − {ajusteHorasAplicado}h ajuste
             </div>
           </div>
         </div>
@@ -163,9 +166,9 @@ export const CuadranteUSMetricasPanel: FC<CuadranteUSMetricasPanelProps> = ({
                 <th className="p-3 text-center">Ausencias (V/P/AP)</th>
                 <th className="p-3 text-center font-black">Horas Serv.</th>
                 <th className="p-3 text-center font-black text-emerald-700 dark:text-emerald-400">
-                  TOTAL COMP.
+                  TOTAL COMP. / MÁXIMO
                 </th>
-                <th className="p-3 text-center font-bold">Máximo / Dif.</th>
+                <th className="p-3 text-center font-bold">Diferencia (Δ)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
@@ -232,21 +235,25 @@ export const CuadranteUSMetricasPanel: FC<CuadranteUSMetricasPanelProps> = ({
                       {met.horasServicios.toFixed(1)}h
                     </td>
 
-                    <td className="p-3 text-center font-mono font-black text-emerald-700 dark:text-emerald-300 text-sm bg-emerald-50/40 dark:bg-emerald-950/20">
-                      {met.totalHorasComputables.toFixed(1)}h
+                    <td className="p-3 text-center bg-emerald-50/40 dark:bg-emerald-950/20">
+                      <div className="flex items-baseline justify-center gap-1 font-mono">
+                        <span className="font-black text-emerald-700 dark:text-emerald-300 text-sm">
+                          {met.totalHorasComputables.toFixed(1)}h
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-bold">
+                          / {met.horasMaximasAsignables}h máx
+                        </span>
+                      </div>
                     </td>
 
                     <td className="p-3 text-center font-mono">
-                      <div className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                        {met.horasMaximasAsignables}h
-                      </div>
                       <div
-                        className={`text-[10px] font-black ${
+                        className={`text-xs font-black inline-flex items-center px-2 py-0.5 rounded-full ${
                           dif > 8
-                            ? 'text-rose-600 dark:text-rose-400'
+                            ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-400'
                             : dif < -15
-                            ? 'text-amber-600 dark:text-amber-400'
-                            : 'text-emerald-600 dark:text-emerald-400'
+                            ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400'
+                            : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400'
                         }`}
                       >
                         {dif > 0 ? `+${dif.toFixed(1)}h` : `${dif.toFixed(1)}h`}

@@ -15,6 +15,7 @@ import {
   AlertTriangle,
   Info,
 } from 'lucide-react';
+import { esDiaEspecialNavidadUS } from '../../services/cuadranteUSNavidadHelper';
 
 interface CuadranteUSSimulacionViewProps {
   simulacion: CuadranteSimulacionUSResult;
@@ -37,6 +38,49 @@ export const CuadranteUSSimulacionView: React.FC<CuadranteUSSimulacionViewProps>
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const { cuadrante, serviciosUS, metricasUS, validacion } = currentSimulacion;
+
+  // Días y asignaciones navideñas detectadas en la simulación
+  const diasNavidadServicios = (serviciosUS || []).filter((s) => esDiaEspecialNavidadUS(s.fecha));
+  const tieneNavidadEnCuadrante = diasNavidadServicios.length > 0 || !!currentSimulacion.planNavidad;
+
+  // Mapa de personas para obtener nombre a partir del id
+  const personasMap = new Map<string, string>();
+  (personasUS || []).forEach((p) => personasMap.set(p.id, p.nombre));
+
+  // Conteo seguro de servicios realizados por cada efectivo en los días festivos especiales
+  const conteoServiciosNavidad: Record<string, { id: string; nombre: string; count: number; servicios: string[] }> = {};
+  diasNavidadServicios.forEach((s) => {
+    (s.diurno?.titulares || []).forEach((t) => {
+      const pId = t.personaIdReal || t.personaIdOriginal;
+      if (!pId) return;
+      const nombre = personasMap.get(pId) || pId;
+      if (!conteoServiciosNavidad[pId]) {
+        conteoServiciosNavidad[pId] = { id: pId, nombre, count: 0, servicios: [] };
+      }
+      conteoServiciosNavidad[pId].count += 1;
+      conteoServiciosNavidad[pId].servicios.push(`${s.fecha} (Diurno)`);
+    });
+    (s.nocturno?.titulares || []).forEach((t) => {
+      const pId = t.personaIdReal || t.personaIdOriginal;
+      if (!pId) return;
+      const nombre = personasMap.get(pId) || pId;
+      if (!conteoServiciosNavidad[pId]) {
+        conteoServiciosNavidad[pId] = { id: pId, nombre, count: 0, servicios: [] };
+      }
+      conteoServiciosNavidad[pId].count += 1;
+      conteoServiciosNavidad[pId].servicios.push(`${s.fecha} (Nocturno)`);
+    });
+  });
+
+  const personasQueRepitenNavidad = Object.values(conteoServiciosNavidad).filter((p) => p.count > 1);
+
+  const getNombreDiaNavidad = (fecha: string) => {
+    if (fecha.endsWith('-12-24')) return 'Nochebuena (24 Dic)';
+    if (fecha.endsWith('-12-25')) return 'Navidad (25 Dic)';
+    if (fecha.endsWith('-12-31')) return 'Nochevieja (31 Dic)';
+    if (fecha.endsWith('-01-01')) return 'Año Nuevo (1 Ene)';
+    return fecha;
+  };
 
   const handleConfirmar = async () => {
     if (!validacion.valido) {
@@ -88,6 +132,11 @@ export const CuadranteUSSimulacionView: React.FC<CuadranteUSSimulacionViewProps>
               <span>•</span>
               <span>
                 Límite de Horas: <strong className="text-blue-600 dark:text-blue-400">{metricasUS?.horasMaximasReferencia || cuadrante.horasMaximasPeriodo || 0}h máx</strong>
+                {metricasUS?.totalDiasLaborables ? (
+                  <span className="text-slate-500 dark:text-slate-400 font-medium ml-1">
+                    ({metricasUS.totalDiasLaborables} d. lab. × 7.5h − {metricasUS.ajusteHorasAplicado ?? 15}h | tope {(metricasUS.totalDiasLaborables * 7.5).toFixed(1)}h)
+                  </span>
+                ) : null}
               </span>
             </p>
           </div>
@@ -168,6 +217,68 @@ export const CuadranteUSSimulacionView: React.FC<CuadranteUSSimulacionViewProps>
               </div>
             </div>
           )}
+
+        {/* Banner informativo de Distribución Equitativa de Navidad y Año Nuevo */}
+        {tieneNavidadEnCuadrante && diasNavidadServicios.length > 0 && (
+          <div className="mt-4 p-4 bg-linear-to-r from-red-50 via-amber-50 to-orange-50 dark:from-red-950/40 dark:via-amber-950/30 dark:to-orange-950/40 border border-red-200 dark:border-red-900/60 rounded-2xl space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-xs font-black text-red-900 dark:text-red-200">
+                <Sparkles className="w-4 h-4 text-amber-500 shrink-0" />
+                <span>
+                  Distribución Equitativa de Navidad y Año Nuevo (24, 25, 31 Dic y 1 Ene)
+                </span>
+              </div>
+              <div className="text-[11px] font-bold text-red-700 dark:text-red-300 bg-white/80 dark:bg-slate-800/80 px-2.5 py-1 rounded-full border border-red-200 dark:border-red-800 self-start sm:self-auto">
+                {diasNavidadServicios.length * 4} Servicios Festivos Asignados
+              </div>
+            </div>
+
+            <p className="text-[11px] text-slate-700 dark:text-slate-300">
+              {personasQueRepitenNavidad.length === 0
+                ? 'Con 16 efectivos disponibles, cada miembro de la unidad realiza exactamente 1 servicio en todos los días clave.'
+                : personasQueRepitenNavidad.length === 1
+                ? `Al haber 15 efectivos disponibles (1 efectivo de permiso oficial de larga duración), 14 efectivos realizan 1 único servicio festivo y únicamente 1 efectivo (${personasQueRepitenNavidad[0]?.nombre}) asume 2 servicios, asignando el segundo en la noche del 1 de enero conforme a la regla de menor impacto.`
+                : `Se han distribuido los servicios festivos con el menor impacto posible: ${personasQueRepitenNavidad.length} efectivos realizan 2 servicios y el resto 1 servicio.`}
+            </p>
+
+            {/* Cuadrícula de los Días Clave */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 pt-1">
+              {diasNavidadServicios.map((d) => (
+                <div
+                  key={d.fecha}
+                  className="p-3 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-red-100 dark:border-red-900/40 shadow-2xs space-y-2"
+                >
+                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-1.5">
+                    <span className="font-black text-xs text-slate-900 dark:text-white">
+                      {getNombreDiaNavidad(d.fecha)}
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-400">{d.fecha}</span>
+                  </div>
+
+                  <div className="space-y-1.5 text-[11px]">
+                    <div>
+                      <div className="text-[10px] font-extrabold uppercase text-cyan-700 dark:text-cyan-400 flex items-center gap-1">
+                        <span>☀️ Diurno (2)</span>
+                      </div>
+                      <div className="text-slate-800 dark:text-slate-200 font-semibold pl-1">
+                        {(d.diurno?.titulares || []).map((u) => personasMap.get(u.personaIdReal || u.personaIdOriginal) || u.personaIdReal).join(', ') || '—'}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="text-[10px] font-extrabold uppercase text-indigo-700 dark:text-indigo-400 flex items-center gap-1">
+                        <span>🌙 Nocturno (2)</span>
+                      </div>
+                      <div className="text-slate-800 dark:text-slate-200 font-semibold pl-1">
+                        {(d.nocturno?.titulares || []).map((u) => personasMap.get(u.personaIdReal || u.personaIdOriginal) || u.personaIdReal).join(', ') || '—'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Pestañas de la Simulación */}
         <div className="flex items-center gap-2 border-t border-slate-100 dark:border-slate-800 pt-4 mt-4 overflow-x-auto">

@@ -19,8 +19,14 @@ import {
 import { generarRangoFechas } from './cuadranteGeneratorService';
 import { calcularMetricasCuadranteUS } from './cuadranteUSMetricsService';
 import { validarCuadranteUS } from './cuadranteUSValidatorService';
-import { clasificarDiaUS, InfoDiaUS } from './cuadranteUSCalendarHelper';
+import { clasificarDiaUS, InfoDiaUS, calcularAjusteHorasPeriodoUS } from './cuadranteUSCalendarHelper';
 import { calcularCosteCandidatoDiurno, PersonaTrackUS } from './cuadranteUSEquityHelper';
+import {
+  esDiaEspecialNavidadUS,
+  planificarBloqueNavidadUS,
+  permutarPersonaEnPlanNavidad,
+  PlanNavidadUS,
+} from './cuadranteUSNavidadHelper';
 
 /**
  * Comprueba si una fecha concreta (YYYY-MM-DD) es laborable oficial de la U.S.
@@ -60,7 +66,9 @@ export const generarSimulacionCuadranteUS = (params: {
   mapaAusenciasPrecalculadas?: Record<string, AusenciaDiaUS[]>;
   imaginariasPendientesCompensacion?: RegistroImaginariaActivadaUS[];
   estadoContinuidadMesAnterior?: EstadoContinuidadUS | null;
-}): CuadranteSimulacionUSResult => {
+  personasRepitenNavidad?: string[];
+  incluirAnioNuevoEnDiciembre?: boolean;
+}): CuadranteSimulacionUSResult & { planNavidad?: PlanNavidadUS | null } => {
   const {
     nombre,
     cicloId,
@@ -69,11 +77,20 @@ export const generarSimulacionCuadranteUS = (params: {
     personasActivas,
     creadoPorUid,
     creadoPorNombre,
-    ajusteHoras = 14,
+    ajusteHoras,
     mapaAusenciasPrecalculadas,
     imaginariasPendientesCompensacion = [],
     estadoContinuidadMesAnterior = null,
+    personasRepitenNavidad,
+    incluirAnioNuevoEnDiciembre = true,
   } = params;
+
+  // Si ajusteHoras no se especifica, se calcula con la tasa oficial de 15h por mes
+  // (ej. 15h para 1 mes, 18.5h para 1 mes y 1 semana, etc.)
+  const ajusteHorasEfectivo =
+    ajusteHoras !== undefined
+      ? ajusteHoras
+      : calcularAjusteHorasPeriodoUS(fechaInicio, fechaFin, 15);
 
   // 1. Filtrar personal exclusivo de la U.S.
   const usPersonas = personasActivas.filter(
@@ -92,6 +109,33 @@ export const generarSimulacionCuadranteUS = (params: {
   );
 
   const fechas = generarRangoFechas(fechaInicio, fechaFin);
+
+  // Encontrar el año de referencia navideño (el año del mes de diciembre contenido o previo a enero)
+  let refYear: number;
+  const f12 = fechas.find((f) => f.includes('-12-'));
+  if (f12) {
+    refYear = parseInt(f12.split('-')[0], 10);
+  } else {
+    const f01 = fechas.find((f) => f.endsWith('-01-01'));
+    if (f01) {
+      refYear = parseInt(f01.split('-')[0], 10) - 1;
+    } else {
+      refYear = parseInt(fechaInicio.split('-')[0], 10);
+    }
+  }
+
+  const f24 = `${refYear}-12-24`;
+  const f25 = `${refYear}-12-25`;
+  const f31Dic = `${refYear}-12-31`;
+  const f01Ene = `${refYear + 1}-01-01`;
+  const cubreNavidad = fechas.some((f) => f === f24 || f === f25 || f === f31Dic || f === f01Ene);
+
+  // Si el cuadrante cubre el final de diciembre, incorporar el 1 de enero si no está presente
+  // para completar el bloque equitativo de los 4 días especiales navideños (24, 25, 31 Dic y 1 Ene)
+  if (cubreNavidad && fechaFin === f31Dic && !fechas.includes(f01Ene) && incluirAnioNuevoEnDiciembre) {
+    fechas.push(f01Ene);
+  }
+
   const cuadranteId = `cuadrante-us-${Date.now()}`;
   const totalDias = fechas.length;
 
@@ -156,7 +200,7 @@ export const generarSimulacionCuadranteUS = (params: {
 
   // Cómputo normativo de días laborables y tope máximo de horas de referencia
   const totalDiasLaborables = fechas.filter(esFechaLaborable).length;
-  const horasMaximasReferencia = Math.max(0, totalDiasLaborables * 7.5 - ajusteHoras);
+  const horasMaximasReferencia = Math.max(0, totalDiasLaborables * 7.5 - ajusteHorasEfectivo);
 
   // Pre-computar horas por ausencias concedidas en días laborables del mes
   // (7,5h por cada día laborable; 0h en fines de semana y festivos oficiales)
@@ -262,6 +306,19 @@ export const generarSimulacionCuadranteUS = (params: {
   let nocturnosHoy = [...nocturnosDia0Originales];
   let salientesHoy = [...salientesDia0Originales];
 
+  // FASE 1.5: PLANIFICADOR DE EQUIDAD PARA DÍAS ESPECIALES DE NAVIDAD (24, 25, 31 Dic y 1 Ene)
+  let planNavidad: PlanNavidadUS | null = null;
+  if (cubreNavidad || fechas.some((f) => esDiaEspecialNavidadUS(f))) {
+    planNavidad = planificarBloqueNavidadUS({
+      plantillaUS,
+      fechas,
+      ausenciasPorDia,
+      tracks,
+      personasRepitenSeleccionadas: params.personasRepitenNavidad,
+      year: refYear,
+    });
+  }
+
   // FASE 2: MOTOR DE GENERACIÓN EQUITATIVA D -> N -> SALIENTE
   for (let diaIdx = 0; diaIdx < totalDias; diaIdx++) {
     const fecha = fechas[diaIdx];
@@ -277,53 +334,193 @@ export const generarSimulacionCuadranteUS = (params: {
     const idsEnAusenciaHoy = new Set(ausenciasHoy.map((a) => a.personaId));
     const idsOcupadosHoy = new Set<string>();
 
-    // 2.1 ASIGNAR NOCTURNOS HOY (Canonical D -> N: Vienen del Diurno de ayer o de continuidad)
-    const nocturnosOriginales = [...nocturnosHoy];
-    const nocturnosReales: string[] = [];
-
     const horasNocturno = infoHoy.esNocturnoProlongado ? 12.75 : 12.0;
 
-    for (const origId of nocturnosOriginales) {
-      if (idsEnAusenciaHoy.has(origId)) {
-        // Buscar sustituto equitativo para cubrir la ausencia en Nocturno
-        const candidatosSustitutosBase = plantillaUS.filter((p) => {
-          if (idsEnAusenciaHoy.has(p.id)) return false;
-          if (idsOcupadosHoy.has(p.id)) return false;
-          const t = tracks[p.id];
-          if (t.ultimoTipoServicio === 'DIURNO' && diaIdx - t.ultimoServicioDiaIdx < 2) return false;
-          // Si su último servicio fue NOCTURNO:
-          // Un saliente de noche (diaIdx - t.ultimoServicioDiaIdx === 1) dispone de 12 horas reglamentarias
-          // de descanso (salida a las 07:00 y entrada al nocturno a las 19:00).
-          // Por tanto, puede cubrir un nocturno consecutivo.
-          // Solo se excluye si no cumple el descanso mínimo reglamentario de 12h.
-          if (t.ultimoTipoServicio === 'NOCTURNO' && diaIdx - t.ultimoServicioDiaIdx < 1) return false;
-          return true;
-        });
+    let nocturnosOriginales: string[] = [];
+    let nocturnosReales: string[] = [];
+    let diurnosOriginales: string[] = [];
+    let diurnosReales: string[] = [];
 
-        // Priorizar sustitutos que no excedan las horas máximas al sumar este turno nocturno
-        const sustitutosConHoras = candidatosSustitutosBase.filter(
-          (p) => tracks[p.id].horasComputablesMesActual + horasNocturno <= tracks[p.id].horasMaximasReferencia
-        );
-        const candidatosSustitutos = sustitutosConHoras.length > 0 ? sustitutosConHoras : candidatosSustitutosBase;
+    const asigNavidadHoy = planNavidad?.asignacionesPorDia.get(fecha);
 
-        candidatosSustitutos.sort((a, b) => {
-          const tA = tracks[a.id];
-          const tB = tracks[b.id];
-          if (tA.horasComputablesMesActual !== tB.horasComputablesMesActual) {
-            return tA.horasComputablesMesActual - tB.horasComputablesMesActual;
-          }
-          if (tA.totalServicios !== tB.totalServicios) return tA.totalServicios - tB.totalServicios;
-          if (tA.nocturnos !== tB.nocturnos) return tA.nocturnos - tB.nocturnos;
-          return (tA.persona.ordenRotacion ?? 99) - (tB.persona.ordenRotacion ?? 99);
-        });
+    if (asigNavidadHoy) {
+      // --- DÍA ESPECIAL DE NAVIDAD (24, 25, 31 Dic o 1 Ene) ---
+      // Asignación directa y equitativa sin duplicados ni solapamientos
+      nocturnosOriginales = [...asigNavidadHoy.nocturnos];
+      nocturnosReales = [...asigNavidadHoy.nocturnos];
+      nocturnosReales.forEach((nId) => idsOcupadosHoy.add(nId));
 
-        const sust = candidatosSustitutos[0] || plantillaUS[0];
-        nocturnosReales.push(sust.id);
-        idsOcupadosHoy.add(sust.id);
-      } else {
-        nocturnosReales.push(origId);
-        idsOcupadosHoy.add(origId);
+      diurnosOriginales = [...asigNavidadHoy.diurnos];
+      diurnosReales = [...asigNavidadHoy.diurnos];
+      diurnosReales.forEach((dId) => idsOcupadosHoy.add(dId));
+    } else {
+      // --- DÍA ORDINARIO ---
+      // 2.1 ASIGNAR NOCTURNOS HOY (Canonical D -> N: Vienen del Diurno de ayer o de continuidad)
+      nocturnosOriginales = [...nocturnosHoy];
+
+      for (const origId of nocturnosOriginales) {
+        if (idsEnAusenciaHoy.has(origId)) {
+          // Buscar sustituto equitativo para cubrir la ausencia en Nocturno
+          const candidatosSustitutosBase = plantillaUS.filter((p) => {
+            if (idsEnAusenciaHoy.has(p.id)) return false;
+            if (idsOcupadosHoy.has(p.id)) return false;
+            const t = tracks[p.id];
+            if (t.ultimoTipoServicio === 'DIURNO' && diaIdx - t.ultimoServicioDiaIdx < 2) return false;
+            // Descanso de 12 horas reglamentario
+            if (t.ultimoTipoServicio === 'NOCTURNO' && diaIdx - t.ultimoServicioDiaIdx < 1) return false;
+            return true;
+          });
+
+          // Priorizar sustitutos que no excedan las horas máximas al sumar este turno nocturno
+          const sustitutosConHoras = candidatosSustitutosBase.filter(
+            (p) => tracks[p.id].horasComputablesMesActual + horasNocturno <= tracks[p.id].horasMaximasReferencia
+          );
+          const candidatosSustitutos = sustitutosConHoras.length > 0 ? sustitutosConHoras : candidatosSustitutosBase;
+
+          candidatosSustitutos.sort((a, b) => {
+            const tA = tracks[a.id];
+            const tB = tracks[b.id];
+            if (tA.horasComputablesMesActual !== tB.horasComputablesMesActual) {
+              return tA.horasComputablesMesActual - tB.horasComputablesMesActual;
+            }
+            if (tA.totalServicios !== tB.totalServicios) return tA.totalServicios - tB.totalServicios;
+            if (tA.nocturnos !== tB.nocturnos) return tA.nocturnos - tB.nocturnos;
+            return (tA.persona.ordenRotacion ?? 99) - (tB.persona.ordenRotacion ?? 99);
+          });
+
+          const sust = candidatosSustitutos[0] || plantillaUS[0];
+          nocturnosReales.push(sust.id);
+          idsOcupadosHoy.add(sust.id);
+        } else {
+          nocturnosReales.push(origId);
+          idsOcupadosHoy.add(origId);
+        }
       }
+
+      // 2.2 ASIGNAR DIURNOS HOY
+      const ocupadosParaDiurno = new Set([...nocturnosReales, ...salientesHoy]);
+      const horasCicloHoy = 12.0 + (infoManana?.esNocturnoProlongado ? 12.75 : 12.0);
+
+      const candidatosDiurnoBase = plantillaUS.filter((p) => {
+        if (idsEnAusenciaHoy.has(p.id)) return false;
+        if (ocupadosParaDiurno.has(p.id)) return false;
+        // No iniciar Diurno hoy si mañana tiene ausencia concedida (no podría completar D -> N)
+        if (fechaManana && (ausenciasPorDia[fechaManana] || []).some((aus) => aus.personaId === p.id)) {
+          return false;
+        }
+        const t = tracks[p.id];
+        // Descanso estricto post-nocturno: Saliente + mínimo 1 día libre completo
+        if (t.ultimoTipoServicio === 'NOCTURNO' && diaIdx - t.ultimoServicioDiaIdx < 3) return false;
+        if (t.ultimoTipoServicio === 'DIURNO' && diaIdx - t.ultimoServicioDiaIdx < 2) return false;
+        return true;
+      });
+
+      // REGLA FUNDAMENTAL DE TOPE DE HORAS
+      const candidatosConHorasDisponibles = candidatosDiurnoBase.filter((p) => {
+        const t = tracks[p.id];
+        return t.horasMaximasReferencia > 0
+          ? t.horasComputablesMesActual + horasCicloHoy <= t.horasMaximasReferencia
+          : true;
+      });
+
+      let candidatosDiurno =
+        candidatosConHorasDisponibles.length >= 2 ? candidatosConHorasDisponibles : candidatosDiurnoBase;
+
+      // Ordenar candidatos por función de coste de equidad
+      candidatosDiurno.sort((a, b) => {
+        const tA = tracks[a.id];
+        const tB = tracks[b.id];
+        const excedeA =
+          tA.horasMaximasReferencia > 0 && tA.horasComputablesMesActual + horasCicloHoy > tA.horasMaximasReferencia
+            ? 1
+            : 0;
+        const excedeB =
+          tB.horasMaximasReferencia > 0 && tB.horasComputablesMesActual + horasCicloHoy > tB.horasMaximasReferencia
+            ? 1
+            : 0;
+        if (excedeA !== excedeB) return excedeA - excedeB;
+
+        const ausMananaA = fechaManana
+          ? (ausenciasPorDia[fechaManana] || []).some((aus) => aus.personaId === a.id)
+          : false;
+        const ausMananaB = fechaManana
+          ? (ausenciasPorDia[fechaManana] || []).some((aus) => aus.personaId === b.id)
+          : false;
+
+        const costA = calcularCosteCandidatoDiurno({
+          track: tA,
+          diaIdx,
+          finDeSemanaIdx: currentFDSIdx,
+          infoHoy,
+          infoManana,
+          tieneAusenciaManana: ausMananaA,
+        });
+        const costB = calcularCosteCandidatoDiurno({
+          track: tB,
+          diaIdx,
+          finDeSemanaIdx: currentFDSIdx,
+          infoHoy,
+          infoManana,
+          tieneAusenciaManana: ausMananaB,
+        });
+
+        return costA - costB;
+      });
+
+      // Si mañana es 24 Dic, dar preferencia en el Diurno de hoy a los que harán Nocturno el 24 Dic
+      if (fecha === `${refYear}-12-23` && planNavidad?.asignacionesPorDia.has(f24)) {
+        const n24Ids = planNavidad.asignacionesPorDia.get(f24)!.nocturnos;
+        const preferidos23 = n24Ids
+          .map((id) => plantillaUS.find((p) => p.id === id))
+          .filter(
+            (p): p is Persona =>
+              !!p &&
+              !idsEnAusenciaHoy.has(p.id) &&
+              !salientesHoy.includes(p.id) &&
+              !nocturnosReales.includes(p.id)
+          );
+        if (preferidos23.length === 2) {
+          candidatosDiurno = preferidos23;
+        } else if (preferidos23.length === 1) {
+          const rest = candidatosDiurno.filter((c) => c.id !== preferidos23[0].id);
+          candidatosDiurno = [preferidos23[0], ...rest];
+        }
+      }
+
+      // Si mañana es 31 Dic, dar preferencia en el Diurno de hoy a los que harán Nocturno el 31 Dic
+      if (fecha === `${refYear}-12-30` && planNavidad?.asignacionesPorDia.has(f31Dic)) {
+        const n31Ids = planNavidad.asignacionesPorDia.get(f31Dic)!.nocturnos;
+        const preferidos30 = n31Ids
+          .map((id) => plantillaUS.find((p) => p.id === id))
+          .filter(
+            (p): p is Persona =>
+              !!p &&
+              !idsEnAusenciaHoy.has(p.id) &&
+              !salientesHoy.includes(p.id) &&
+              !nocturnosReales.includes(p.id)
+          );
+        if (preferidos30.length === 2) {
+          candidatosDiurno = preferidos30;
+        } else if (preferidos30.length === 1) {
+          const rest = candidatosDiurno.filter((c) => c.id !== preferidos30[0].id);
+          candidatosDiurno = [preferidos30[0], ...rest];
+        }
+      }
+
+      if (candidatosDiurno.length < 2) {
+        const fallback = plantillaUS.filter(
+          (p) => !idsEnAusenciaHoy.has(p.id) && !nocturnosReales.includes(p.id) && !salientesHoy.includes(p.id)
+        );
+        while (candidatosDiurno.length < 2 && fallback.length > candidatosDiurno.length) {
+          const extra = fallback.find((p) => !candidatosDiurno.some((c) => c.id === p.id));
+          if (extra) candidatosDiurno.push(extra);
+          else break;
+        }
+      }
+
+      diurnosOriginales = [candidatosDiurno[0].id, candidatosDiurno[1].id];
+      diurnosReales = [...diurnosOriginales];
+      diurnosReales.forEach((dId) => idsOcupadosHoy.add(dId));
     }
 
     // Registrar métricas de nocturnos
@@ -368,95 +565,8 @@ export const generarSimulacionCuadranteUS = (params: {
       }
     });
 
-    // 2.2 ASIGNAR DIURNOS HOY (Selección de candidatos mediante función de coste de equidad)
-    const ocupadosParaDiurno = new Set([...nocturnosReales, ...salientesHoy]);
-    const horasCicloHoy = 12.0 + (infoManana?.esNocturnoProlongado ? 12.75 : 12.0);
-
-    const candidatosDiurnoBase = plantillaUS.filter((p) => {
-      if (idsEnAusenciaHoy.has(p.id)) return false;
-      if (ocupadosParaDiurno.has(p.id)) return false;
-      // No iniciar Diurno hoy si mañana tiene ausencia concedida (no podría completar D -> N)
-      if (fechaManana && (ausenciasPorDia[fechaManana] || []).some((aus) => aus.personaId === p.id)) {
-        return false;
-      }
-      const t = tracks[p.id];
-      // Descanso estricto post-nocturno: Saliente + mínimo 1 día libre completo (mínimo 3 días entre nocturno e inicio de diurno)
-      if (t.ultimoTipoServicio === 'NOCTURNO' && diaIdx - t.ultimoServicioDiaIdx < 3) return false;
-      if (t.ultimoTipoServicio === 'DIURNO' && diaIdx - t.ultimoServicioDiaIdx < 2) return false;
-      return true;
-    });
-
-    // REGLA FUNDAMENTAL DE TOPE DE HORAS:
-    // Un efectivo NO puede iniciar un nuevo ciclo si la suma de sus horas de ausencia
-    // más sus servicios asignados más este ciclo (~24h/24.75h) supera el tope mensual de horas.
-    const candidatosConHorasDisponibles = candidatosDiurnoBase.filter((p) => {
-      const t = tracks[p.id];
-      return t.horasMaximasReferencia > 0
-        ? t.horasComputablesMesActual + horasCicloHoy <= t.horasMaximasReferencia
-        : true;
-    });
-
-    const candidatosDiurno =
-      candidatosConHorasDisponibles.length >= 2 ? candidatosConHorasDisponibles : candidatosDiurnoBase;
-
-    // Ordenar candidatos por función de coste de equidad y penalizar estrictamente a los que sobrepasen el tope
-    candidatosDiurno.sort((a, b) => {
-      const tA = tracks[a.id];
-      const tB = tracks[b.id];
-      const excedeA =
-        tA.horasMaximasReferencia > 0 && tA.horasComputablesMesActual + horasCicloHoy > tA.horasMaximasReferencia
-          ? 1
-          : 0;
-      const excedeB =
-        tB.horasMaximasReferencia > 0 && tB.horasComputablesMesActual + horasCicloHoy > tB.horasMaximasReferencia
-          ? 1
-          : 0;
-      if (excedeA !== excedeB) return excedeA - excedeB;
-
-      const ausMananaA = fechaManana
-        ? (ausenciasPorDia[fechaManana] || []).some((aus) => aus.personaId === a.id)
-        : false;
-      const ausMananaB = fechaManana
-        ? (ausenciasPorDia[fechaManana] || []).some((aus) => aus.personaId === b.id)
-        : false;
-
-      const costA = calcularCosteCandidatoDiurno({
-        track: tA,
-        diaIdx,
-        finDeSemanaIdx: currentFDSIdx,
-        infoHoy,
-        infoManana,
-        tieneAusenciaManana: ausMananaA,
-      });
-      const costB = calcularCosteCandidatoDiurno({
-        track: tB,
-        diaIdx,
-        finDeSemanaIdx: currentFDSIdx,
-        infoHoy,
-        infoManana,
-        tieneAusenciaManana: ausMananaB,
-      });
-
-      return costA - costB;
-    });
-
-    if (candidatosDiurno.length < 2) {
-      // Fallback de emergencia si la plantilla está severamente mermada por ausencias simultáneas
-      const fallback = plantillaUS.filter(
-        (p) => !idsEnAusenciaHoy.has(p.id) && !nocturnosReales.includes(p.id) && !salientesHoy.includes(p.id)
-      );
-      while (candidatosDiurno.length < 2 && fallback.length > candidatosDiurno.length) {
-        const extra = fallback.find((p) => !candidatosDiurno.some((c) => c.id === p.id));
-        if (extra) candidatosDiurno.push(extra);
-        else break;
-      }
-    }
-
-    const diurnosOriginales = [candidatosDiurno[0].id, candidatosDiurno[1].id];
-    const diurnosReales = [...diurnosOriginales];
-
+    // Registrar métricas de diurnos
     diurnosReales.forEach((dId) => {
-      idsOcupadosHoy.add(dId);
       const t = tracks[dId];
       if (t) {
         t.serviciosMesActual++;
@@ -514,7 +624,15 @@ export const generarSimulacionCuadranteUS = (params: {
 
     // Preparar salientes y nocturnos para el día siguiente
     salientesHoy = [...nocturnosReales];
-    nocturnosHoy = [...diurnosReales];
+    if (fecha === f24 && planNavidad?.asignacionesPorDia.has(f25)) {
+      // DESVINCULACIÓN NAVIDEÑA 24 -> 25: Evitar que los efectivos de 24 Dic repitan en 25 Dic
+      nocturnosHoy = [...planNavidad.asignacionesPorDia.get(f25)!.nocturnos];
+    } else if (fecha === f31Dic && planNavidad?.asignacionesPorDia.has(f01Ene)) {
+      // DESVINCULACIÓN NAVIDEÑA 31 -> 01: Evitar que los efectivos de 31 Dic repitan en 1 Ene
+      nocturnosHoy = [...planNavidad.asignacionesPorDia.get(f01Ene)!.nocturnos];
+    } else {
+      nocturnosHoy = [...diurnosReales];
+    }
   }
 
   // FASE 3: ASIGNACIÓN DE IMAGINARIAS (24 HORAS CON BUFFER ESTRICTO DE 3 DÍAS)
@@ -653,20 +771,18 @@ export const generarSimulacionCuadranteUS = (params: {
   // FASE 4: ASIGNACIÓN DE PRESENTES (7.5H ÚNICAMENTE EN DÍAS LABORABLES OFICIALES)
   // Nota: Las ausencias concedidas en días laborables (7.5h cada una) ya fueron pre-computadas
   // al inicio en tracks[p.id].horasComputablesMesActual.
+  // Se asignan presentes iterativamente a todos los efectivos disponibles hasta alcanzar el tope de horas del periodo.
   let huboAsignacion = true;
-  let iteracionesMaximas = 500;
+  let iteracionesMaximas = 1000;
 
   while (huboAsignacion && iteracionesMaximas > 0) {
     iteracionesMaximas--;
     huboAsignacion = false;
 
     // Candidatos con déficit horario respecto al máximo de referencia
-    // Efectivos con permisos extensos (ej. 105h) no deben recibir presentes adicionales
     const candidatos = plantillaUS
       .filter(
-        (p) =>
-          tracks[p.id].horasComputablesMesActual + 7.5 <= horasMaximasReferencia &&
-          tracks[p.id].horasAusenciasMes < 70
+        (p) => tracks[p.id].horasComputablesMesActual + 7.5 <= horasMaximasReferencia
       )
       .sort((a, b) => {
         const tA = tracks[a.id];
@@ -854,7 +970,7 @@ export const generarSimulacionCuadranteUS = (params: {
   }
 
   // FASE 7: MÉTRICAS Y VALIDACIÓN
-  const metricasUS = calcularMetricasCuadranteUS(serviciosFinalesUS, plantillaUS, ajusteHoras);
+  const metricasUS = calcularMetricasCuadranteUS(serviciosFinalesUS, plantillaUS, ajusteHorasEfectivo);
   const validacion = validarCuadranteUS({
     servicios: serviciosFinalesUS,
     personas: plantillaUS,
@@ -875,6 +991,12 @@ export const generarSimulacionCuadranteUS = (params: {
     totalPersonas: plantillaUS.length,
     totalRol1: plantillaUS.filter((p) => p.empleo === 'ROL 1').length,
     totalRol2: plantillaUS.filter((p) => p.empleo === 'ROL 2').length,
+    horasMaximasPeriodo: metricasUS.horasMaximasReferencia,
+    configuracionUS: {
+      ajusteHoras: ajusteHorasEfectivo,
+      horasMaximas: metricasUS.horasMaximasReferencia,
+      diasLaborables: metricasUS.totalDiasLaborables,
+    },
     estado: 'CONFIRMADO',
     metricasEquilibrio: {
       scoreEquilibrio: metricasUS.scoreEquilibrio,
@@ -918,6 +1040,7 @@ export const generarSimulacionCuadranteUS = (params: {
     metricasUS,
     validacion,
     compensacionesImaginariaAplicadas: compensacionesAplicadas,
+    planNavidad,
   };
 };
 

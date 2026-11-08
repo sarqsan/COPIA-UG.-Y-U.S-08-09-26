@@ -36,11 +36,12 @@ import { setMemoryPersonasCache, guardarPersonasMemoriaYLocal, getPersonas } fro
 import { asegurarCuentasParaPersonas } from '../services/cuentasService';
 import { doc, writeBatch, collection, getDocs, setDoc } from 'firebase/firestore';
 import { db, auth } from '../firebase/config';
-import { generarSimulacionCuadrante } from '../services/cuadranteGeneratorService';
+import { generarSimulacionCuadrante, generarRangoFechas } from '../services/cuadranteGeneratorService';
 import {
   generarSimulacionCuadranteUS,
   extraerEstadoContinuidadDesdeServiciosUS,
 } from '../services/cuadranteUSGeneratorService';
+import { calcularAjusteHorasPeriodoUS } from '../services/cuadranteUSCalendarHelper';
 import { validarCapacidadPlantilla } from '../services/cuadranteValidatorService';
 import { CuadranteTableView } from '../components/cuadrante/CuadranteTableView';
 import { CuadranteMensualView } from '../components/cuadrante/CuadranteMensualView';
@@ -64,6 +65,11 @@ import {
   getImaginariasPendientesCompensacionUS,
   marcarImaginariasCompensadasUS,
 } from '../services/compensacionImaginariasUSService';
+import { NavidadPromptModalUS } from '../components/cuadrante/NavidadPromptModalUS';
+import {
+  analizarDisponibilidadNavidadUS,
+  AnalisisNavidadUS,
+} from '../services/cuadranteUSNavidadHelper';
 
 import { useAuth } from '../firebase/context';
 import {
@@ -134,8 +140,18 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
   const [fechaInicio, setFechaInicio] = useState('2026-09-01');
   const [fechaFin, setFechaFin] = useState('2027-02-28'); // Periodo oficial 6 meses
 
-  // Parámetros específicos U.S.
-  const [ajusteHorasUS, setAjusteHorasUS] = useState<number>(12); // Ajuste entre 10 y 15 horas
+  // Parámetros específicos U.S. (15 horas por mes de descuento base, escalable según periodo)
+  const [ajusteHorasUS, setAjusteHorasUS] = useState<number>(() =>
+    calcularAjusteHorasPeriodoUS('2026-09-01', '2027-02-28', 15)
+  );
+  const [ajusteHorasManualUS, setAjusteHorasManualUS] = useState<boolean>(false);
+
+  // Recalcular el ajuste sugerido automáticamente cuando cambian las fechas (a menos que el usuario lo haya editado manualmente)
+  useEffect(() => {
+    if (isUS && !ajusteHorasManualUS) {
+      setAjusteHorasUS(calcularAjusteHorasPeriodoUS(fechaInicio, fechaFin, 15));
+    }
+  }, [fechaInicio, fechaFin, isUS, ajusteHorasManualUS]);
 
   // Estado de simulación activa en memoria
   const [simulacionActivaUG, setSimulacionActivaUG] = useState<CuadranteSimulacionResult | null>(null);
@@ -168,6 +184,16 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
   const [cuadranteToDelete, setCuadranteToDelete] = useState<CuadranteMaestro | null>(null);
   const [showDeleteAllModal, setShowDeleteAllModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  // Modal de confirmación de equidad navideña (si hay 2 o más permisos en fechas festivas)
+  const [showNavidadModal, setShowNavidadModal] = useState(false);
+  const [navidadModalData, setNavidadModalData] = useState<{
+    analisis: AnalisisNavidadUS;
+    personalNormalizadoUS: Persona[];
+    mapaAusencias: any;
+    imaginariasPendientes: any;
+    estadoContinuidad: any;
+  } | null>(null);
 
   const adminInfo = {
     uid: currentCuenta?.uid || '',
@@ -424,6 +450,27 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
           }
         }
 
+        // Análisis de equidad navideña (24, 25, 31 Dic y 1 Ene)
+        const fechasPeriodo = generarRangoFechas(fechaInicio, fechaFin);
+        const analisisNavidad = analizarDisponibilidadNavidadUS({
+          plantillaUS: personalNormalizadoUS,
+          fechas: fechasPeriodo,
+          ausenciasPorDia: mapaAusencias,
+        });
+
+        // Si cubre las fechas navideñas y requiere confirmación administrativa (más de 1 repetición necesaria)
+        if (analisisNavidad.diasNavidad.length > 0 && analisisNavidad.requiereConfirmacionAdmin) {
+          setNavidadModalData({
+            analisis: analisisNavidad,
+            personalNormalizadoUS,
+            mapaAusencias,
+            imaginariasPendientes,
+            estadoContinuidad,
+          });
+          setShowNavidadModal(true);
+          return;
+        }
+
         const simUS = generarSimulacionCuadranteUS({
           nombre: nombreCuadrante.trim() || 'Cuadrante Unidad de Seguridad (U.S.) 2026 - 2027',
           cicloId,
@@ -472,6 +519,33 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
     } catch (err: any) {
       console.error('Error generando cuadrante:', err);
       alert(err.message || 'Ocurrió un error al generar la simulación del cuadrante.');
+    }
+  };
+
+  // Confirmar simulación U.S. desde modal interactivo de Navidad (cuando repiten 2 o más efectivos)
+  const handleConfirmarNavidadPrompt = (personasRepiten: string[]) => {
+    if (!navidadModalData) return;
+    try {
+      const simUS = generarSimulacionCuadranteUS({
+        nombre: nombreCuadrante.trim() || 'Cuadrante Unidad de Seguridad (U.S.) 2026 - 2027',
+        cicloId,
+        fechaInicio,
+        fechaFin,
+        personasActivas: navidadModalData.personalNormalizadoUS,
+        ajusteHoras: ajusteHorasUS,
+        creadoPorUid: adminInfo.uid,
+        creadoPorNombre: adminInfo.nombre,
+        mapaAusenciasPrecalculadas: navidadModalData.mapaAusencias,
+        imaginariasPendientesCompensacion: navidadModalData.imaginariasPendientes,
+        estadoContinuidadMesAnterior: navidadModalData.estadoContinuidad,
+        personasRepitenNavidad: personasRepiten,
+      });
+      setShowNavidadModal(false);
+      setSimulacionActivaUS(simUS);
+      setActiveView('simulacion');
+    } catch (err: any) {
+      console.error('Error generando cuadrante con configuración navideña:', err);
+      alert(err.message || 'Ocurrió un error al generar la simulación navideña.');
     }
   };
 
@@ -1185,29 +1259,59 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
                   />
                 </div>
 
-                {isUS && (
-                  <div className="space-y-1 sm:col-span-2">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                        Ajuste de Horas Máximas (Regla U.S.: entre 10h y 15h)
-                      </label>
-                      <span className="text-xs font-black text-blue-600 bg-blue-50 dark:bg-blue-950 px-2 py-0.5 rounded-md">
-                        {ajusteHorasUS} horas de ajuste
-                      </span>
+                {isUS && (() => {
+                  const sugerido = calcularAjusteHorasPeriodoUS(fechaInicio, fechaFin, 15);
+                  return (
+                    <div className="space-y-1 sm:col-span-2">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                          Descuento de Horas U.S. (Base: 15h/mes — sugerido para este periodo: {sugerido}h)
+                        </label>
+                        <span className="text-xs font-black text-blue-600 bg-blue-50 dark:bg-blue-950 px-2 py-0.5 rounded-md">
+                          {ajusteHorasUS} horas a descontar
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="range"
+                          min={0}
+                          max={Math.max(35, Math.ceil(sugerido * 1.5))}
+                          step={0.5}
+                          value={ajusteHorasUS}
+                          onChange={(e) => {
+                            setAjusteHorasManualUS(true);
+                            setAjusteHorasUS(parseFloat(e.target.value));
+                          }}
+                          className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                        />
+                        <input
+                          type="number"
+                          min={0}
+                          max={200}
+                          step={0.5}
+                          value={ajusteHorasUS}
+                          onChange={(e) => {
+                            setAjusteHorasManualUS(true);
+                            setAjusteHorasUS(parseFloat(e.target.value) || 0);
+                          }}
+                          className="w-20 px-2 py-1 text-xs font-bold text-center border border-slate-300 rounded-lg bg-white dark:bg-slate-800 dark:border-slate-700 text-slate-900 dark:text-white"
+                        />
+                      </div>
+                      <div className="text-[10px] text-slate-500 flex justify-between">
+                        <span>1 mes = 15h</span>
+                        <span>1 mes + 1 sem. = 18.5h</span>
+                        <span>{sugerido}h calculado para {fechaInicio} al {fechaFin}</span>
+                      </div>
                     </div>
-                    <input
-                      type="range"
-                      min={10}
-                      max={15}
-                      step={0.5}
-                      value={ajusteHorasUS}
-                      onChange={(e) => setAjusteHorasUS(parseFloat(e.target.value))}
-                      className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                    />
-                    <div className="text-[10px] text-slate-500 flex justify-between">
-                      <span>10h (Máxima jornada)</span>
-                      <span>12h (Recomendado estándar)</span>
-                      <span>15h (Mayor margen descanso)</span>
+                  );
+                })()}
+
+                {isUS && (fechaInicio.includes('-12-') || fechaFin.includes('-12-') || (fechaInicio <= '2026-12-24' && fechaFin >= '2026-12-24')) && (
+                  <div className="sm:col-span-2 p-3 bg-red-50/70 dark:bg-red-950/30 border border-red-200 dark:border-red-900/60 rounded-xl flex items-center gap-2.5 text-xs text-red-900 dark:text-red-200">
+                    <Sparkles className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0" />
+                    <div>
+                      <span className="font-bold">Regla de Equidad Navideña Activa (24, 25, 31 Dic y 1 Ene):</span>{' '}
+                      Los 16 servicios se distribuyen de forma equitativa al máximo entre los efectivos disponibles. Si 1 efectivo repite turno, su segundo servicio se programa preferentemente en la noche del 1 de enero conforme a la regla de menor impacto.
                     </div>
                   </div>
                 )}
@@ -1902,6 +2006,17 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
               onRefreshPersonal();
             }
           }}
+        />
+      )}
+
+      {/* Modal de Asignación Equitativa de Navidad U.S. (24, 25, 31 Dic & 1 Ene) */}
+      {showNavidadModal && navidadModalData && (
+        <NavidadPromptModalUS
+          isOpen={showNavidadModal}
+          onClose={() => setShowNavidadModal(false)}
+          analisis={navidadModalData.analisis}
+          plantillaUS={navidadModalData.personalNormalizadoUS}
+          onConfirmar={handleConfirmarNavidadPrompt}
         />
       )}
     </div>

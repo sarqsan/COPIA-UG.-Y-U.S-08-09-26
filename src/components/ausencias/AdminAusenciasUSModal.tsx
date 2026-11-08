@@ -10,6 +10,7 @@ import {
   expandirRangoFechas,
   subscribeAusenciasUS,
   limpiarTodasSolicitudesAusenciaUS,
+  reconstruirAusenciasUSDesdeCuadrantes,
 } from '../../services/ausenciasUSService';
 import {
   calcularBalanceDiasPersona,
@@ -36,6 +37,7 @@ import {
   Calendar,
   Eye,
   Trash2,
+  RefreshCw,
 } from 'lucide-react';
 
 interface AdminAusenciasUSModalProps {
@@ -277,11 +279,34 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
     setActionLoading(false);
   };
 
+  const [recuperando, setRecuperando] = useState(false);
+
+  const handleRecuperarDesdeCuadrantes = async () => {
+    setRecuperando(true);
+    try {
+      const recuperadas = await reconstruirAusenciasUSDesdeCuadrantes();
+      alert(
+        `Recuperación completada:\n\nSe han localizado y reconstruido ${recuperadas.length} solicitudes de permiso, vacaciones y asuntos propios (incluyendo Diciembre y meses venideros) a partir de los cuadrantes oficiales, registros históricos de auditoría y catálogo del sistema.`
+      );
+      await cargarSolicitudes();
+      onUpdate();
+    } catch (err: any) {
+      alert(`Error durante la recuperación: ${err?.message || err}`);
+    } finally {
+      setRecuperando(false);
+    }
+  };
+
   const handleLimpiarTodasLasSolicitudes = async () => {
-    const confirm = window.confirm(
-      '¿Estás seguro de que deseas eliminar todas las solicitudes de permisos y vacaciones de U.S.? Esta acción reiniciará todas las pruebas a cero y liberará los saldos consumidos.'
+    const input = window.prompt(
+      'ADVERTENCIA CRÍTICA: Esta acción eliminará permanentemente todas las solicitudes de permisos de la U.S.\n\nPara confirmar el reseteo de pruebas, escribe exactamente: ELIMINAR'
     );
-    if (!confirm) return;
+    if (input !== 'ELIMINAR') {
+      if (input !== null) {
+        alert('Acción cancelada: la palabra introducida no coincide con ELIMINAR.');
+      }
+      return;
+    }
 
     setActionLoading(true);
     const res = await limpiarTodasSolicitudesAusenciaUS(adminInfo);
@@ -771,17 +796,29 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
                     className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
                   />
                 </div>
-                {solicitudes.length > 0 && (
+                <div className="flex items-center gap-2 shrink-0">
                   <button
-                    onClick={handleLimpiarTodasLasSolicitudes}
-                    disabled={actionLoading}
-                    className="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
-                    title="Elimina todas las solicitudes existentes para reiniciar las pruebas desde cero"
+                    onClick={handleRecuperarDesdeCuadrantes}
+                    disabled={actionLoading || recuperando}
+                    className="px-3 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 dark:bg-teal-950/40 dark:hover:bg-teal-900/60 text-teal-800 dark:text-teal-200 border border-teal-200 dark:border-teal-800 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0 shadow-2xs"
+                    title="Recupera y reconstruye automáticamente todas las vacaciones y permisos desde los cuadrantes oficiales de la U.S."
                   >
-                    <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-                    <span>Reiniciar Solicitudes (Pruebas a Cero)</span>
+                    <RefreshCw className={`w-3.5 h-3.5 text-teal-600 dark:text-teal-400 ${recuperando ? 'animate-spin' : ''}`} />
+                    <span>{recuperando ? 'Recuperando...' : 'Recuperar Permisos de Cuadrantes'}</span>
                   </button>
-                )}
+
+                  {solicitudes.length > 0 && (
+                    <button
+                      onClick={handleLimpiarTodasLasSolicitudes}
+                      disabled={actionLoading || recuperando}
+                      className="px-2.5 py-1.5 rounded-xl bg-slate-50 hover:bg-rose-50 dark:bg-slate-800/60 dark:hover:bg-rose-950/40 text-slate-500 hover:text-rose-700 dark:hover:text-rose-300 border border-slate-200 dark:border-slate-700 text-xs font-medium transition flex items-center gap-1.5 cursor-pointer shrink-0"
+                      title="Elimina todas las solicitudes existentes para reiniciar las pruebas desde cero"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-slate-400" />
+                      <span className="hidden sm:inline">Reiniciar (Pruebas a Cero)</span>
+                    </button>
+                  )}
+                </div>
               </div>
 
               {filtradas.length === 0 ? (

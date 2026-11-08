@@ -1,6 +1,7 @@
 import { useState, useMemo, FC } from 'react';
 import { ServicioDiaUS } from '../../types/usTypes';
 import { Persona, CuadranteMaestro } from '../../types';
+import { calcularAjusteHorasPeriodoUS } from '../../services/cuadranteUSCalendarHelper';
 import {
   Calendar,
   Clock,
@@ -130,10 +131,37 @@ export const CuadranteUSTableView: FC<CuadranteUSTableViewProps> = ({
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
             }`}
           >
-            Días Laborables
+            Días Laborables ({serviciosUS.filter((s) => s.esLaborable).length})
           </button>
         </div>
       </div>
+
+      {/* Resumen Horario del Periodo */}
+      {(() => {
+        const diasLab = serviciosUS.filter((s) => s.esLaborable).length;
+        const tope = diasLab * 7.5;
+        const ajusteSugerido = calcularAjusteHorasPeriodoUS(serviciosUS.length, undefined, 15);
+        const maxAsignable = cuadrante.horasMaximasPeriodo ?? Math.max(0, tope - ajusteSugerido);
+        return (
+          <div className="px-4 py-2.5 bg-blue-50/70 dark:bg-blue-950/30 rounded-2xl border border-blue-200/60 dark:border-blue-900/40 text-xs flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              <span className="font-bold text-slate-800 dark:text-slate-200">
+                Cómputo Horario del Periodo:
+              </span>
+              <span className="text-slate-600 dark:text-slate-300 font-mono">
+                {serviciosUS.length} días ({diasLab} laborables)
+              </span>
+            </div>
+            <div className="flex items-center gap-2 font-mono">
+              <span className="text-[11px] text-slate-500 font-medium">Tope {tope.toFixed(1)}h |</span>
+              <span className="font-extrabold text-blue-700 dark:text-blue-300 bg-white dark:bg-slate-900 px-2 py-0.5 rounded-lg border border-blue-200 dark:border-blue-800">
+                Límite Máximo Asignable: {maxAsignable}h máx
+              </span>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Lista de Días de Servicio */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

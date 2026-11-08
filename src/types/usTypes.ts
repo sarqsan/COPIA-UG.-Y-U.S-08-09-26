@@ -174,6 +174,7 @@ export interface CuadranteSimulacionUSResult {
     fechaPermisoAsignada: string;
     motivo: string;
   }>;
+  planNavidad?: any;
 }
 
 /**

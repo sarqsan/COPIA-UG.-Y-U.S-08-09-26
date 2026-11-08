@@ -1,6 +1,6 @@
 import { ServicioDiaUS, MetricasCuadranteUS, MetricasIndividualesUS } from '../types/usTypes';
 import { Persona } from '../types';
-import { clasificarDiaUS } from './cuadranteUSCalendarHelper';
+import { clasificarDiaUS, calcularAjusteHorasPeriodoUS } from './cuadranteUSCalendarHelper';
 
 /**
  * Cuenta los días laborables (Lunes a Viernes no festivos ni días especiales) en un rango de fechas.
@@ -20,11 +20,15 @@ export const contarDiasLaborables = (servicios: ServicioDiaUS[]): number => {
 export const calcularMetricasCuadranteUS = (
   servicios: ServicioDiaUS[],
   personasUS: Persona[],
-  ajusteHoras: number = 14
+  ajusteHoras?: number
 ): MetricasCuadranteUS => {
   const totalDias = servicios.length;
   const totalDiasLaborables = contarDiasLaborables(servicios);
-  const horasMaximasReferencia = Math.max(0, totalDiasLaborables * 7.5 - ajusteHoras);
+  const ajusteHorasAplicado =
+    ajusteHoras !== undefined
+      ? ajusteHoras
+      : calcularAjusteHorasPeriodoUS(totalDias, undefined, 15);
+  const horasMaximasReferencia = Math.max(0, totalDiasLaborables * 7.5 - ajusteHorasAplicado);
 
   const detallePorPersona: Record<string, MetricasIndividualesUS> = {};
   const idMapByNombre: Record<string, string> = {};

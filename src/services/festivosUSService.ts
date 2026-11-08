@@ -52,20 +52,17 @@ const FESTIVOS_FIJOS_NACIONALES: Record<string, string> = {
   '11-01': 'Todos los Santos',
   '12-06': 'Día de la Constitución Española',
   '12-08': 'Inmaculada Concepción',
-  '12-24': 'Nochebuena',
   '12-25': 'Natividad del Señor / Navidad',
-  '12-31': 'Nochevieja',
 };
 
 /**
  * Festivos nacionales que se trasladan al lunes si caen en domingo
- * Nota: '11-01' (Todos los Santos) no se traslada al lunes en el calendario operativo de la Unidad;
- * el lunes 2 de noviembre es jornada laborable normal computable (7.5h en presentes y permisos).
+ * Nota: '11-01' (Todos los Santos) y '12-06' (Constitución) no se trasladan al lunes en el
+ * calendario operativo de la Unidad; los lunes siguientes son jornadas laborables normales computables (7.5h).
  */
 const FESTIVOS_TRASLADABLES_DOMINGO: Record<string, string> = {
   '01-01': 'Año Nuevo',
   '01-06': 'Epifanía del Señor / Reyes Magos',
-  '12-06': 'Día de la Constitución Española',
   '12-25': 'Natividad del Señor / Navidad',
 };
 
