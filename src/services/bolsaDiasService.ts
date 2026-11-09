@@ -53,7 +53,7 @@ export interface BalanceDiasCompleto {
 export const DEFAULT_DIAS_VACACIONES = 22;
 export const DEFAULT_DIAS_ASUNTOS_PROPIOS = 6;
 export const DEFAULT_DIAS_PERMISO = 0;
-export const HORAS_POR_DIA_AUSENCIA_O_PRESENTE = 7.5;
+export const HORAS_POR_DIA_AUSENCIA_O_PRESENTE = 7.0;
 
 /**
  * Calcula el balance detallado de días asignados, consumidos y pendientes para una persona.

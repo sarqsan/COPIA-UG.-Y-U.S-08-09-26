@@ -98,6 +98,12 @@ export const UserPortalPage: React.FC = () => {
 
   // Estados de datos
   const [cuadranteActivo, setCuadranteActivo] = useState<CuadranteMaestro | null>(null);
+  const [cuadrantesConfirmados, setCuadrantesConfirmados] = useState<CuadranteMaestro[]>([]);
+  const [cuadranteEnVigor, setCuadranteEnVigor] = useState<CuadranteMaestro | null>(null);
+  const [cuadranteSiguiente, setCuadranteSiguiente] = useState<CuadranteMaestro | null>(null);
+  const [cuadranteSeleccionadoVista, setCuadranteSeleccionadoVista] = useState<CuadranteMaestro | null>(null);
+  const [serviciosPorCuadrante, setServiciosPorCuadrante] = useState<Record<string, ServicioDia[]>>({});
+  const [filtroCuadranteProximos, setFiltroCuadranteProximos] = useState<'TODOS' | 'VIGOR' | 'SIGUIENTE'>('TODOS');
   const [servicios, setServicios] = useState<ServicioDia[]>([]);
   const [solicitudes, setSolicitudes] = useState<SolicitudCambio[]>([]);
   const [incidencias, setIncidencias] = useState<IncidenciaAusencia[]>([]);
@@ -130,35 +136,91 @@ export const UserPortalPage: React.FC = () => {
 
   const userTipoServicio: TipoServicio = currentPersona?.tipoServicio || (currentPersona?.grupo === 'US_SEGURIDAD' ? 'US' : 'GUARDIA');
 
-  // Cargar datos
+  // Cargar datos (Soporte Dual Cuadrante: En Vigor + Siguiente)
   const cargarDatos = async () => {
     try {
       const cuadrantes = await getCuadrantes({ tipoServicio: userTipoServicio });
-      const activo = cuadrantes.find((c) => c.estado === 'CONFIRMADO' || c.estado === 'SIMULACION') || cuadrantes[0];
-      setCuadranteActivo(activo || null);
+      const confirmados = cuadrantes
+        .filter((c) => c.estado === 'CONFIRMADO' || c.estado === 'SIMULACION')
+        .sort((a, b) => (a.fechaInicio || '').localeCompare(b.fechaInicio || ''));
 
-      if (activo) {
-        const srvs = await getServiciosByCuadranteId(activo.id);
-        if (userTipoServicio === 'US' || (activo as any).configuracionUS) {
-          const srvsUS = srvs.map((s) => {
-            const infoDia = clasificarDiaUS(s.fecha);
-            return {
-              ...s,
-              esLaborable: infoDia.esLaborable,
-              esFestivo: infoDia.esFestivo,
-              esFinDeSemana: infoDia.esFinDeSemana,
-              esSabado: infoDia.esSabado,
-              esDomingo: infoDia.esDomingo,
-            };
-          });
-          setServicios(srvsUS);
+      setCuadrantesConfirmados(confirmados);
+
+      // Determinar Cuadrante En Vigor (el que comprende la fecha actual o el más reciente anterior)
+      // y Cuadrante Siguiente (el posterior)
+      let vigor: CuadranteMaestro | null = null;
+      let siguiente: CuadranteMaestro | null = null;
+
+      if (confirmados.length > 0) {
+        const cubreHoy = confirmados.find((c) => c.fechaInicio <= hoyStr && c.fechaFin >= hoyStr);
+        if (cubreHoy) {
+          vigor = cubreHoy;
         } else {
-          setServicios(srvs);
+          const anteriores = confirmados.filter((c) => c.fechaInicio <= hoyStr);
+          vigor = anteriores.length > 0 ? anteriores[anteriores.length - 1] : confirmados[0];
         }
 
-        const incs = await getIncidenciasAusencia(activo.id);
-        setIncidencias(incs);
+        const posteriores = confirmados.filter(
+          (c) => vigor && c.id !== vigor.id && c.fechaInicio >= (vigor.fechaFin || vigor.fechaInicio)
+        );
+        if (posteriores.length > 0) {
+          siguiente = posteriores[0];
+        } else {
+          siguiente = confirmados.find((c) => vigor && c.id !== vigor.id) || null;
+        }
       }
+
+      setCuadranteEnVigor(vigor);
+      setCuadranteSiguiente(siguiente);
+
+      const cuadranteDefault = vigor || confirmados[0] || null;
+      setCuadranteActivo(cuadranteDefault);
+      setCuadranteSeleccionadoVista((prev) => {
+        if (prev && confirmados.some((c) => c.id === prev.id)) {
+          return confirmados.find((c) => c.id === prev.id) || prev;
+        }
+        return cuadranteDefault;
+      });
+
+      // Cargar servicios de AMBOS cuadrantes para unificar la visualización de todos los servicios
+      const srvMap: Record<string, ServicioDia[]> = {};
+      let todosServicios: ServicioDia[] = [];
+      let todasIncidencias: IncidenciaAusencia[] = [];
+
+      for (const c of confirmados) {
+        const srvsRaw = await getServiciosByCuadranteId(c.id);
+        const srvs = (userTipoServicio === 'US' || (c as any).configuracionUS)
+          ? srvsRaw.map((s) => {
+              const infoDia = clasificarDiaUS(s.fecha);
+              return {
+                ...s,
+                cuadranteId: c.id,
+                cuadranteNombre: c.nombre,
+                esLaborable: infoDia.esLaborable,
+                esFestivo: infoDia.esFestivo,
+                esFinDeSemana: infoDia.esFinDeSemana,
+                esSabado: infoDia.esSabado,
+                esDomingo: infoDia.esDomingo,
+              };
+            })
+          : srvsRaw.map((s) => ({ ...s, cuadranteId: c.id, cuadranteNombre: c.nombre }));
+
+        srvMap[c.id] = srvs;
+        todosServicios = todosServicios.concat(srvs);
+
+        try {
+          const incs = await getIncidenciasAusencia(c.id);
+          todasIncidencias = todasIncidencias.concat(incs);
+        } catch (e) {
+          // Ignorar si no hay incidencias
+        }
+      }
+
+      // Ordenar cronológicamente
+      todosServicios.sort((a, b) => a.fecha.localeCompare(b.fecha));
+      setServiciosPorCuadrante(srvMap);
+      setServicios(todosServicios);
+      setIncidencias(todasIncidencias);
 
       // Solicitudes de cambio de la grupo activa del usuario
       const sols = await getSolicitudesCambio(undefined, userTipoServicio);
@@ -383,7 +445,7 @@ export const UserPortalPage: React.FC = () => {
           });
         }
 
-        // Presentes (7.5h)
+        // Presentes (7h)
         const presenteIdx = s.presentes?.findIndex(
           (pr) =>
             pr.personaIdReal === currentPersona.id ||
@@ -394,9 +456,9 @@ export const UserPortalPage: React.FC = () => {
           lista.push({
             servicio: s as unknown as ServicioDia,
             slotTipo: 'rol1_imag',
-            puestoNombre: `JORNADA DE PRESENTE (7,5h • 07:30 a 15:00)`,
-            horarioTexto: '07:30 h → 15:00 h (7,5 Horas)',
-            horasTurno: 7.5,
+            puestoNombre: `JORNADA DE PRESENTE (7h • 07:30 a 14:30)`,
+            horarioTexto: '07:30 h → 14:30 h (7 Horas)',
+            horasTurno: 7.0,
             tipoIcono: 'briefcase',
             esTitularOriginal: true,
             estaCambiado: false,
@@ -498,6 +560,17 @@ export const UserPortalPage: React.FC = () => {
 
     return lista.sort((a, b) => a.servicio.fecha.localeCompare(b.servicio.fecha));
   }, [servicios, currentPersona, personas, coberturasActivasUsuario, userTipoServicio]);
+
+  // Servicios filtrados por cuadrante (En Vigor vs Siguiente vs Todos)
+  const misServiciosFiltrados = useMemo(() => {
+    if (filtroCuadranteProximos === 'VIGOR' && cuadranteEnVigor) {
+      return misServiciosTitulares.filter((item) => (item.servicio as any).cuadranteId === cuadranteEnVigor.id);
+    }
+    if (filtroCuadranteProximos === 'SIGUIENTE' && cuadranteSiguiente) {
+      return misServiciosTitulares.filter((item) => (item.servicio as any).cuadranteId === cuadranteSiguiente.id);
+    }
+    return misServiciosTitulares;
+  }, [misServiciosTitulares, filtroCuadranteProximos, cuadranteEnVigor, cuadranteSiguiente]);
 
   // 3. MIS IMAGINARIAS
   // Regla estricta: Solo imaginarias vigentes. Si ya se activó para cubrir una baja en esa fecha, DESAPARECE de imaginarias.
@@ -1306,12 +1379,59 @@ export const UserPortalPage: React.FC = () => {
                   </div>
                 )}
 
-                {misServiciosTitulares.length === 0 ? (
+                {/* Selector rápido de Cuadrante (En Vigor / Siguiente / Todos) */}
+                {cuadrantesConfirmados.length > 1 && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-slate-50 dark:bg-slate-850 rounded-2xl border border-slate-200 dark:border-slate-800">
+                    <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400">
+                      Filtrar servicios por periodo:
+                    </span>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        onClick={() => setFiltroCuadranteProximos('TODOS')}
+                        className={`px-3 py-1 rounded-xl text-xs font-bold transition cursor-pointer ${
+                          filtroCuadranteProximos === 'TODOS'
+                            ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs'
+                            : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+                        }`}
+                      >
+                        Todos ({misServiciosTitulares.length})
+                      </button>
+                      {cuadranteEnVigor && (
+                        <button
+                          onClick={() => setFiltroCuadranteProximos('VIGOR')}
+                          className={`px-3 py-1 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                            filtroCuadranteProximos === 'VIGOR'
+                              ? 'bg-emerald-600 text-white shadow-xs'
+                              : 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-slate-700'
+                          }`}
+                        >
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                          <span>En Vigor ({cuadranteEnVigor.nombre})</span>
+                        </button>
+                      )}
+                      {cuadranteSiguiente && (
+                        <button
+                          onClick={() => setFiltroCuadranteProximos('SIGUIENTE')}
+                          className={`px-3 py-1 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                            filtroCuadranteProximos === 'SIGUIENTE'
+                              ? 'bg-blue-600 text-white shadow-xs'
+                              : 'bg-white dark:bg-slate-800 text-blue-700 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-slate-700'
+                          }`}
+                        >
+                          <Calendar className="w-3.5 h-3.5" />
+                          <span>Siguiente ({cuadranteSiguiente.nombre})</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {misServiciosFiltrados.length === 0 ? (
                   <div className="text-center py-10 text-slate-400 text-xs">
-                    No tienes servicios asignados actualmente en este ciclo.
+                    No tienes servicios asignados en el filtro seleccionado.
                   </div>
                 ) : (
-                  misServiciosTitulares.map((item, idx) => (
+                  misServiciosFiltrados.map((item, idx) => (
                     <div
                       key={idx}
                       className={`p-3.5 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition ${
@@ -1333,7 +1453,7 @@ export const UserPortalPage: React.FC = () => {
                         </div>
 
                         <div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
                               {item.tipoIcono === 'sun' && <Sun className="w-3.5 h-3.5 text-amber-500" />}
                               {item.tipoIcono === 'moon' && <Moon className="w-3.5 h-3.5 text-indigo-500" />}
@@ -1344,6 +1464,23 @@ export const UserPortalPage: React.FC = () => {
                             {item.servicio.esFinDeSemana && (
                               <span className="px-2 py-0.2 bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 text-[10px] font-bold rounded-md">
                                 FIN DE SEMANA
+                              </span>
+                            )}
+                            {(item.servicio as any).cuadranteNombre && (
+                              <span
+                                className={`px-2 py-0.2 text-[10px] font-bold rounded-md ${
+                                  (item.servicio as any).cuadranteId === cuadranteEnVigor?.id
+                                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
+                                    : (item.servicio as any).cuadranteId === cuadranteSiguiente?.id
+                                    ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border border-blue-300 dark:border-blue-800'
+                                    : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                                }`}
+                              >
+                                {(item.servicio as any).cuadranteId === cuadranteEnVigor?.id
+                                  ? '🟢 En Vigor'
+                                  : (item.servicio as any).cuadranteId === cuadranteSiguiente?.id
+                                  ? '📅 Siguiente'
+                                  : (item.servicio as any).cuadranteNombre}
                               </span>
                             )}
                           </div>
@@ -2027,20 +2164,81 @@ export const UserPortalPage: React.FC = () => {
 
             {/* TAB 5: CALENDARIO / VER CUADRANTE MENSUAL COMPLETO */}
             {activeTab === 'calendario' && (
-              cuadranteActivo ? (
+              (cuadranteSeleccionadoVista || cuadranteActivo) ? (
                 <div className="space-y-4">
+                  {/* Selector de Cuadrante (En Vigor vs Siguiente) */}
+                  {cuadrantesConfirmados.length > 1 && (
+                    <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+                      <div className="flex items-center gap-2">
+                        <Calendar className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                          Periodo del Calendario:
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {cuadranteEnVigor && (
+                          <button
+                            onClick={() => setCuadranteSeleccionadoVista(cuadranteEnVigor)}
+                            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                              (cuadranteSeleccionadoVista?.id || cuadranteActivo?.id) === cuadranteEnVigor.id
+                                ? 'bg-emerald-600 text-white shadow-xs'
+                                : 'bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                            }`}
+                          >
+                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                            <span>En Vigor ({cuadranteEnVigor.nombre})</span>
+                          </button>
+                        )}
+                        {cuadranteSiguiente && (
+                          <button
+                            onClick={() => setCuadranteSeleccionadoVista(cuadranteSiguiente)}
+                            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                              cuadranteSeleccionadoVista?.id === cuadranteSiguiente.id
+                                ? 'bg-blue-600 text-white shadow-xs'
+                                : 'bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                            }`}
+                          >
+                            <Calendar className="w-3.5 h-3.5" />
+                            <span>Siguiente ({cuadranteSiguiente.nombre})</span>
+                          </button>
+                        )}
+                        {cuadrantesConfirmados
+                          .filter((c) => c.id !== cuadranteEnVigor?.id && c.id !== cuadranteSiguiente?.id)
+                          .map((c) => (
+                            <button
+                              key={c.id}
+                              onClick={() => setCuadranteSeleccionadoVista(c)}
+                              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                                cuadranteSeleccionadoVista?.id === c.id
+                                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs'
+                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                              }`}
+                            >
+                              <span>{c.nombre}</span>
+                            </button>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+
                   {userTipoServicio === 'US' ? (
                     <CuadranteUSMensualView
-                      cuadrante={cuadranteActivo}
-                      serviciosUS={servicios as unknown as ServicioDiaUS[]}
+                      cuadrante={cuadranteSeleccionadoVista || cuadranteActivo!}
+                      serviciosUS={
+                        (serviciosPorCuadrante[(cuadranteSeleccionadoVista || cuadranteActivo!).id] ||
+                          servicios) as unknown as ServicioDiaUS[]
+                      }
                       personasUS={personas}
                       currentPersonaId={currentPersona?.id}
                       isAdmin={false}
                     />
                   ) : (
                     <CuadranteMensualView
-                      cuadrante={cuadranteActivo}
-                      servicios={servicios}
+                      cuadrante={cuadranteSeleccionadoVista || cuadranteActivo!}
+                      servicios={
+                        serviciosPorCuadrante[(cuadranteSeleccionadoVista || cuadranteActivo!).id] ||
+                        servicios
+                      }
                       personas={personas}
                       currentPersonaId={currentPersona?.id}
                       isAdmin={false}
@@ -2069,12 +2267,70 @@ export const UserPortalPage: React.FC = () => {
 
             {/* TAB: VER CUADRANTE GENERAL (REUTILIZACIÓN DEL EXCEL OFICIAL, SOLO LECTURA) */}
             {activeTab === 'cuadranteGeneral' && (
-              cuadranteActivo ? (
+              (cuadranteSeleccionadoVista || cuadranteActivo) ? (
                 <div className="space-y-4">
+                  {/* Selector de Cuadrante (En Vigor vs Siguiente) */}
+                  {cuadrantesConfirmados.length > 1 && (
+                    <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+                      <div className="flex items-center gap-2">
+                        <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                          Cuadrante a Visualizar:
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {cuadranteEnVigor && (
+                          <button
+                            onClick={() => setCuadranteSeleccionadoVista(cuadranteEnVigor)}
+                            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                              (cuadranteSeleccionadoVista?.id || cuadranteActivo?.id) === cuadranteEnVigor.id
+                                ? 'bg-emerald-600 text-white shadow-xs'
+                                : 'bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                            }`}
+                          >
+                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                            <span>En Vigor ({cuadranteEnVigor.nombre})</span>
+                          </button>
+                        )}
+                        {cuadranteSiguiente && (
+                          <button
+                            onClick={() => setCuadranteSeleccionadoVista(cuadranteSiguiente)}
+                            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                              cuadranteSeleccionadoVista?.id === cuadranteSiguiente.id
+                                ? 'bg-blue-600 text-white shadow-xs'
+                                : 'bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                            }`}
+                          >
+                            <Calendar className="w-3.5 h-3.5" />
+                            <span>Siguiente ({cuadranteSiguiente.nombre})</span>
+                          </button>
+                        )}
+                        {cuadrantesConfirmados
+                          .filter((c) => c.id !== cuadranteEnVigor?.id && c.id !== cuadranteSiguiente?.id)
+                          .map((c) => (
+                            <button
+                              key={c.id}
+                              onClick={() => setCuadranteSeleccionadoVista(c)}
+                              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                                cuadranteSeleccionadoVista?.id === c.id
+                                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs'
+                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                              }`}
+                            >
+                              <span>{c.nombre}</span>
+                            </button>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+
                   <CuadranteGeneralExcelView
                     userTipoServicio={userTipoServicio}
-                    cuadrante={cuadranteActivo}
-                    servicios={servicios}
+                    cuadrante={cuadranteSeleccionadoVista || cuadranteActivo!}
+                    servicios={
+                      serviciosPorCuadrante[(cuadranteSeleccionadoVista || cuadranteActivo!).id] ||
+                      servicios
+                    }
                     personas={personas}
                     patrullas={todasLasPatrullas}
                   />

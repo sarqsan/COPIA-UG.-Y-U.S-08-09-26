@@ -99,12 +99,17 @@ export const PersonaDetailPage: React.FC<PersonaDetailPageProps> = ({
 
       const tipoServicio = isUS ? 'US' : 'GUARDIA';
       const lista = await getCuadrantes({ tipoServicio });
-      const cActivo = lista.find((c) => c.estado === 'CONFIRMADO' || c.estado === 'SIMULACION') || lista[0];
+      const confirmados = lista.filter((c) => c.estado === 'CONFIRMADO' || c.estado === 'SIMULACION');
+      const cActivo = confirmados[0] || lista[0];
       if (cActivo) {
         setCuadranteActivo(cActivo);
-        const rawServicios = await getServiciosByCuadranteId(cActivo.id);
+      }
 
-        const asignados: typeof serviciosAsignados = [];
+      const asignados: typeof serviciosAsignados = [];
+      const todosCuadrantesCargar = confirmados.length > 0 ? confirmados : (cActivo ? [cActivo] : []);
+
+      for (const cuad of todosCuadrantesCargar) {
+        const rawServicios = await getServiciosByCuadranteId(cuad.id);
 
         if (isUS) {
           const serviciosUS = rawServicios as unknown as ServicioDiaUS[];
@@ -155,15 +160,15 @@ export const PersonaDetailPage: React.FC<PersonaDetailPageProps> = ({
               });
             }
 
-            // Presentes (7.5h)
+            // Presentes (7.0h)
             const esPresente = s.presentes?.some(
               (pr) => pr.personaIdReal === persona.id || (pr as any).personaId === persona.id || (pr as any).nombre?.trim().toUpperCase() === pNombreNorm
             );
             if (esPresente) {
               asignados.push({
                 fecha: s.fecha,
-                tipoTurno: 'Jornada de Presente (07:30 - 15:00)',
-                horas: 7.5,
+                tipoTurno: 'Jornada de Presente (07:30 - 14:30)',
+                horas: 7.0,
                 badgeClass: 'bg-emerald-600 text-white font-bold',
                 icon: 'briefcase',
               });
@@ -175,25 +180,27 @@ export const PersonaDetailPage: React.FC<PersonaDetailPageProps> = ({
             const esTitular = [
               ...(s.titulares?.rol1 || []),
               ...(s.titulares?.rol2 || []),
-            ].some((sl) => sl.personaIdReal === persona.id);
+            ].some((t) => t.personaIdReal === persona.id || t.personaIdOriginal === persona.id);
 
             if (esTitular) {
               asignados.push({
                 fecha: s.fecha,
-                tipoTurno: `Guardia Oficial 24h (${persona.empleo})`,
+                tipoTurno: `Servicio de Guardia Ordinario (24h)`,
                 horas: 24,
                 badgeClass: 'bg-blue-600 text-white font-bold',
                 icon: 'shield',
               });
             }
 
-            const esImag =
-              s.imaginarias?.rol1?.personaIdReal === persona.id ||
-              s.imaginarias?.rol2?.personaIdReal === persona.id;
-            if (esImag) {
+            const esImaginaria = [
+              s.imaginarias?.rol1,
+              s.imaginarias?.rol2,
+            ].some((im) => im && (im.personaIdReal === persona.id || im.personaIdOriginal === persona.id));
+
+            if (esImaginaria) {
               asignados.push({
                 fecha: s.fecha,
-                tipoTurno: `Imaginaria de Guardia 24h (${persona.empleo})`,
+                tipoTurno: `Servicio de Imaginaria (Disponibilidad 24h)`,
                 horas: 0,
                 badgeClass: 'bg-amber-500 text-white font-bold',
                 icon: 'shield',
@@ -201,9 +208,9 @@ export const PersonaDetailPage: React.FC<PersonaDetailPageProps> = ({
             }
           });
         }
-
-        setServiciosAsignados(asignados.sort((a, b) => a.fecha.localeCompare(b.fecha)));
       }
+
+      setServiciosAsignados(asignados.sort((a, b) => a.fecha.localeCompare(b.fecha)));
     } catch (err) {
       console.error('Error cargando cuadrante de persona:', err);
     } finally {

@@ -113,14 +113,14 @@ export interface MetricasIndividualesUS {
   diasPermiso: number; // P / PER
   diasAsuntosPropios: number; // AP
   
-  // Cómputo de Horas (7.5 horas por jornada laboral/presente/ausencia)
+  // Cómputo de Horas (7.0 horas por jornada laboral/presente/ausencia)
   horasServicios: number; // (Diurnos * 12) + (Nocturnos Normales * 12) + (Nocturnos Prolongados * 12.75)
-  horasPresentes: number; // Presentes * 7.5
-  horasVacaciones: number; // Vacaciones * 7.5
-  horasPermiso: number; // Permiso * 7.5
-  horasAsuntosPropios: number; // AP * 7.5
+  horasPresentes: number; // Presentes * 7.0
+  horasVacaciones: number; // Vacaciones * 7.0
+  horasPermiso: number; // Permiso * 7.0
+  horasAsuntosPropios: number; // AP * 7.0
   totalHorasComputables: number; // Suma total computable
-  horasMaximasAsignables: number; // (Días laborables * 7.5) - ajuste
+  horasMaximasAsignables: number; // (Días laborables * 7.0) - ajuste
   diferenciaHorasRespectoMaximo: number; // totalHoras - horasMaximas
   
   // Descansos

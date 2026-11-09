@@ -1,7 +1,6 @@
 import { useState, useMemo, FC } from 'react';
 import { ServicioDiaUS } from '../../types/usTypes';
 import { Persona, CuadranteMaestro } from '../../types';
-import { calcularAjusteHorasPeriodoUS } from '../../services/cuadranteUSCalendarHelper';
 import {
   Calendar,
   Clock,
@@ -139,9 +138,8 @@ export const CuadranteUSTableView: FC<CuadranteUSTableViewProps> = ({
       {/* Resumen Horario del Periodo */}
       {(() => {
         const diasLab = serviciosUS.filter((s) => s.esLaborable).length;
-        const tope = diasLab * 7.5;
-        const ajusteSugerido = calcularAjusteHorasPeriodoUS(serviciosUS.length, undefined, 15);
-        const maxAsignable = cuadrante.horasMaximasPeriodo ?? Math.max(0, tope - ajusteSugerido);
+        const tope = diasLab * 7.0;
+        const maxAsignable = cuadrante.horasMaximasPeriodo ?? tope;
         return (
           <div className="px-4 py-2.5 bg-blue-50/70 dark:bg-blue-950/30 rounded-2xl border border-blue-200/60 dark:border-blue-900/40 text-xs flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">

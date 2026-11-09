@@ -21,13 +21,16 @@ import {
 } from '../types';
 import { registrarDocumentoFirmadoDirecto } from './cambiosService';
 import { enviarDocumentoCambioPorGmail } from './emailCambioEnvioService';
-import { CuadranteSimulacionUSResult } from '../types/usTypes';
+import { CuadranteSimulacionUSResult, ServicioDiaUS } from '../types/usTypes';
 import { registrarAuditLog } from './auditService';
 import { validarCuadrante } from './cuadranteValidatorService';
 import { calcularMetricasCuadrante } from './cuadranteMetricsService';
 import { calcularMetricasCuadranteUS } from './cuadranteUSMetricsService';
 import { generarSimulacionCuadrante } from './cuadranteGeneratorService';
-import { generarSimulacionCuadranteUS } from './cuadranteUSGeneratorService';
+import {
+  generarSimulacionCuadranteUS,
+  ajustarCuadranteUSHorasYPresentes,
+} from './cuadranteUSGeneratorService';
 import { generateInitialMockPersonas } from './seedService';
 import { getPersonas } from './personasService';
 import { asegurarCuentasParaPersonas } from './cuentasService';
@@ -48,11 +51,33 @@ let memoryCuadrantesCache: CuadranteMaestro[] = [];
 let memoryServiciosCache: Map<string, ServicioDia[]> = new Map();
 
 // Helper para normalizar tipoServicio en cualquier cuadrante
-export const normalizeCuadrante = (c: any): CuadranteMaestro => ({
-  ...c,
-  tipoServicio: c.tipoServicio || (c.id?.includes('-us-') || c.configuracionUS ? 'US' : 'GUARDIA'),
-  grupoId: c.grupoId || (c.id?.includes('-us-') || c.configuracionUS ? 'US' : 'GUARDIA'),
-});
+export const normalizeCuadrante = (c: any): CuadranteMaestro => {
+  if (!c) return c;
+  const isUS = c.tipoServicio === 'US' || c.id?.includes('-us-') || Boolean(c.configuracionUS);
+  if (!isUS) {
+    return {
+      ...c,
+      tipoServicio: c.tipoServicio || 'GUARDIA',
+      grupoId: c.grupoId || 'GUARDIA',
+    };
+  }
+  // Normativa vigente U.S.: no se descuentan horas a las horas mensuales trabajadas (0h de ajuste)
+  const configUS = c.configuracionUS || {};
+  return {
+    ...c,
+    tipoServicio: 'US',
+    grupoId: 'US',
+    ajusteHoras: 0,
+    configuracionUS: {
+      ...configUS,
+      ajusteHoras: 0,
+    },
+    horasMaximasPeriodo:
+      c.horasMaximasPeriodo && c.horasMaximasPeriodo < 150 && c.totalDias >= 35
+        ? 154
+        : c.horasMaximasPeriodo,
+  };
+};
 
 // Helpers de caché para tests automatizados
 export const setMemoryServiciosTest = (cuadranteId: string, servicios: ServicioDia[]) => {
@@ -222,13 +247,14 @@ export const getCuadranteById = async (
     const docRef = doc(db, CUADRANTES_COLLECTION, cuadranteId);
     const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
-      return docSnap.data() as CuadranteMaestro;
+      return normalizeCuadrante(docSnap.data());
     }
   } catch (err: any) {
     console.warn('Lectura de cuadrante individual diferida:', err.message || err);
   }
 
-  return memoryCuadrantesCache.find((c) => c.id === cuadranteId) || null;
+  const found = memoryCuadrantesCache.find((c) => c.id === cuadranteId);
+  return found ? normalizeCuadrante(found) : null;
 };
 
 /**
@@ -237,24 +263,45 @@ export const getCuadranteById = async (
 export const getServiciosByCuadranteId = async (
   cuadranteId: string
 ): Promise<ServicioDia[]> => {
+  let servicios: ServicioDia[] = [];
   try {
     const srvCol = collection(db, CUADRANTES_COLLECTION, cuadranteId, 'servicios');
     const q = query(srvCol, orderBy('fecha', 'asc'));
     const snapshot = await getDocs(q);
-    const servicios: ServicioDia[] = [];
     snapshot.forEach((docSnap) => {
       servicios.push(docSnap.data() as ServicioDia);
     });
     if (servicios.length > 0) {
       memoryServiciosCache.set(cuadranteId, servicios);
       saveLocalCache();
-      return servicios;
     }
   } catch (err: any) {
     console.warn('Lectura de servicios de cuadrante diferida (usando memoria):', err.message || err);
   }
 
-  return memoryServiciosCache.get(cuadranteId) || [];
+  if (servicios.length === 0) {
+    servicios = memoryServiciosCache.get(cuadranteId) || [];
+  }
+
+  // Si son servicios de la U.S., aplicar normalización estricta (7h/laborable, 24 y 31 Dic festivos 0h, ajuste de presentes)
+  if (servicios.length > 0 && (Boolean((servicios[0] as any)?.diurno) || cuadranteId.includes('-us-'))) {
+    try {
+      const personasUS = await getPersonas({ activoOnly: false, tipoServicio: 'US' });
+      const resultado = ajustarCuadranteUSHorasYPresentes(
+        servicios as unknown as ServicioDiaUS[],
+        personasUS
+      );
+      if (resultado.modificados) {
+        servicios = resultado.serviciosAjustados as unknown as ServicioDia[];
+        memoryServiciosCache.set(cuadranteId, servicios);
+        saveLocalCache();
+      }
+    } catch (e) {
+      console.warn('Aviso aplicando ajuste normativo a cuadrante US:', e);
+    }
+  }
+
+  return servicios;
 };
 
 /**

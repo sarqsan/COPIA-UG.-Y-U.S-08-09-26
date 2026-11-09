@@ -85,12 +85,11 @@ export const generarSimulacionCuadranteUS = (params: {
     incluirAnioNuevoEnDiciembre = true,
   } = params;
 
-  // Si ajusteHoras no se especifica, se calcula con la tasa oficial de 15h por mes
-  // (ej. 15h para 1 mes, 18.5h para 1 mes y 1 semana, etc.)
+  // Normativa U.S.: No se restan horas a las horas mensuales que deben trabajar (0h por defecto)
   const ajusteHorasEfectivo =
     ajusteHoras !== undefined
       ? ajusteHoras
-      : calcularAjusteHorasPeriodoUS(fechaInicio, fechaFin, 15);
+      : calcularAjusteHorasPeriodoUS(fechaInicio, fechaFin, 0);
 
   // 1. Filtrar personal exclusivo de la U.S.
   const usPersonas = personasActivas.filter(
@@ -198,12 +197,12 @@ export const generarSimulacionCuadranteUS = (params: {
     });
   });
 
-  // Cómputo normativo de días laborables y tope máximo de horas de referencia
+  // Cómputo normativo de días laborables (7.0h/día) y tope máximo de horas de referencia
   const totalDiasLaborables = fechas.filter(esFechaLaborable).length;
-  const horasMaximasReferencia = Math.max(0, totalDiasLaborables * 7.5 - ajusteHorasEfectivo);
+  const horasMaximasReferencia = Math.max(0, totalDiasLaborables * 7.0 - ajusteHorasEfectivo);
 
   // Pre-computar horas por ausencias concedidas en días laborables del mes
-  // (7,5h por cada día laborable; 0h en fines de semana y festivos oficiales)
+  // (7.0h por cada día laborable; 0h en fines de semana y festivos oficiales)
   const horasAusenciasPorPersona: Record<string, number> = {};
   plantillaUS.forEach((p) => {
     horasAusenciasPorPersona[p.id] = 0;
@@ -223,7 +222,7 @@ export const generarSimulacionCuadranteUS = (params: {
         ausenciasProcesadasHoy.add(pId);
         if (aus.tipo === 'V' || aus.tipo === 'P' || (aus.tipo as string) === 'PER' || aus.tipo === 'AP') {
           if (horasAusenciasPorPersona[pId] !== undefined) {
-            horasAusenciasPorPersona[pId] += 7.5;
+            horasAusenciasPorPersona[pId] += 7.0;
           }
         }
       }
@@ -768,8 +767,8 @@ export const generarSimulacionCuadranteUS = (params: {
     }
   }
 
-  // FASE 4: ASIGNACIÓN DE PRESENTES (7.5H ÚNICAMENTE EN DÍAS LABORABLES OFICIALES)
-  // Nota: Las ausencias concedidas en días laborables (7.5h cada una) ya fueron pre-computadas
+  // FASE 4: ASIGNACIÓN DE PRESENTES (7.0H ÚNICAMENTE EN DÍAS LABORABLES OFICIALES)
+  // Nota: Las ausencias concedidas en días laborables (7.0h cada una) ya fueron pre-computadas
   // al inicio en tracks[p.id].horasComputablesMesActual.
   // Se asignan presentes iterativamente a todos los efectivos disponibles hasta alcanzar el tope de horas del periodo.
   let huboAsignacion = true;
@@ -779,10 +778,10 @@ export const generarSimulacionCuadranteUS = (params: {
     iteracionesMaximas--;
     huboAsignacion = false;
 
-    // Candidatos con déficit horario respecto al máximo de referencia
+    // Candidatos con déficit horario respecto al máximo de referencia (7.0h por presente)
     const candidatos = plantillaUS
       .filter(
-        (p) => tracks[p.id].horasComputablesMesActual + 7.5 <= horasMaximasReferencia
+        (p) => tracks[p.id].horasComputablesMesActual + 7.0 <= horasMaximasReferencia
       )
       .sort((a, b) => {
         const tA = tracks[a.id];
@@ -794,7 +793,7 @@ export const generarSimulacionCuadranteUS = (params: {
       });
 
     for (const p of candidatos) {
-      if (tracks[p.id].horasComputablesMesActual + 7.5 > horasMaximasReferencia) continue;
+      if (tracks[p.id].horasComputablesMesActual + 7.0 > horasMaximasReferencia) continue;
 
       const diasDisponibles: { diaIdx: number; score: number }[] = [];
 
@@ -830,8 +829,8 @@ export const generarSimulacionCuadranteUS = (params: {
 
         asignacionesDias[mejorDia.diaIdx].presentes.push(p.id);
         tracks[p.id].presentes += 1;
-        tracks[p.id].horasComputablesMesActual += 7.5;
-        tracks[p.id].horasComputables += 7.5;
+        tracks[p.id].horasComputablesMesActual += 7.0;
+        tracks[p.id].horasComputables += 7.0;
         huboAsignacion = true;
         break;
       }
@@ -1226,5 +1225,165 @@ export const extraerEstadoContinuidadDesdeServiciosUS = (
     penultimoDiaNocturnosOriginales,
     diasDesdeUltimoServicioOriginal,
     totalesAcumulados,
+  };
+};
+
+/**
+ * AJUSTE NORMATIVO DE CUADRANTE U.S.:
+ * - Regla normativa: Días laborables computan a 7.0 horas (no se descuentan horas a las horas mensuales, ajuste = 0h).
+ * - Días 24 y 31 de diciembre son FESTIVOS OFICIALES: computan 0 horas y no son laborables.
+ * - SIN MODIFICAR SERVICIOS NOMBRADOS: Diurnos (12h), Nocturnos (12h/12.75h) e Imaginarias (24h) quedan 100% INTACTOS.
+ * - Se eliminan únicamente los días de presente (PR) estrictamente necesarios para que ningún efectivo exceda el tope de horas computables del periodo.
+ */
+export const ajustarCuadranteUSHorasYPresentes = (
+  serviciosOriginales: ServicioDiaUS[],
+  personas: Persona[],
+  options?: { ajusteHoras?: number }
+): {
+  serviciosAjustados: ServicioDiaUS[];
+  modificados: boolean;
+  presentesEliminados: number;
+  resumenAjuste: string;
+} => {
+  if (!serviciosOriginales || serviciosOriginales.length === 0) {
+    return {
+      serviciosAjustados: [],
+      modificados: false,
+      presentesEliminados: 0,
+      resumenAjuste: 'Sin servicios para ajustar.',
+    };
+  }
+
+  const serviciosClonados: ServicioDiaUS[] = JSON.parse(JSON.stringify(serviciosOriginales));
+  let huboModificaciones = false;
+  let totalPresentesEliminados = 0;
+
+  // 1. Sincronizar clasificación oficial de días (24 y 31 Dic festivos = 0h)
+  serviciosClonados.forEach((s) => {
+    const info = clasificarDiaUS(s.fecha);
+    if (s.esFestivo !== info.esFestivo || s.esLaborable !== info.esLaborable) {
+      s.esFestivo = info.esFestivo;
+      s.esLaborable = info.esLaborable;
+      s.esFinDeSemana = info.esFinDeSemana;
+      huboModificaciones = true;
+    }
+
+    // Si un día no es laborable (ej. 24 o 31 Dic), los presentes deben ser eliminados inmediatamente
+    if (!info.esLaborable && s.presentes && s.presentes.length > 0) {
+      totalPresentesEliminados += s.presentes.length;
+      s.presentes = [];
+      huboModificaciones = true;
+    }
+  });
+
+  // 2. Calcular días laborables y tope de horas máximas (7.0h por día laborable)
+  const totalDiasLaborables = serviciosClonados.filter((s) => {
+    const info = clasificarDiaUS(s.fecha);
+    return info.esLaborable && !info.esFestivo && !info.esFinDeSemana;
+  }).length;
+
+  const ajusteHoras = options?.ajusteHoras !== undefined ? options.ajusteHoras : 0;
+  const horasMaximasPeriodo = Math.max(0, totalDiasLaborables * 7.0 - ajusteHoras);
+
+  // 3. Evaluar horas computables de cada persona (Servicios fijos + Ausencias en laborable a 7h)
+  const personasMap = new Map<string, Persona>();
+  personas.forEach((p) => personasMap.set(p.id, p));
+
+  // Mapa de horas fijas por persona (sin presentes)
+  const horasFijasPorPersona: Record<string, { diurno: number; nocturno: number; ausencias: number; totalFijo: number }> = {};
+  personas.forEach((p) => {
+    horasFijasPorPersona[p.id] = { diurno: 0, nocturno: 0, ausencias: 0, totalFijo: 0 };
+  });
+
+  serviciosClonados.forEach((s) => {
+    const info = clasificarDiaUS(s.fecha);
+    const esLaborable = info.esLaborable && !info.esFestivo && !info.esFinDeSemana;
+
+    // Diurnos (12h)
+    (s.diurno?.titulares || []).forEach((t) => {
+      const pId = t.personaIdReal || (t as any).personaId;
+      if (pId && horasFijasPorPersona[pId]) {
+        horasFijasPorPersona[pId].diurno += 12;
+      }
+    });
+
+    // Nocturnos (12h o 12.75h)
+    (s.nocturno?.titulares || []).forEach((t) => {
+      const pId = t.personaIdReal || (t as any).personaId;
+      if (pId && horasFijasPorPersona[pId]) {
+        const h = s.esNocturnoProlongado ? 12.75 : 12;
+        horasFijasPorPersona[pId].nocturno += h;
+      }
+    });
+
+    // Ausencias en días laborables computan 7.0h
+    if (esLaborable) {
+      const ausProcesadas = new Set<string>();
+      (s.ausencias || []).forEach((aus) => {
+        const pId = aus.personaId;
+        if (pId && horasFijasPorPersona[pId] && !ausProcesadas.has(pId)) {
+          ausProcesadas.add(pId);
+          if (aus.tipo === 'V' || aus.tipo === 'P' || (aus.tipo as string) === 'PER' || aus.tipo === 'AP') {
+            horasFijasPorPersona[pId].ausencias += 7.0;
+          }
+        }
+      });
+    }
+  });
+
+  personas.forEach((p) => {
+    const f = horasFijasPorPersona[p.id];
+    f.totalFijo = f.diurno + f.nocturno + f.ausencias;
+  });
+
+  // 4. Para cada persona, calcular cuántos presentes como máximo puede realizar (7h cada uno)
+  // sin superar el tope de horas del periodo
+  personas.forEach((p) => {
+    const f = horasFijasPorPersona[p.id];
+    const horasRestantes = Math.max(0, horasMaximasPeriodo - f.totalFijo);
+    const maxPresentesPermitidos = Math.floor(horasRestantes / 7.0);
+
+    // Contar presentes actuales de esta persona en días laborables
+    const diasConPresente: { servicioIdx: number; fecha: string; totalPresentesDia: number }[] = [];
+    serviciosClonados.forEach((s, idx) => {
+      const info = clasificarDiaUS(s.fecha);
+      if (!info.esLaborable) return;
+      const tienePr = (s.presentes || []).some(
+        (pr) => (pr.personaIdReal || (pr as any).personaId) === p.id
+      );
+      if (tienePr) {
+        diasConPresente.push({
+          servicioIdx: idx,
+          fecha: s.fecha,
+          totalPresentesDia: (s.presentes || []).length,
+        });
+      }
+    });
+
+    if (diasConPresente.length > maxPresentesPermitidos) {
+      const presentesARemover = diasConPresente.length - maxPresentesPermitidos;
+      // Ordenar días para quitar presentes: preferir quitar de días con más presentes acumulados
+      // o desde el final del periodo para mantener equilibrio de personal
+      diasConPresente.sort((a, b) => b.totalPresentesDia - a.totalPresentesDia || b.fecha.localeCompare(a.fecha));
+
+      const diasParaQuitar = diasConPresente.slice(0, presentesARemover);
+      diasParaQuitar.forEach((d) => {
+        const s = serviciosClonados[d.servicioIdx];
+        s.presentes = (s.presentes || []).filter(
+          (pr) => (pr.personaIdReal || (pr as any).personaId) !== p.id
+        );
+        totalPresentesEliminados++;
+        huboModificaciones = true;
+      });
+    }
+  });
+
+  const resumenAjuste = `Ajuste completado: Cómputo a 7.0h/día laborable, 24 y 31 Dic clasificados como festivos oficiales (0h), y ${totalPresentesEliminados} presente(s) excedentes eliminados para respetar el tope de ${horasMaximasPeriodo}h sin alterar turnos diurnos, nocturnos ni imaginarias.`;
+
+  return {
+    serviciosAjustados: serviciosClonados,
+    modificados: huboModificaciones,
+    presentesEliminados: totalPresentesEliminados,
+    resumenAjuste,
   };
 };

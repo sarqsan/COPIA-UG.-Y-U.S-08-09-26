@@ -30,7 +30,7 @@ export const clasificarDiaUS = (fechaStr: string, fechaMananaStr?: string): Info
   const esFestivo = esFestivoUS(fechaStr);
   const esDiaEspecial = tieneConfig && (config.categoria === 'NAVIDAD' || config.categoria === 'FAMILIAR') && !esFestivo;
 
-  // esLaborable: Lunes a Viernes no festivo (los días especiales de rotación como 24 Dic, 31 Dic o 5 Ene son laborables y computan 7.5h)
+  // esLaborable: Lunes a Viernes no festivo (24 Dic y 31 Dic son festivos y no computan horas)
   const esLaborable = diaSemana >= 1 && diaSemana <= 5 && !esFestivo;
 
   // tipoPrincipal (prioridad normativa)
@@ -72,16 +72,15 @@ export const clasificarDiaUS = (fechaStr: string, fechaMananaStr?: string): Info
 
 /**
  * Calcula el descuento oficial de horas U.S. para un periodo:
- * - Regla base: 15 horas de descuento por mes completo.
- * - Para periodos extendidos o irregulares (ej. 1 mes y 1 semana = 38 días, de 1 Dic a 7 Ene):
- *   1 mes (15h) + 1 semana (3.5h) = 18.5 horas exactas.
- * - Proporcionalidad general: (totalDias / 30.5) * 15h, redondeado a múltiplos de 0.5h.
+ * - Normativa vigente U.S.: No se restan horas mensuales (tasa = 0h).
+ * - Mantiene compatibilidad con ajustes manuales si se especifican.
  */
 export const calcularAjusteHorasPeriodoUS = (
   inicioOtotalDias: string | number,
   fechaFinStr?: string,
-  tasaMensual: number = 15
+  tasaMensual: number = 0
 ): number => {
+  if (tasaMensual === 0) return 0;
   let totalDias = 30;
   if (typeof inicioOtotalDias === 'number') {
     totalDias = Math.max(1, inicioOtotalDias);
@@ -95,11 +94,6 @@ export const calcularAjusteHorasPeriodoUS = (
   // 1 mes estándar (28 a 31 días)
   if (totalDias >= 28 && totalDias <= 31) {
     return tasaMensual;
-  }
-
-  // 1 mes y 1 semana exactos (38 días, ej. 1 Dic a 7 Ene): 15h + 3.5h = 18.5h
-  if (totalDias === 38) {
-    return 18.5;
   }
 
   // Proporción mensual general escalada a 0.5h

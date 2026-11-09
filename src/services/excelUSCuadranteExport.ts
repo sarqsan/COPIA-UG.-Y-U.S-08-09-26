@@ -50,7 +50,7 @@ export const getEstadoEnDiaUS = (
       (a) => a.personaId === personaId || (pNombreNorm && (a as any).nombre?.trim().toUpperCase() === pNombreNorm)
     );
     if (aus) {
-      const horasAusencia = esLaborable ? 7.5 : 0;
+      const horasAusencia = esLaborable ? 7.0 : 0;
       if (aus.tipo === 'V') {
         return {
           codigo: 'V',
@@ -193,7 +193,7 @@ export const getEstadoEnDiaUS = (
     (pr) => pr.personaIdReal === personaId || (pr as any).personaId === personaId || (pNombreNorm && (pr as any).nombre?.trim().toUpperCase() === pNombreNorm)
   );
   if (esPresente) {
-    const horasPr = esLaborable ? 7.5 : 0;
+    const horasPr = esLaborable ? 7.0 : 0;
     return {
       codigo: 'PR',
       horas: horasPr,
@@ -374,7 +374,7 @@ export const generarWorkbookCuadranteUS = (
     const rowSub = ws.getRow(2);
     rowSub.height = 20;
     const cellSub = ws.getCell(2, 1);
-    cellSub.value = `Ciclo: ${cuadrante.nombre} | Jornada Ordinaria: 7.5h/laborable · Diurno: 12h (07:00-19:00) · Nocturno: 12h/12.75h (19:00-07:00/07:45) · Presentes: 7.5h (Laborable) · Ausencias: 7.5h (Laborable) · Sáb/Dom/Festivos: 0h`;
+    cellSub.value = `Ciclo: ${cuadrante.nombre} | Jornada Ordinaria: 7h/laborable · Diurno: 12h (07:00-19:00) · Nocturno: 12h/12.75h (19:00-07:00/07:45) · Presentes: 7h (Laborable) · Ausencias: 7h (Laborable) · 24/31 Dic, Sáb/Dom/Festivos: 0h`;
     cellSub.font = { name: 'Calibri', size: 9, italic: true, color: { argb: 'FFE2E8F0' } };
     cellSub.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } }; // Slate 800
     cellSub.alignment = { vertical: 'middle', horizontal: 'center' };
@@ -460,10 +460,10 @@ export const generarWorkbookCuadranteUS = (
       { key: 'N', label: 'N (12h)', bg: 'FF1E1B4B', fg: 'FFFFFFFF' },
       { key: 'FS', label: 'F.S.', bg: 'FF9F1239', fg: 'FFFFFFFF' },
       { key: 'I', label: 'I (24h)', bg: 'FFD97706', fg: 'FFFFFFFF' },
-      { key: 'PR', label: 'PR (7.5h)', bg: 'FF059669', fg: 'FFFFFFFF' },
-      { key: 'V', label: 'V (7.5h)', bg: 'FF06B6D4', fg: 'FFFFFFFF' },
-      { key: 'PER', label: 'PER (7.5h)', bg: 'FFF43F5E', fg: 'FFFFFFFF' },
-      { key: 'AP', label: 'AP (7.5h)', bg: 'FF0D9488', fg: 'FFFFFFFF' },
+      { key: 'PR', label: 'PR (7h)', bg: 'FF059669', fg: 'FFFFFFFF' },
+      { key: 'V', label: 'V (7h)', bg: 'FF06B6D4', fg: 'FFFFFFFF' },
+      { key: 'PER', label: 'PER (7h)', bg: 'FFF43F5E', fg: 'FFFFFFFF' },
+      { key: 'AP', label: 'AP (7h)', bg: 'FF0D9488', fg: 'FFFFFFFF' },
       { key: 'TOT', label: 'TOTAL SERV.', bg: 'FF0F172A', fg: 'FFFFFFFF' },
       { key: 'HORAS', label: 'HORAS COMP.', bg: 'FF047857', fg: 'FFFFFFFF' },
       { key: 'MAX', label: 'HORAS MÁX.', bg: 'FF475569', fg: 'FFFFFFFF' },
@@ -668,10 +668,10 @@ export const generarWorkbookCuadranteUS = (
       { codigo: 'D', nombre: 'Diurno', desc: '12 horas presenciales (07:00 a 19:00)', bg: 'FF2563EB', fg: 'FFFFFFFF' },
       { codigo: 'N', nombre: 'Nocturno', desc: '12h o 12.75h si prolonga (19:00 a 07:00 / 07:45)', bg: 'FF1E1B4B', fg: 'FFE0E7FF' },
       { codigo: 'I', nombre: 'Imaginaria Retén', desc: '24 horas de disponibilidad no presencial', bg: 'FFD97706', fg: 'FFFFFFFF' },
-      { codigo: 'PR', nombre: 'Presente', desc: '7.5 horas ordinarias (Únicamente en días laborables oficiales)', bg: 'FF059669', fg: 'FFFFFFFF' },
-      { codigo: 'V', nombre: 'Vacaciones', desc: '7.5h computables en días laborables (0h sábados, domingos y festivos)', bg: 'FF06B6D4', fg: 'FFFFFFFF' },
-      { codigo: 'PER', nombre: 'Permiso', desc: '7.5h computables en días laborables (0h sábados, domingos y festivos)', bg: 'FFF43F5E', fg: 'FFFFFFFF' },
-      { codigo: 'AP', nombre: 'Asuntos Propios', desc: '7.5h computables en días laborables (0h sábados, domingos y festivos)', bg: 'FF0D9488', fg: 'FFFFFFFF' },
+      { codigo: 'PR', nombre: 'Presente', desc: '7.0 horas ordinarias (Únicamente en días laborables oficiales)', bg: 'FF059669', fg: 'FFFFFFFF' },
+      { codigo: 'V', nombre: 'Vacaciones', desc: '7.0h computables en días laborables (0h sábados, domingos y festivos)', bg: 'FF06B6D4', fg: 'FFFFFFFF' },
+      { codigo: 'PER', nombre: 'Permiso', desc: '7.0h computables en días laborables (0h sábados, domingos y festivos)', bg: 'FFF43F5E', fg: 'FFFFFFFF' },
+      { codigo: 'AP', nombre: 'Asuntos Propios', desc: '7.0h computables en días laborables (0h sábados, domingos y festivos)', bg: 'FF0D9488', fg: 'FFFFFFFF' },
       { codigo: 'B', nombre: 'Baja Médica', desc: '0h computables (cubierto por retén / reserva)', bg: 'FFDC2626', fg: 'FFFFFFFF' },
       { codigo: 'L', nombre: 'Libre / Descanso', desc: '0h computables (descanso reglamentario)', bg: 'FFFFFFFF', fg: 'FF64748B' },
     ];

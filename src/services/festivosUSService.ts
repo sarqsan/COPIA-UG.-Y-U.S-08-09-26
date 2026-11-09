@@ -52,7 +52,9 @@ const FESTIVOS_FIJOS_NACIONALES: Record<string, string> = {
   '11-01': 'Todos los Santos',
   '12-06': 'Día de la Constitución Española',
   '12-08': 'Inmaculada Concepción',
+  '12-24': 'Nochebuena',
   '12-25': 'Natividad del Señor / Navidad',
+  '12-31': 'Nochevieja',
 };
 
 /**
@@ -175,6 +177,8 @@ export const getFestivoInfoUS = (fechaStr: string): FestivoInfoUS => {
       descLower.includes('todos los santos') ||
       descLower.includes('navidad') ||
       descLower.includes('natividad') ||
+      descLower.includes('nochebuena') ||
+      descLower.includes('nochevieja') ||
       descLower.includes('constitución') ||
       descLower.includes('inmaculada') ||
       descLower.includes('fiesta del trabajo') ||

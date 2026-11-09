@@ -209,7 +209,7 @@ export const PersonaFormModal: React.FC<PersonaFormModalProps> = ({
         <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-3.5 dark:border-slate-800 dark:bg-slate-800/40 space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-              Bolsa de Días Anuales Asignados (7,5h / día)
+              Bolsa de Días Anuales Asignados (7h / día)
             </span>
             <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
               Configurable por Admin
@@ -263,7 +263,7 @@ export const PersonaFormModal: React.FC<PersonaFormModalProps> = ({
             </div>
           </div>
           <p className="text-[10px] text-slate-500 dark:text-slate-400">
-            Cada día solicitado de vacaciones, permiso o asuntos propios computa <strong>7,5 horas</strong> de servicio.
+            Cada día solicitado de vacaciones, permiso o asuntos propios computa <strong>7 horas</strong> de servicio.
           </p>
         </div>
 

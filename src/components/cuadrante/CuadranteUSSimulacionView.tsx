@@ -134,7 +134,7 @@ export const CuadranteUSSimulacionView: React.FC<CuadranteUSSimulacionViewProps>
                 Límite de Horas: <strong className="text-blue-600 dark:text-blue-400">{metricasUS?.horasMaximasReferencia || cuadrante.horasMaximasPeriodo || 0}h máx</strong>
                 {metricasUS?.totalDiasLaborables ? (
                   <span className="text-slate-500 dark:text-slate-400 font-medium ml-1">
-                    ({metricasUS.totalDiasLaborables} d. lab. × 7.5h − {metricasUS.ajusteHorasAplicado ?? 15}h | tope {(metricasUS.totalDiasLaborables * 7.5).toFixed(1)}h)
+                    ({metricasUS.totalDiasLaborables} d. lab. × 7h {metricasUS.ajusteHorasAplicado ? `− ${metricasUS.ajusteHorasAplicado}h` : '(0h ajuste)'} | tope {(metricasUS.totalDiasLaborables * 7.0).toFixed(1)}h)
                   </span>
                 ) : null}
               </span>

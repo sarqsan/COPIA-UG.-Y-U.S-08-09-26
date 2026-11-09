@@ -2,7 +2,7 @@ import { useState, useMemo, FC } from 'react';
 import { ServicioDiaUS, MetricasCuadranteUS, MetricasIndividualesUS } from '../../types/usTypes';
 import { Persona, CuadranteMaestro } from '../../types';
 import { calcularMetricasCuadranteUS } from '../../services/cuadranteUSMetricsService';
-import { clasificarDiaUS, calcularAjusteHorasPeriodoUS } from '../../services/cuadranteUSCalendarHelper';
+import { clasificarDiaUS } from '../../services/cuadranteUSCalendarHelper';
 import {
   Calendar,
   Search,
@@ -129,14 +129,14 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
     if (aus) {
       const infoDia = clasificarDiaUS(servicio.fecha);
       const esLaborable = infoDia.esLaborable;
-      const horasAusencia = esLaborable ? 7.5 : 0;
+      const horasAusencia = esLaborable ? 7.0 : 0;
       if (aus.tipo === 'V') {
         return {
           codigo: 'V',
           label: 'Vacaciones',
           horas: horasAusencia,
           badgeClass: 'bg-cyan-500 text-white font-bold',
-          tooltip: esLaborable ? 'Vacaciones (7.5h)' : 'Vacaciones (0h - Fin de semana/Festivo)',
+          tooltip: esLaborable ? 'Vacaciones (7h)' : 'Vacaciones (0h - Fin de semana/Festivo)',
         };
       }
       if (aus.tipo === 'P' || (aus.tipo as string) === 'PER') {
@@ -145,7 +145,7 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
           label: 'Permiso',
           horas: horasAusencia,
           badgeClass: 'bg-rose-500 text-white font-bold',
-          tooltip: esLaborable ? 'Permiso Oficial (7.5h)' : 'Permiso Oficial (0h - Fin de semana/Festivo)',
+          tooltip: esLaborable ? 'Permiso Oficial (7h)' : 'Permiso Oficial (0h - Fin de semana/Festivo)',
         };
       }
       if (aus.tipo === 'AP') {
@@ -154,7 +154,7 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
           label: 'Asuntos Propios',
           horas: horasAusencia,
           badgeClass: 'bg-teal-600 text-white font-bold',
-          tooltip: esLaborable ? 'Asuntos Propios (7.5h)' : 'Asuntos Propios (0h - Fin de semana/Festivo)',
+          tooltip: esLaborable ? 'Asuntos Propios (7h)' : 'Asuntos Propios (0h - Fin de semana/Festivo)',
         };
       }
       if (aus.tipo === 'BAJA_MEDICA' || (aus as any).tipo === 'BAJA' || (aus as any).tipo === 'B') {
@@ -314,9 +314,9 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
       return {
         codigo: 'PR',
         label: 'Presente',
-        horas: 7.5,
+        horas: 7.0,
         badgeClass: 'bg-emerald-600 text-white font-bold',
-        tooltip: 'Jornada de Presente (7.5h)',
+        tooltip: 'Jornada de Presente (7h)',
       };
     }
 
@@ -332,10 +332,9 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
 
   // Métricas globales para todo el periodo (usadas cuando selectedMesKey === 'TODOS')
   const metricasGlobales = useMemo(() => {
-    const ajuste =
-      (cuadrante as any)?.configuracionUS?.ajusteHoras ??
-      (cuadrante as any)?.ajusteHoras ??
-      calcularAjusteHorasPeriodoUS(serviciosUS.length, undefined, 15);
+    // Normativa U.S. vigente: no se descuentan horas a las horas mensuales (ajuste = 0h).
+    // Horas máximas = totalDiasLaborables * 7.0h (154h exactas para 22 días laborables)
+    const ajuste = 0;
     if (serviciosUS && serviciosUS.length > 0) {
       return calcularMetricasCuadranteUS(serviciosUS, personasUS || [], ajuste);
     }
@@ -347,12 +346,12 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
         ajuste
       )
     );
-  }, [metricasUS, serviciosUS, personasUS, (cuadrante as any)?.configuracionUS?.ajusteHoras, (cuadrante as any)?.ajusteHoras]);
+  }, [metricasUS, serviciosUS, personasUS]);
 
-  // Métricas calculadas para el mes seleccionado (1 mes individual = 15h de descuento base)
+  // Métricas calculadas para el mes seleccionado (normativa U.S.: 0h de descuento)
   const metricasMesSeleccionado = useMemo(() => {
     if (selectedMesKey === 'TODOS') return null;
-    const ajuste = 15;
+    const ajuste = 0;
     return calcularMetricasCuadranteUS(
       serviciosFiltradosPorMes || [],
       personasUS || [],
@@ -379,12 +378,7 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
     }
 
     if (!m) {
-      const ajuste =
-        selectedMesKey === 'TODOS'
-          ? (cuadrante as any)?.configuracionUS?.ajusteHoras ??
-            (cuadrante as any)?.ajusteHoras ??
-            calcularAjusteHorasPeriodoUS(serviciosUS.length, undefined, 15)
-          : 15;
+      const ajuste = 0;
       const serviciosContexto = selectedMesKey === 'TODOS' ? (serviciosUS || []) : (serviciosFiltradosPorMes || []);
       const res = calcularMetricasCuadranteUS(serviciosContexto, [p], ajuste);
       m = res.detallePorPersona[p.id];
@@ -599,7 +593,7 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
               {metricasFinales?.horasMaximasReferencia ?? 0}h máx
             </span>
             <span className="text-[10px] text-slate-500 font-normal">
-              (tope {((metricasFinales?.totalDiasLaborables ?? 0) * 7.5).toFixed(1)}h | {metricasFinales?.totalDiasLaborables ?? 0} días lab.)
+              (tope {((metricasFinales?.totalDiasLaborables ?? 0) * 7.0).toFixed(1)}h | {metricasFinales?.totalDiasLaborables ?? 0} días lab.)
             </span>
           </div>
         </div>

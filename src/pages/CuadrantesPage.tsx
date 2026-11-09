@@ -140,16 +140,16 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
   const [fechaInicio, setFechaInicio] = useState('2026-09-01');
   const [fechaFin, setFechaFin] = useState('2027-02-28'); // Periodo oficial 6 meses
 
-  // Parámetros específicos U.S. (15 horas por mes de descuento base, escalable según periodo)
+  // Parámetros específicos U.S. (Normativa vigente: no se restan horas mensuales, base 0h)
   const [ajusteHorasUS, setAjusteHorasUS] = useState<number>(() =>
-    calcularAjusteHorasPeriodoUS('2026-09-01', '2027-02-28', 15)
+    calcularAjusteHorasPeriodoUS('2026-09-01', '2027-02-28', 0)
   );
   const [ajusteHorasManualUS, setAjusteHorasManualUS] = useState<boolean>(false);
 
   // Recalcular el ajuste sugerido automáticamente cuando cambian las fechas (a menos que el usuario lo haya editado manualmente)
   useEffect(() => {
     if (isUS && !ajusteHorasManualUS) {
-      setAjusteHorasUS(calcularAjusteHorasPeriodoUS(fechaInicio, fechaFin, 15));
+      setAjusteHorasUS(calcularAjusteHorasPeriodoUS(fechaInicio, fechaFin, 0));
     }
   }, [fechaInicio, fechaFin, isUS, ajusteHorasManualUS]);
 
@@ -1260,12 +1260,11 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
                 </div>
 
                 {isUS && (() => {
-                  const sugerido = calcularAjusteHorasPeriodoUS(fechaInicio, fechaFin, 15);
                   return (
                     <div className="space-y-1 sm:col-span-2">
                       <div className="flex items-center justify-between">
                         <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                          Descuento de Horas U.S. (Base: 15h/mes — sugerido para este periodo: {sugerido}h)
+                          Descuento de Horas U.S. (Normativa vigente: 0h — no se restan horas mensuales)
                         </label>
                         <span className="text-xs font-black text-blue-600 bg-blue-50 dark:bg-blue-950 px-2 py-0.5 rounded-md">
                           {ajusteHorasUS} horas a descontar
@@ -1275,7 +1274,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
                         <input
                           type="range"
                           min={0}
-                          max={Math.max(35, Math.ceil(sugerido * 1.5))}
+                          max={50}
                           step={0.5}
                           value={ajusteHorasUS}
                           onChange={(e) => {
@@ -1298,9 +1297,9 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
                         />
                       </div>
                       <div className="text-[10px] text-slate-500 flex justify-between">
-                        <span>1 mes = 15h</span>
-                        <span>1 mes + 1 sem. = 18.5h</span>
-                        <span>{sugerido}h calculado para {fechaInicio} al {fechaFin}</span>
+                        <span>Normativa U.S.: 7.0h/día laborable</span>
+                        <span>24 y 31 Dic: Festivos Oficiales (0h)</span>
+                        <span>Descuento fijado en {ajusteHorasUS}h</span>
                       </div>
                     </div>
                   );
