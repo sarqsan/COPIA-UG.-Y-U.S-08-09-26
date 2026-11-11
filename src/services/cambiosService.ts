@@ -2502,20 +2502,71 @@ export const resolverSolicitudAdmin = async (params: {
     };
   }
 
-  // Resolver cuadrante correspondiente a la unidad si no viene fijado
-  let targetCuadranteId = sol.cuadranteId;
+  // Resolver cuadrante correspondiente a la unidad asegurando que cubra las fechas reales
+  const cList = await getCuadrantes({ tipoServicio: esUnidadUS ? 'US' : 'GUARDIA' });
+  const cMatchPrincipal = cList.find(
+    (c) => c.fechaInicio <= sol.fechaServicio && c.fechaFin >= sol.fechaServicio
+  );
+
+  let targetCuadranteId = cMatchPrincipal?.id || sol.cuadranteId;
   if (!targetCuadranteId) {
-    const cList = await getCuadrantes({ tipoServicio: esUnidadUS ? 'US' : 'GUARDIA' });
     const activo = cList.find((c) => c.estado === 'CONFIRMADO' || c.estado === 'SIMULACION') || cList[0];
     if (activo) {
       targetCuadranteId = activo.id;
-      sol.cuadranteId = activo.id;
+    }
+  }
+  if (targetCuadranteId) {
+    sol.cuadranteId = targetCuadranteId;
+  }
+
+  let servicios: ServicioDia[] = (serviciosProp && serviciosProp.length > 0)
+    ? [...serviciosProp]
+    : (targetCuadranteId ? await getServiciosByCuadranteId(targetCuadranteId) : []);
+
+  // Asegurar que servicios contenga la fecha principal
+  if (!servicios.some((s) => s.fecha === sol.fechaServicio)) {
+    if (targetCuadranteId) {
+      const srvsPrincipal = await getServiciosByCuadranteId(targetCuadranteId);
+      servicios.push(...srvsPrincipal);
+    }
+    if (!servicios.some((s) => s.fecha === sol.fechaServicio)) {
+      for (const c of cList) {
+        const srvsExtra = await getServiciosByCuadranteId(c.id);
+        if (srvsExtra.some((s) => s.fecha === sol.fechaServicio)) {
+          servicios.push(...srvsExtra);
+          sol.cuadranteId = c.id;
+          targetCuadranteId = c.id;
+          break;
+        }
+      }
     }
   }
 
-  const servicios = (serviciosProp && serviciosProp.length > 0)
-    ? serviciosProp
-    : (targetCuadranteId ? await getServiciosByCuadranteId(targetCuadranteId) : []);
+  // Asegurar que servicios contenga la fecha de devolución si existe
+  if (sol.servicioDevolucionFecha && !servicios.some((s) => s.fecha === sol.servicioDevolucionFecha)) {
+    const cMatchDev = cList.find(
+      (c) =>
+        c.fechaInicio <= sol.servicioDevolucionFecha! &&
+        c.fechaFin >= sol.servicioDevolucionFecha!
+    );
+    if (cMatchDev) {
+      const srvsDev = await getServiciosByCuadranteId(cMatchDev.id);
+      servicios.push(...srvsDev);
+    } else {
+      for (const c of cList) {
+        const srvsExtra = await getServiciosByCuadranteId(c.id);
+        if (srvsExtra.some((s) => s.fecha === sol.servicioDevolucionFecha)) {
+          servicios.push(...srvsExtra);
+          break;
+        }
+      }
+    }
+  }
+
+  // Deduplicar servicios por id/fecha
+  const mapSrvsRes = new Map<string, ServicioDia>();
+  servicios.forEach((s) => mapSrvsRes.set(s.id || s.fecha, s));
+  servicios = Array.from(mapSrvsRes.values());
 
   const esPermuta = Boolean(sol.servicioDevolucionFecha) || sol.modalidad === 'PERMUTA';
 

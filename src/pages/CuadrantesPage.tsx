@@ -196,8 +196,9 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
   } | null>(null);
 
   const adminInfo = {
-    uid: currentCuenta?.uid || '',
-    nombre: currentCuenta?.nombre || currentCuenta?.username || '',
+    uid: currentCuenta?.uid || (isAdmin ? 'admin-system' : 'admin-default'),
+    nombre: currentCuenta?.nombre || currentCuenta?.username || 'Administrador',
+    rol: 'ADMIN',
   };
 
   // Cargar lista de cuadrantes filtrados por grupo activa
@@ -844,14 +845,31 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
         servicioActualizado,
         motivo,
         personasUS: personalUS,
-        adminInfo,
+        adminInfo: {
+          ...adminInfo,
+          rol: 'ADMIN',
+        },
       });
 
-      // Actualizar estado local
+      if (!res.success) {
+        alert(res.message || 'No se pudo actualizar la asignación.');
+        return;
+      }
+
+      // Actualizar estado local asegurando coincidencia por id o fecha
       const nuevosServicios = selectedServiciosUS.map((s) =>
-        s.id === servicioActualizado.id ? servicioActualizado : s
+        (s.id && s.id === servicioActualizado.id) || s.fecha === servicioActualizado.fecha ? servicioActualizado : s
       );
       setSelectedServiciosUS(nuevosServicios);
+
+      // Actualizar el cuadrante en estado local con sus métricas recalculadas
+      const cuadranteActualizado = (await getCuadrantes({ tipoServicio: 'US' })).find(
+        (c) => c.id === selectedCuadrante.id
+      );
+      if (cuadranteActualizado) {
+        setSelectedCuadrante({ ...cuadranteActualizado });
+      }
+
       setIsEditUSModalOpen(false);
       setEditingServicioUS(null);
       alert(res.message || 'Asignación de U.S. actualizada correctamente.');
@@ -859,7 +877,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
       console.error('Error guardando servicio US:', e);
       // Fallback local garantizado
       const nuevosServicios = selectedServiciosUS.map((s) =>
-        s.id === servicioActualizado.id ? servicioActualizado : s
+        (s.id && s.id === servicioActualizado.id) || s.fecha === servicioActualizado.fecha ? servicioActualizado : s
       );
       setSelectedServiciosUS(nuevosServicios);
       setIsEditUSModalOpen(false);

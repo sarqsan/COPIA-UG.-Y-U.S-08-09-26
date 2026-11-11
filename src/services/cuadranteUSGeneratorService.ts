@@ -1258,7 +1258,7 @@ export const ajustarCuadranteUSHorasYPresentes = (
   let huboModificaciones = false;
   let totalPresentesEliminados = 0;
 
-  // 1. Sincronizar clasificación oficial de días (24 y 31 Dic festivos = 0h)
+  // 1. Sincronizar clasificación oficial de días
   serviciosClonados.forEach((s) => {
     const info = clasificarDiaUS(s.fecha);
     if (s.esFestivo !== info.esFestivo || s.esLaborable !== info.esLaborable) {
@@ -1268,8 +1268,9 @@ export const ajustarCuadranteUSHorasYPresentes = (
       huboModificaciones = true;
     }
 
-    // Si un día no es laborable (ej. 24 o 31 Dic), los presentes deben ser eliminados inmediatamente
-    if (!info.esLaborable && s.presentes && s.presentes.length > 0) {
+    // Únicamente en 24 y 31 Dic (si no fueron modificados manualmente por el usuario), evitar presentes generados automáticamente
+    const es24o31 = s.fecha.endsWith('-12-24') || s.fecha.endsWith('-12-31');
+    if (es24o31 && !s.tieneModificacionesManuales && s.presentes && s.presentes.length > 0) {
       totalPresentesEliminados += s.presentes.length;
       s.presentes = [];
       huboModificaciones = true;
@@ -1316,19 +1317,17 @@ export const ajustarCuadranteUSHorasYPresentes = (
       }
     });
 
-    // Ausencias en días laborables computan 7.0h
-    if (esLaborable) {
-      const ausProcesadas = new Set<string>();
-      (s.ausencias || []).forEach((aus) => {
-        const pId = aus.personaId;
-        if (pId && horasFijasPorPersona[pId] && !ausProcesadas.has(pId)) {
-          ausProcesadas.add(pId);
-          if (aus.tipo === 'V' || aus.tipo === 'P' || (aus.tipo as string) === 'PER' || aus.tipo === 'AP') {
-            horasFijasPorPersona[pId].ausencias += 7.0;
-          }
+    // Ausencias computan 7.0h
+    const ausProcesadas = new Set<string>();
+    (s.ausencias || []).forEach((aus) => {
+      const pId = aus.personaId;
+      if (pId && horasFijasPorPersona[pId] && !ausProcesadas.has(pId)) {
+        ausProcesadas.add(pId);
+        if (aus.tipo === 'V' || aus.tipo === 'P' || (aus.tipo as string) === 'PER' || aus.tipo === 'AP') {
+          horasFijasPorPersona[pId].ausencias += 7.0;
         }
-      });
-    }
+      }
+    });
   });
 
   personas.forEach((p) => {
@@ -1343,15 +1342,18 @@ export const ajustarCuadranteUSHorasYPresentes = (
     const horasRestantes = Math.max(0, horasMaximasPeriodo - f.totalFijo);
     const maxPresentesPermitidos = Math.floor(horasRestantes / 7.0);
 
-    // Contar presentes actuales de esta persona en días laborables
+    // Contar presentes actuales generados automáticamente (nunca tocar presentes manuales)
     const diasConPresente: { servicioIdx: number; fecha: string; totalPresentesDia: number }[] = [];
     serviciosClonados.forEach((s, idx) => {
+      if (s.tieneModificacionesManuales) return; // NUNCA tocar días modificados manualmente
       const info = clasificarDiaUS(s.fecha);
       if (!info.esLaborable) return;
-      const tienePr = (s.presentes || []).some(
-        (pr) => (pr.personaIdReal || (pr as any).personaId) === p.id
+      const tienePrAuto = (s.presentes || []).some(
+        (pr) =>
+          (pr.personaIdReal || (pr as any).personaId) === p.id &&
+          pr.tipoOrigen !== 'MODIFICADO_MANUAL'
       );
-      if (tienePr) {
+      if (tienePrAuto) {
         diasConPresente.push({
           servicioIdx: idx,
           fecha: s.fecha,
@@ -1369,8 +1371,11 @@ export const ajustarCuadranteUSHorasYPresentes = (
       const diasParaQuitar = diasConPresente.slice(0, presentesARemover);
       diasParaQuitar.forEach((d) => {
         const s = serviciosClonados[d.servicioIdx];
+        if (s.tieneModificacionesManuales) return;
         s.presentes = (s.presentes || []).filter(
-          (pr) => (pr.personaIdReal || (pr as any).personaId) !== p.id
+          (pr) =>
+            (pr.personaIdReal || (pr as any).personaId) !== p.id ||
+            pr.tipoOrigen === 'MODIFICADO_MANUAL'
         );
         totalPresentesEliminados++;
         huboModificaciones = true;

@@ -208,11 +208,15 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
       const personalCompleto = todasLasPersonas && todasLasPersonas.length > 0 ? todasLasPersonas : personas;
 
       // Cargar cuadrante y servicios específicos de la unidad de la solicitud
-      let targetCuadranteId = sol.cuadranteId;
+      const cList = await getCuadrantes({ tipoServicio: sUnidad });
+      const cMatch = cList.find((c) => c.fechaInicio <= sol.fechaServicio && c.fechaFin >= sol.fechaServicio);
+      let targetCuadranteId = cMatch?.id || sol.cuadranteId;
       if (!targetCuadranteId) {
-        const cList = await getCuadrantes({ tipoServicio: sUnidad });
         const cActivo = cList.find((c) => c.estado === 'CONFIRMADO' || c.estado === 'SIMULACION') || cList[0];
         targetCuadranteId = cActivo?.id;
+      }
+      if (targetCuadranteId) {
+        sol.cuadranteId = targetCuadranteId;
       }
 
       let srvs = servicios;

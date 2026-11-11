@@ -141,22 +141,78 @@ export const DetalleAprobacionCambioModal: React.FC<DetalleAprobacionCambioModal
 
         if (solObj) {
           const unidadSol = getUnidadSolicitud(solObj);
-          let targetCid = solObj.cuadranteId;
-          if (!targetCid) {
-            const cuadrantes = await getCuadrantes({ tipoServicio: unidadSol });
-            const cActivo = cuadrantes.find((c) => c.estado === 'CONFIRMADO' || c.estado === 'SIMULACION') || cuadrantes[0];
-            targetCid = cActivo?.id;
-            solObj.cuadranteId = targetCid || '';
+          const cuadrantes = await getCuadrantes({ tipoServicio: unidadSol });
+
+          // Localizar el cuadrante correspondiente a la fecha de servicio principal
+          const cFechaPrincipal = cuadrantes.find(
+            (c) => c.fechaInicio <= solObj.fechaServicio && c.fechaFin >= solObj.fechaServicio
+          );
+
+          // Localizar el cuadrante correspondiente a la devolución si existe
+          const cFechaDev = solObj.servicioDevolucionFecha
+            ? cuadrantes.find(
+                (c) =>
+                  c.fechaInicio <= solObj.servicioDevolucionFecha! &&
+                  c.fechaFin >= solObj.servicioDevolucionFecha!
+              )
+            : null;
+
+          // Si el cuadranteId almacenado no coincide con el periodo real del servicio, actualizarlo
+          if (cFechaPrincipal && solObj.cuadranteId !== cFechaPrincipal.id) {
+            solObj.cuadranteId = cFechaPrincipal.id;
+          } else if (!solObj.cuadranteId) {
+            const cActivo =
+              cuadrantes.find((c) => c.estado === 'CONFIRMADO' || c.estado === 'SIMULACION') ||
+              cuadrantes[0];
+            solObj.cuadranteId = cActivo?.id || '';
           }
 
-          if (targetCid) {
-            if (propServicios && propServicios.length > 0 && propServicios[0]?.cuadranteId === targetCid) {
-              setServiciosCuadrante(propServicios);
-            } else {
-              const srvs = await getServiciosByCuadranteId(targetCid);
-              setServiciosCuadrante(srvs);
+          // Cargar servicios de todos los cuadrantes involucrados
+          const cidsToLoad = new Set<string>();
+          if (solObj.cuadranteId) cidsToLoad.add(solObj.cuadranteId);
+          if (cFechaPrincipal?.id) cidsToLoad.add(cFechaPrincipal.id);
+          if (cFechaDev?.id) cidsToLoad.add(cFechaDev.id);
+          if (cidsToLoad.size === 0) {
+            const cActivo =
+              cuadrantes.find((c) => c.estado === 'CONFIRMADO' || c.estado === 'SIMULACION') ||
+              cuadrantes[0];
+            if (cActivo?.id) cidsToLoad.add(cActivo.id);
+          }
+
+          let combinedSrvs: ServicioDia[] = [];
+          if (propServicios && propServicios.length > 0) {
+            combinedSrvs.push(...propServicios);
+          }
+
+          for (const cid of cidsToLoad) {
+            if (!combinedSrvs.some((s) => s.cuadranteId === cid)) {
+              const srvs = await getServiciosByCuadranteId(cid);
+              combinedSrvs.push(...srvs);
             }
           }
+
+          // Si aún falta la fecha principal o la fecha de devolución en combinedSrvs, buscar en los demás cuadrantes
+          const faltaPrincipal = !combinedSrvs.some((s) => s.fecha === solObj.fechaServicio);
+          const faltaDev =
+            solObj.servicioDevolucionFecha &&
+            !combinedSrvs.some((s) => s.fecha === solObj.servicioDevolucionFecha);
+
+          if (faltaPrincipal || faltaDev) {
+            for (const c of cuadrantes) {
+              if (!cidsToLoad.has(c.id)) {
+                const moreSrvs = await getServiciosByCuadranteId(c.id);
+                combinedSrvs.push(...moreSrvs);
+                if (c.fechaInicio <= solObj.fechaServicio && c.fechaFin >= solObj.fechaServicio) {
+                  solObj.cuadranteId = c.id;
+                }
+              }
+            }
+          }
+
+          // Deduplicar servicios por fecha/id
+          const mapSrvs = new Map<string, ServicioDia>();
+          combinedSrvs.forEach((s) => mapSrvs.set(s.id || s.fecha, s));
+          setServiciosCuadrante(Array.from(mapSrvs.values()));
         }
       } catch (err: any) {
         console.error('Error cargando solicitud:', err);

@@ -58,7 +58,7 @@ export const getEstadoEnDiaUS = (
           bgColor: 'FF06B6D4', // Cyan 500
           textColor: 'FFFFFFFF',
           isBold: true,
-          tooltip: `Vacaciones (${horasAusencia}h)`,
+          tooltip: `Vacaciones (${horasAusencia}h${esLaborable ? '' : ' no laborable'})`,
         };
       }
       if (aus.tipo === 'P' || (aus.tipo as string) === 'PER') {
@@ -68,7 +68,7 @@ export const getEstadoEnDiaUS = (
           bgColor: 'FFF43F5E', // Rose 500
           textColor: 'FFFFFFFF',
           isBold: true,
-          tooltip: `Permiso (${horasAusencia}h)`,
+          tooltip: `Permiso (${horasAusencia}h${esLaborable ? '' : ' no laborable'})`,
         };
       }
       if (aus.tipo === 'AP') {
@@ -78,7 +78,7 @@ export const getEstadoEnDiaUS = (
           bgColor: 'FF0D9488', // Teal 600
           textColor: 'FFFFFFFF',
           isBold: true,
-          tooltip: `Asuntos Propios (${horasAusencia}h)`,
+          tooltip: `Asuntos Propios (${horasAusencia}h${esLaborable ? '' : ' no laborable'})`,
         };
       }
       if (aus.tipo === 'BAJA_MEDICA' || (aus as any).tipo === 'BAJA' || (aus as any).tipo === 'B') {
@@ -193,7 +193,7 @@ export const getEstadoEnDiaUS = (
     (pr) => pr.personaIdReal === personaId || (pr as any).personaId === personaId || (pNombreNorm && (pr as any).nombre?.trim().toUpperCase() === pNombreNorm)
   );
   if (esPresente) {
-    const horasPr = esLaborable ? 7.0 : 0;
+    const horasPr = 7.0;
     return {
       codigo: 'PR',
       horas: horasPr,

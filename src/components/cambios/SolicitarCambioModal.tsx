@@ -605,7 +605,7 @@ export const SolicitarCambioModal: React.FC<SolicitarCambioModalProps> = ({
 
     try {
       const res = await crearSolicitudCambio({
-        cuadranteId,
+        cuadranteId: itemSeleccionado.servicio?.cuadranteId || cuadranteId,
         tipoCambio: itemSeleccionado.tipoCambio,
         modalidad,
         servicioId: itemSeleccionado.servicio.id,

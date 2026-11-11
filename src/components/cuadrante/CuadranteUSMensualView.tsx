@@ -127,16 +127,14 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
       (a) => a.personaId === personaId || (pNombreNorm && (a as any).personaNombre?.trim().toUpperCase() === pNombreNorm)
     );
     if (aus) {
-      const infoDia = clasificarDiaUS(servicio.fecha);
-      const esLaborable = infoDia.esLaborable;
-      const horasAusencia = esLaborable ? 7.0 : 0;
+      const horasAusencia = servicio.esLaborable ? 7.0 : 0;
       if (aus.tipo === 'V') {
         return {
           codigo: 'V',
           label: 'Vacaciones',
           horas: horasAusencia,
           badgeClass: 'bg-cyan-500 text-white font-bold',
-          tooltip: esLaborable ? 'Vacaciones (7h)' : 'Vacaciones (0h - Fin de semana/Festivo)',
+          tooltip: `Vacaciones (${horasAusencia}h${servicio.esLaborable ? '' : ' no laborable'})`,
         };
       }
       if (aus.tipo === 'P' || (aus.tipo as string) === 'PER') {
@@ -145,7 +143,7 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
           label: 'Permiso',
           horas: horasAusencia,
           badgeClass: 'bg-rose-500 text-white font-bold',
-          tooltip: esLaborable ? 'Permiso Oficial (7h)' : 'Permiso Oficial (0h - Fin de semana/Festivo)',
+          tooltip: `Permiso Oficial (${horasAusencia}h${servicio.esLaborable ? '' : ' no laborable'})`,
         };
       }
       if (aus.tipo === 'AP') {
@@ -154,7 +152,7 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
           label: 'Asuntos Propios',
           horas: horasAusencia,
           badgeClass: 'bg-teal-600 text-white font-bold',
-          tooltip: esLaborable ? 'Asuntos Propios (7h)' : 'Asuntos Propios (0h - Fin de semana/Festivo)',
+          tooltip: `Asuntos Propios (${horasAusencia}h${servicio.esLaborable ? '' : ' no laborable'})`,
         };
       }
       if (aus.tipo === 'BAJA_MEDICA' || (aus as any).tipo === 'BAJA' || (aus as any).tipo === 'B') {

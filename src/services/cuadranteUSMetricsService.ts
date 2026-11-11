@@ -98,25 +98,23 @@ export const calcularMetricasCuadranteUS = (
     s.esFinDeSemana = esRealmenteFinSemana;
     s.esLaborable = esRealmenteLaborable;
 
-    // Conjunto de personas con ausencia computable (en día laborable) en este día.
-    // Regla de exclusión mutua: si existe ausencia computable para esa persona en día laborable,
-    // ese día computa únicamente 7,5h por la ausencia y no suma horas de servicio ni de presencia.
-    const personasConAusenciaLaborableHoy = new Set<string>();
-    if (esRealmenteLaborable) {
-      (s.ausencias || []).forEach((aus) => {
-        const pId = resolvePersonaId(aus.personaId, (aus as any).personaNombre || (aus as any).nombre);
-        if (pId && (aus.tipo === 'V' || aus.tipo === 'P' || (aus.tipo as string) === 'PER' || aus.tipo === 'AP')) {
-          personasConAusenciaLaborableHoy.add(pId);
-        }
-      });
-    }
+    // Conjunto de personas con ausencia computable en este día.
+    // Regla de exclusión mutua: si existe ausencia computable para esa persona,
+    // ese día computa 7.0h por la ausencia y no suma horas de servicio ni de presencia simultánea.
+    const personasConAusenciaHoy = new Set<string>();
+    (s.ausencias || []).forEach((aus) => {
+      const pId = resolvePersonaId(aus.personaId, (aus as any).personaNombre || (aus as any).nombre);
+      if (pId && (aus.tipo === 'V' || aus.tipo === 'P' || (aus.tipo as string) === 'PER' || aus.tipo === 'AP')) {
+        personasConAusenciaHoy.add(pId);
+      }
+    });
 
     // 1. DIURNO (2 efectivos)
     s.diurno.titulares.forEach((t) => {
       const pId = resolvePersonaId(t.personaIdReal || (t as any).personaId, (t as any).nombre);
       if (pId && detallePorPersona[pId]) {
         // Exclusión mutua: si la persona tiene una ausencia computable este día, no suma servicio
-        if (!personasConAusenciaLaborableHoy.has(pId)) {
+        if (!personasConAusenciaHoy.has(pId)) {
           detallePorPersona[pId].totalServicios += 1;
           detallePorPersona[pId].totalDiurnos += 1;
           detallePorPersona[pId].horasServicios += 12;
@@ -151,7 +149,7 @@ export const calcularMetricasCuadranteUS = (
       const pId = resolvePersonaId(t.personaIdReal || (t as any).personaId, (t as any).nombre);
       if (pId && detallePorPersona[pId]) {
         // Exclusión mutua: si la persona tiene una ausencia computable este día, no suma servicio
-        if (!personasConAusenciaLaborableHoy.has(pId)) {
+        if (!personasConAusenciaHoy.has(pId)) {
           detallePorPersona[pId].totalServicios += 1;
           detallePorPersona[pId].totalNocturnos += 1;
 
@@ -190,35 +188,33 @@ export const calcularMetricasCuadranteUS = (
     if (s.imaginaria && (s.imaginaria.personaIdReal || (s.imaginaria as any).personaId)) {
       const pId = resolvePersonaId(s.imaginaria.personaIdReal || (s.imaginaria as any).personaId, (s.imaginaria as any).nombre);
       if (pId && detallePorPersona[pId]) {
-        if (!personasConAusenciaLaborableHoy.has(pId)) {
+        if (!personasConAusenciaHoy.has(pId)) {
           detallePorPersona[pId].totalImaginarias += 1;
         }
       }
     }
 
-    // 4. PRESENTES (7.0h ÚNICAMENTE en días laborables oficiales)
+    // 4. PRESENTES (7.0h tanto en laborables como en fines de semana o festivos si han sido asignados)
     (s.presentes || []).forEach((pr) => {
       const pId = resolvePersonaId(pr.personaIdReal || (pr as any).personaId, (pr as any).nombre);
       if (pId && detallePorPersona[pId]) {
-        // Exclusión mutua: si la persona tiene una ausencia computable este día, no suma presencia
-        if (!personasConAusenciaLaborableHoy.has(pId)) {
-          // REGLA CRÍTICA: Los presentes ÚNICAMENTE computan 7.0h en días laborables (nunca sábados, domingos ni festivos)
-          if (esRealmenteLaborable) {
-            detallePorPersona[pId].totalPresentes += 1;
-            detallePorPersona[pId].horasPresentes += 7.0;
+        // Exclusión mutua: si la persona tiene una ausencia este día, no suma presencia
+        if (!personasConAusenciaHoy.has(pId)) {
+          detallePorPersona[pId].totalPresentes += 1;
+          detallePorPersona[pId].horasPresentes += 7.0;
+          if (infoDia.esSabado || infoDia.esDomingo) {
+            detallePorPersona[pId].totalFinDeSemana += 1;
           }
         }
       }
     });
 
-    // 5. AUSENCIAS (V, P, AP - 7.0h cada una en días laborables; 0h sábados, domingos y festivos)
+    // 5. AUSENCIAS (V, P, AP) — Solo computan 7.0h si caen en día laborable
     const ausenciasProcesadasHoy = new Set<string>();
     (s.ausencias || []).forEach((aus) => {
       const pId = resolvePersonaId(aus.personaId, (aus as any).personaNombre || (aus as any).nombre);
       if (pId && detallePorPersona[pId] && !ausenciasProcesadasHoy.has(pId)) {
         ausenciasProcesadasHoy.add(pId);
-        // Regla funcional: únicamente cada DÍA LABORABLE (lunes a viernes no festivos) computa 7,0 horas.
-        // Sábados, domingos y festivos oficiales computan 0 horas.
         if (esRealmenteLaborable) {
           if (aus.tipo === 'V') {
             detallePorPersona[pId].diasVacaciones += 1;
