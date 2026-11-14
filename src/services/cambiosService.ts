@@ -2515,9 +2515,22 @@ export const resolverSolicitudAdmin = async (params: {
 
   // Resolver cuadrante correspondiente a la unidad asegurando que cubra las fechas reales
   const cList = await getCuadrantes({ tipoServicio: esUnidadUS ? 'US' : 'GUARDIA' });
-  const cMatchPrincipal = cList.find(
-    (c) => c.fechaInicio <= sol.fechaServicio && c.fechaFin >= sol.fechaServicio
-  );
+  const cMatchPrincipal =
+    cList.find(
+      (c) =>
+        c.id === sol.cuadranteId &&
+        c.fechaInicio <= sol.fechaServicio &&
+        c.fechaFin >= sol.fechaServicio
+    ) ||
+    cList.find(
+      (c) =>
+        c.fechaInicio <= sol.fechaServicio &&
+        c.fechaFin >= sol.fechaServicio &&
+        c.estado === 'CONFIRMADO'
+    ) ||
+    cList.find(
+      (c) => c.fechaInicio <= sol.fechaServicio && c.fechaFin >= sol.fechaServicio
+    );
 
   let targetCuadranteId = cMatchPrincipal?.id || sol.cuadranteId;
   if (!targetCuadranteId) {
@@ -2530,8 +2543,11 @@ export const resolverSolicitudAdmin = async (params: {
     sol.cuadranteId = targetCuadranteId;
   }
 
-  let servicios: ServicioDia[] = (serviciosProp && serviciosProp.length > 0)
-    ? [...serviciosProp]
+  const serviciosPropUnidad = (serviciosProp || []).filter((s: any) =>
+    esUnidadUS ? s?.diurno !== undefined : s?.titulares !== undefined
+  );
+  let servicios: ServicioDia[] = (serviciosPropUnidad.length > 0)
+    ? [...serviciosPropUnidad]
     : (targetCuadranteId ? await getServiciosByCuadranteId(targetCuadranteId) : []);
 
   // Asegurar que servicios contenga la fecha principal

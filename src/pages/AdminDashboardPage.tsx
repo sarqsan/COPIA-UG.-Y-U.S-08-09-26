@@ -209,7 +209,10 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
 
       // Cargar cuadrante y servicios específicos de la unidad de la solicitud
       const cList = await getCuadrantes({ tipoServicio: sUnidad });
-      const cMatch = cList.find((c) => c.fechaInicio <= sol.fechaServicio && c.fechaFin >= sol.fechaServicio);
+      const cMatch =
+        cList.find((c) => c.id === sol.cuadranteId && c.fechaInicio <= sol.fechaServicio && c.fechaFin >= sol.fechaServicio) ||
+        cList.find((c) => c.fechaInicio <= sol.fechaServicio && c.fechaFin >= sol.fechaServicio && c.estado === 'CONFIRMADO') ||
+        cList.find((c) => c.fechaInicio <= sol.fechaServicio && c.fechaFin >= sol.fechaServicio);
       let targetCuadranteId = cMatch?.id || sol.cuadranteId;
       if (!targetCuadranteId) {
         const cActivo = cList.find((c) => c.estado === 'CONFIRMADO' || c.estado === 'SIMULACION') || cList[0];
@@ -219,9 +222,10 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         sol.cuadranteId = targetCuadranteId;
       }
 
-      let srvs = servicios;
-      if (sUnidad === 'US' || (targetCuadranteId && targetCuadranteId !== cuadranteActivo?.id)) {
-        srvs = targetCuadranteId ? await getServiciosByCuadranteId(targetCuadranteId) : [];
+      const unidadActivoCoincide = (cuadranteActivo?.tipoServicio || 'GUARDIA') === sUnidad;
+      let srvs = (unidadActivoCoincide && targetCuadranteId === cuadranteActivo?.id) ? servicios : [];
+      if (targetCuadranteId && (!srvs || srvs.length === 0)) {
+        srvs = await getServiciosByCuadranteId(targetCuadranteId);
       }
 
       const res = await aprobarSolicitudAdmin({

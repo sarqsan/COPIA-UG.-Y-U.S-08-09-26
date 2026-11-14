@@ -82,14 +82,17 @@ export const normalizeCuadrante = (c: any): CuadranteMaestro => {
 // Helpers de caché para tests automatizados
 export const setMemoryServiciosTest = (cuadranteId: string, servicios: ServicioDia[]) => {
   memoryServiciosCache.set(cuadranteId, servicios);
+  saveLocalCache();
 };
 
 export const clearMemoryServiciosTest = () => {
   memoryServiciosCache.clear();
+  saveLocalCache();
 };
 
 export const setMemoryCuadrantesTest = (cuadrantes: CuadranteMaestro[]) => {
   memoryCuadrantesCache = cuadrantes.map(normalizeCuadrante);
+  saveLocalCache();
 };
 
 const loadLocalCache = () => {
@@ -1413,12 +1416,14 @@ export const aplicarCambioServiciosAutorizado = async (params: {
   let srvIndex = copiaServicios.findIndex((s) => s.id === solicitud.servicioId || s.fecha === solicitud.fechaServicio);
   if (srvIndex === -1) {
     const unidadUS =
+      solicitud.tipoServicio === 'US' ||
       Boolean(solicitud.destinatarioGrupo?.includes('US') || solicitud.solicitanteGrupo?.includes('US')) ||
       cuadranteId.includes('-us-');
     const cList = await getCuadrantes({ tipoServicio: unidadUS ? 'US' : 'GUARDIA' });
-    const cMatch = cList.find(
-      (c) => c.fechaInicio <= solicitud.fechaServicio && c.fechaFin >= solicitud.fechaServicio
-    );
+    const cMatch =
+      cList.find((c) => c.id === cuadranteId && c.fechaInicio <= solicitud.fechaServicio && c.fechaFin >= solicitud.fechaServicio) ||
+      cList.find((c) => c.fechaInicio <= solicitud.fechaServicio && c.fechaFin >= solicitud.fechaServicio && c.estado === 'CONFIRMADO') ||
+      cList.find((c) => c.fechaInicio <= solicitud.fechaServicio && c.fechaFin >= solicitud.fechaServicio);
     if (cMatch) {
       const srvsExtra = await getServiciosByCuadranteId(cMatch.id);
       copiaServicios.push(...JSON.parse(JSON.stringify(srvsExtra)));
@@ -1435,7 +1440,7 @@ export const aplicarCambioServiciosAutorizado = async (params: {
   const srvActual = { ...copiaServicios[srvIndex] } as any;
   const motivoPrincipal = `PERMUTA AUTORIZADA (${codigoVerificacion}): ${solicitud.solicitanteNombre} cede a ${solicitud.destinatarioNombre}. Motivo: ${solicitud.motivo || 'Acuerdo mutuo'}`;
 
-  const isUS = srvActual.diurno !== undefined || cuadranteId.includes('-us-');
+  const isUS = srvActual.diurno !== undefined || (srvActual.titulares === undefined && (cuadranteId.includes('-us-') || solicitud.tipoServicio === 'US'));
 
   // Buscar dónde está asignado el solicitante en este servicio
   let slotPrincipalAsignado = false;
@@ -1732,11 +1737,31 @@ export const aplicarCambioServiciosAutorizado = async (params: {
     };
   }
 
-  // Determinar los cuadrantes reales donde reside cada servicio modificado
+  // Determinar los cuadrantes reales donde reside cada servicio modificado (estrictamente dentro de la misma unidad)
+  const esCuadranteMismaUnidad = (c: CuadranteMaestro) => {
+    const cEsUS = c.tipoServicio === 'US' || c.id?.includes('-us-') || Boolean(c.configuracionUS);
+    return isUS ? cEsUS : !cEsUS;
+  };
+
+  const buscarCuadranteParaFecha = (fecha: string, idPreferido?: string | null) => {
+    if (idPreferido) {
+      const pref = memoryCuadrantesCache.find(
+        (c) => c.id === idPreferido && esCuadranteMismaUnidad(c) && c.fechaInicio <= fecha && c.fechaFin >= fecha
+      );
+      if (pref) return pref;
+    }
+    return (
+      memoryCuadrantesCache.find(
+        (c) => esCuadranteMismaUnidad(c) && c.fechaInicio <= fecha && c.fechaFin >= fecha && c.estado === 'CONFIRMADO'
+      ) ||
+      memoryCuadrantesCache.find(
+        (c) => esCuadranteMismaUnidad(c) && c.fechaInicio <= fecha && c.fechaFin >= fecha
+      )
+    );
+  };
+
   let targetCidA = srvActual.cuadranteId || cuadranteId;
-  const cMatchA = memoryCuadrantesCache.find(
-    (c) => c.fechaInicio <= srvActual.fecha && c.fechaFin >= srvActual.fecha && (!isUS || c.tipoServicio === 'US')
-  );
+  const cMatchA = buscarCuadranteParaFecha(srvActual.fecha, targetCidA);
   if (cMatchA) {
     targetCidA = cMatchA.id;
   }
@@ -1744,9 +1769,7 @@ export const aplicarCambioServiciosAutorizado = async (params: {
 
   let targetCidB = srvDevActual ? (srvDevActual.cuadranteId || targetCidA) : null;
   if (srvDevActual) {
-    const cMatchB = memoryCuadrantesCache.find(
-      (c) => c.fechaInicio <= srvDevActual.fecha && c.fechaFin >= srvDevActual.fecha && (!isUS || c.tipoServicio === 'US')
-    );
+    const cMatchB = buscarCuadranteParaFecha(srvDevActual.fecha, targetCidB);
     if (cMatchB) {
       targetCidB = cMatchB.id;
     }
@@ -1754,10 +1777,15 @@ export const aplicarCambioServiciosAutorizado = async (params: {
   }
 
   // 4. Guardar en memoria y persistir localmente para cada cuadrante
+  const filtrarPorUnidad = (lista: ServicioDia[]) =>
+    lista.filter((s: any) => (isUS ? s?.diurno !== undefined : s?.titulares !== undefined));
+
   // Cuadrante A
-  let srvsA = memoryServiciosCache.get(targetCidA);
-  if (!srvsA || srvsA.length === 0) {
-    srvsA = copiaServicios.filter((s) => s.cuadranteId === targetCidA || (!s.cuadranteId && targetCidA === cuadranteId));
+  let srvsA = filtrarPorUnidad(memoryServiciosCache.get(targetCidA) || []);
+  if (srvsA.length === 0) {
+    srvsA = filtrarPorUnidad(
+      copiaServicios.filter((s) => s.cuadranteId === targetCidA || (!s.cuadranteId && targetCidA === cuadranteId))
+    );
   }
   const idxA = srvsA.findIndex((s) => s.id === srvActual.id || s.fecha === srvActual.fecha);
   if (idxA !== -1) {
@@ -1767,7 +1795,7 @@ export const aplicarCambioServiciosAutorizado = async (params: {
   }
   memoryServiciosCache.set(targetCidA, srvsA);
 
-  const cuadranteA = memoryCuadrantesCache.find((c) => c.id === targetCidA);
+  const cuadranteA = memoryCuadrantesCache.find((c) => c.id === targetCidA && esCuadranteMismaUnidad(c));
   if (cuadranteA) {
     if (isUS) {
       cuadranteA.metricasEquilibrioUS = calcularMetricasCuadranteUS(srvsA as any, personas);
@@ -1781,9 +1809,9 @@ export const aplicarCambioServiciosAutorizado = async (params: {
   // Cuadrante B (si hay devolución)
   let cuadranteB: CuadranteMaestro | undefined;
   if (srvDevActual && targetCidB) {
-    let srvsB = targetCidB === targetCidA ? srvsA : memoryServiciosCache.get(targetCidB);
-    if (!srvsB || srvsB.length === 0) {
-      srvsB = copiaServicios.filter((s) => s.cuadranteId === targetCidB);
+    let srvsB = targetCidB === targetCidA ? srvsA : filtrarPorUnidad(memoryServiciosCache.get(targetCidB) || []);
+    if (srvsB.length === 0) {
+      srvsB = filtrarPorUnidad(copiaServicios.filter((s) => s.cuadranteId === targetCidB));
     }
     const idxB = srvsB.findIndex((s) => s.id === srvDevActual.id || s.fecha === srvDevActual.fecha);
     if (idxB !== -1) {
@@ -1794,7 +1822,7 @@ export const aplicarCambioServiciosAutorizado = async (params: {
     memoryServiciosCache.set(targetCidB, srvsB);
 
     if (targetCidB !== targetCidA) {
-      cuadranteB = memoryCuadrantesCache.find((c) => c.id === targetCidB);
+      cuadranteB = memoryCuadrantesCache.find((c) => c.id === targetCidB && esCuadranteMismaUnidad(c));
       if (cuadranteB) {
         if (isUS) {
           cuadranteB.metricasEquilibrioUS = calcularMetricasCuadranteUS(srvsB as any, personas);

@@ -149,12 +149,14 @@ export const calcularMetricasCuadrante = (
     const esDomingo = diaSemana === 0;
     const esFinSemana = esSabado || esDomingo;
 
+    if (!dia || !dia.titulares) return;
+
     // Titulares
     const titularesIds = [
-      dia.titulares.rol1[0]?.personaIdReal,
-      dia.titulares.rol1[1]?.personaIdReal,
-      dia.titulares.rol2[0]?.personaIdReal,
-      dia.titulares.rol2[1]?.personaIdReal,
+      dia.titulares?.rol1?.[0]?.personaIdReal,
+      dia.titulares?.rol1?.[1]?.personaIdReal,
+      dia.titulares?.rol2?.[0]?.personaIdReal,
+      dia.titulares?.rol2?.[1]?.personaIdReal,
     ].filter(Boolean);
 
     titularesIds.forEach((pId) => {
@@ -170,8 +172,8 @@ export const calcularMetricasCuadrante = (
 
     // Imaginarias
     const imagIds = [
-      dia.imaginarias.rol1?.personaIdReal,
-      dia.imaginarias.rol2?.personaIdReal,
+      dia.imaginarias?.rol1?.personaIdReal,
+      dia.imaginarias?.rol2?.personaIdReal,
     ].filter(Boolean);
 
     imagIds.forEach((pId) => {
