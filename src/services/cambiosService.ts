@@ -361,7 +361,7 @@ export const evaluarMotivosIncompatibilidadCambioUS = (params: {
       });
     }
 
-    // Día Anterior (D-1): Nocturno prohibido (empalme 24h); Imaginaria prohibida
+    // Día Anterior (D-1): Nocturno prohibido (empalme 24h); Imaginaria prohibida (07:00 D-1 a 07:00 D empalma con Diurno 07:00 D)
     if (estAnt.nocturno) {
       motivos.push({
         categoria: 'DESCANSO',
@@ -375,7 +375,7 @@ export const evaluarMotivosIncompatibilidadCambioUS = (params: {
     if (estAnt.imaginaria) {
       motivos.push({
         categoria: 'DESCANSO',
-        descripcion: `${destinatario.nombre} tiene asignada Imaginaria el día anterior (${strAnt}). No se puede entrar de servicio si el día anterior tienes imaginaria (en caso de activarse se solaparía trabajando 24 horas).`,
+        descripcion: `${destinatario.nombre} tiene asignada Imaginaria el día anterior (${strAnt}), finalizando a las 07:00 h del ${fechaServicio}. Entrar de Diurno el ${fechaServicio} (07:00 h) empalmaría con la imaginaria (riesgo de 24-36 horas continuas).`,
         fechaAfectada: strAnt,
         servicioAsignado: 'Imaginaria U.S. (24h)',
         servicioPretendido: nombreTurnoPretendido,
@@ -383,17 +383,7 @@ export const evaluarMotivosIncompatibilidadCambioUS = (params: {
       });
     }
 
-    // Día Siguiente (D+1): Imaginaria prohibida
-    if (estSig.imaginaria) {
-      motivos.push({
-        categoria: 'DESCANSO',
-        descripcion: `${destinatario.nombre} tiene asignada Imaginaria el día siguiente (${strSig}). No se puede entrar de servicio si el día posterior tienes imaginaria (en caso de activarse se solaparía trabajando 24 horas).`,
-        fechaAfectada: strSig,
-        servicioAsignado: 'Imaginaria U.S. (24h)',
-        servicioPretendido: nombreTurnoPretendido,
-        codigoRegla: 'US-08',
-      });
-    }
+    // Día Siguiente (D+1): Imaginaria D+1 SÍ está permitida tras Diurno D (Diurno termina 19:00 D e Imaginaria empieza 07:00 D+1 = 12h descanso)
 
   } else if (tipoTurnoUS === 'NOCTURNO') {
     if (estHoy.nocturno) {
@@ -427,19 +417,10 @@ export const evaluarMotivosIncompatibilidadCambioUS = (params: {
       });
     }
 
-    // Día Anterior (D-1): Nocturno previo SÍ está permitido (descanso 12h: salida 07:00 / entrada 19:00); Imaginaria prohibida
-    if (estAnt.imaginaria) {
-      motivos.push({
-        categoria: 'DESCANSO',
-        descripcion: `${destinatario.nombre} tiene asignada Imaginaria el día anterior (${strAnt}). No se puede entrar de servicio nocturno si el día anterior tienes imaginaria (riesgo de trabajar 24 horas por activación).`,
-        fechaAfectada: strAnt,
-        servicioAsignado: 'Imaginaria U.S. (24h)',
-        servicioPretendido: nombreTurnoPretendido,
-        codigoRegla: 'US-08',
-      });
-    }
+    // Día Anterior (D-1): Nocturno previo SÍ está permitido (descanso 12h: salida 07:00 / entrada 19:00)
+    // Imaginaria D-1 SÍ está permitida antes de Nocturno D (Imaginaria termina 07:00 D y Nocturno empieza 19:00 D = 12h descanso)
 
-    // Día Siguiente (D+1): Diurno prohibido (empalme 24h: salida nocturno 07:00 / entrada diurno 07:00); Imaginaria prohibida
+    // Día Siguiente (D+1): Diurno prohibido (empalme 24h: salida nocturno 07:00 / entrada diurno 07:00); Imaginaria prohibida (empalme 07:00 D+1)
     if (estSig.diurno) {
       motivos.push({
         categoria: 'DESCANSO',
@@ -453,7 +434,7 @@ export const evaluarMotivosIncompatibilidadCambioUS = (params: {
     if (estSig.imaginaria) {
       motivos.push({
         categoria: 'DESCANSO',
-        descripcion: `${destinatario.nombre} tiene asignada Imaginaria el día posterior (${strSig}). No se puede entrar de servicio si el día posterior tienes imaginaria (riesgo de trabajar 24 horas por activación).`,
+        descripcion: `${destinatario.nombre} tiene asignada Imaginaria el día posterior (${strSig}), iniciando a las 07:00 h de ${strSig}. El turno Nocturno del ${fechaServicio} finaliza a las 07:00 h de ${strSig} y empalmaría con la imaginaria.`,
         fechaAfectada: strSig,
         servicioAsignado: 'Imaginaria U.S. (24h)',
         servicioPretendido: nombreTurnoPretendido,
@@ -462,7 +443,7 @@ export const evaluarMotivosIncompatibilidadCambioUS = (params: {
     }
 
   } else {
-    // IMAGINARIA EN U.S. (24 horas)
+    // IMAGINARIA EN U.S. (24 horas: 07:00 D a 07:00 D+1)
     if (estHoy.diurno || estHoy.nocturno || estHoy.imaginaria) {
       motivos.push({
         categoria: 'DISPONIBILIDAD',
@@ -473,22 +454,26 @@ export const evaluarMotivosIncompatibilidadCambioUS = (params: {
         codigoRegla: 'US-SOLAPAMIENTO',
       });
     }
-    if (estAnt.diurno || estAnt.nocturno || estAnt.imaginaria) {
+    // Día Anterior (D-1): Diurno D-1 (termina 19:00 D-1) SÍ permite Imaginaria D (empieza 07:00 D -> 12h descanso).
+    // Nocturno D-1 (termina 07:00 D) e Imaginaria D-1 (termina 07:00 D) SÍ empalman y permanecen PROHIBIDOS.
+    if (estAnt.nocturno || estAnt.imaginaria) {
       motivos.push({
         categoria: 'DESCANSO',
-        descripcion: `${destinatario.nombre} tiene servicio o imaginaria el día anterior (${strAnt}). En la U.S. no se puede ser imaginaria el día después de un servicio (riesgo de 24 horas por activación).`,
+        descripcion: `${destinatario.nombre} tiene ${estAnt.nocturno ? 'turno Nocturno' : 'Imaginaria'} el día anterior (${strAnt}), finalizando a las 07:00 h del ${fechaServicio}. Empalmaría con la Imaginaria del ${fechaServicio} a las 07:00 h.`,
         fechaAfectada: strAnt,
-        servicioAsignado: estAnt.diurno ? 'Turno Diurno' : estAnt.nocturno ? 'Turno Nocturno' : 'Imaginaria',
+        servicioAsignado: estAnt.nocturno ? 'Turno Nocturno' : 'Imaginaria',
         servicioPretendido: nombreTurnoPretendido,
         codigoRegla: 'US-08',
       });
     }
-    if (estSig.diurno || estSig.nocturno || estSig.imaginaria) {
+    // Día Siguiente (D+1): Nocturno D+1 (empieza 19:00 D+1) SÍ permite Imaginaria D (termina 07:00 D+1 -> 12h descanso).
+    // Diurno D+1 (empieza 07:00 D+1) e Imaginaria D+1 (empieza 07:00 D+1) SÍ empalman y permanecen PROHIBIDOS.
+    if (estSig.diurno || estSig.imaginaria) {
       motivos.push({
         categoria: 'DESCANSO',
-        descripcion: `${destinatario.nombre} tiene servicio o imaginaria el día siguiente (${strSig}). En la U.S. no se puede ser imaginaria el día previo a un servicio (riesgo de 24 horas por activación).`,
+        descripcion: `${destinatario.nombre} tiene ${estSig.diurno ? 'turno Diurno' : 'Imaginaria'} el día siguiente (${strSig}), iniciando a las 07:00 h de ${strSig}. Empalmaría con el fin de la Imaginaria del ${fechaServicio} a las 07:00 h.`,
         fechaAfectada: strSig,
-        servicioAsignado: estSig.diurno ? 'Turno Diurno' : estSig.nocturno ? 'Turno Nocturno' : 'Imaginaria',
+        servicioAsignado: estSig.diurno ? 'Turno Diurno' : 'Imaginaria',
         servicioPretendido: nombreTurnoPretendido,
         codigoRegla: 'US-08',
       });
@@ -1050,17 +1035,31 @@ export const validarViabilidadPermuta = (
       motivo: `${solicitante.nombre} finalizaría el turno nocturno de ${fechaServicioB} e ingresaría de diurno el ${sigB} (24h seguidas no permitidas en U.S.).`,
     };
   }
-  // En U.S. no se puede asumir imaginaria si hay servicio diurno/nocturno en días adyacentes, ni viceversa
-  if (estSolEnB.imaginaria && (estSolAntB.diurno || estSolAntB.nocturno || estSolSigB.diurno || estSolSigB.nocturno)) {
+  // En U.S. con Imaginaria (07:00 D a 07:00 D+1):
+  // - Permitido: Diurno (D-1) -> Imaginaria (D) [12h descanso] e Imaginaria (D) -> Nocturno (D+1) [12h descanso]
+  // - Prohibido (empalme 07:00): Nocturno (D-1) -> Imaginaria (D), Imaginaria (D) -> Diurno (D+1) e Imaginarias consecutivas
+  if (estSolEnB.imaginaria && (estSolAntB.nocturno || estSolAntB.imaginaria)) {
     return {
       valido: false,
-      motivo: `${solicitante.nombre} tendría servicio diurno/nocturno en el día anterior o posterior a la imaginaria del ${fechaServicioB} (prohibido en U.S. por riesgo de solapamiento de 24h).`,
+      motivo: `${solicitante.nombre} finalizaría ${estSolAntB.nocturno ? 'turno nocturno' : 'imaginaria'} a las 07:00 del ${fechaServicioB} y empalmaría con la imaginaria del ${fechaServicioB}.`,
     };
   }
-  if ((estSolEnB.diurno || estSolEnB.nocturno) && (estSolAntB.imaginaria || estSolSigB.imaginaria)) {
+  if (estSolEnB.imaginaria && (estSolSigB.diurno || estSolSigB.imaginaria)) {
     return {
       valido: false,
-      motivo: `${solicitante.nombre} tiene imaginaria en el día anterior o posterior a su servicio del ${fechaServicioB} (prohibido en U.S. por riesgo de solapamiento de 24h).`,
+      motivo: `${solicitante.nombre} finalizaría la imaginaria del ${fechaServicioB} a las 07:00 del ${sigB} y empalmaría con ${estSolSigB.diurno ? 'el turno diurno' : 'otra imaginaria'} del ${sigB}.`,
+    };
+  }
+  if (estSolEnB.diurno && estSolAntB.imaginaria) {
+    return {
+      valido: false,
+      motivo: `${solicitante.nombre} tiene imaginaria el día anterior (${antB}) finalizando a las 07:00 del ${fechaServicioB}, por lo que empalmaría con el turno diurno del ${fechaServicioB}.`,
+    };
+  }
+  if (estSolEnB.nocturno && estSolSigB.imaginaria) {
+    return {
+      valido: false,
+      motivo: `${solicitante.nombre} finalizaría el turno nocturno del ${fechaServicioB} a las 07:00 del ${sigB} y empalmaría con la imaginaria del ${sigB}.`,
     };
   }
 
@@ -1082,16 +1081,28 @@ export const validarViabilidadPermuta = (
       motivo: `${destinatario.nombre} finalizaría el turno nocturno de ${fechaServicioA} e ingresaría de diurno el ${sigA} (24h seguidas no permitidas en U.S.).`,
     };
   }
-  if (estDestEnA.imaginaria && (estDestAntA.diurno || estDestAntA.nocturno || estDestSigA.diurno || estDestSigA.nocturno)) {
+  if (estDestEnA.imaginaria && (estDestAntA.nocturno || estDestAntA.imaginaria)) {
     return {
       valido: false,
-      motivo: `${destinatario.nombre} tendría servicio diurno/nocturno en el día anterior o posterior a la imaginaria del ${fechaServicioA} (prohibido en U.S. por riesgo de solapamiento de 24h).`,
+      motivo: `${destinatario.nombre} finalizaría ${estDestAntA.nocturno ? 'turno nocturno' : 'imaginaria'} a las 07:00 del ${fechaServicioA} y empalmaría con la imaginaria del ${fechaServicioA}.`,
     };
   }
-  if ((estDestEnA.diurno || estDestEnA.nocturno) && (estDestAntA.imaginaria || estDestSigA.imaginaria)) {
+  if (estDestEnA.imaginaria && (estDestSigA.diurno || estDestSigA.imaginaria)) {
     return {
       valido: false,
-      motivo: `${destinatario.nombre} tiene imaginaria en el día anterior o posterior a su servicio del ${fechaServicioA} (prohibido en U.S. por riesgo de solapamiento de 24h).`,
+      motivo: `${destinatario.nombre} finalizaría la imaginaria del ${fechaServicioA} a las 07:00 del ${sigA} y empalmaría con ${estDestSigA.diurno ? 'el turno diurno' : 'otra imaginaria'} del ${sigA}.`,
+    };
+  }
+  if (estDestEnA.diurno && estDestAntA.imaginaria) {
+    return {
+      valido: false,
+      motivo: `${destinatario.nombre} tiene imaginaria el día anterior (${antA}) finalizando a las 07:00 del ${fechaServicioA}, por lo que empalmaría con el turno diurno del ${fechaServicioA}.`,
+    };
+  }
+  if (estDestEnA.nocturno && estDestSigA.imaginaria) {
+    return {
+      valido: false,
+      motivo: `${destinatario.nombre} finalizaría el turno nocturno del ${fechaServicioA} a las 07:00 del ${sigA} y empalmaría con la imaginaria del ${sigA}.`,
     };
   }
 

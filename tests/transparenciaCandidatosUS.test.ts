@@ -230,11 +230,12 @@ function crearDiaUS(params: {
 // Fecha solicitada: 2026-11-15 (Turno Diurno para el solicitante)
 const serviciosTest: ServicioDiaUS[] = [
   // 14 de Noviembre: D-1
+  // compIncompatibleImaginariaUS08 tiene IMAGINARIA en D-1 (finaliza 07:00 del 15 -> empalma con Diurno 07:00 del 15)
   crearDiaUS({
     fecha: '2026-11-14',
     diurno: ['otro-a', 'otro-b'],
     nocturno: [compEmpalme24hUS09.id, compIncompatibleMultiple.id], // Salientes de noche para el 15
-    imaginaria: 'otro-c',
+    imaginaria: compIncompatibleImaginariaUS08.id,
   }),
 
   // 15 de Noviembre: D (Día de la solicitud)
@@ -252,12 +253,11 @@ const serviciosTest: ServicioDiaUS[] = [
   }),
 
   // 16 de Noviembre: D+1
-  // compIncompatibleImaginariaUS08 tiene IMAGINARIA en D+1
   crearDiaUS({
     fecha: '2026-11-16',
     diurno: ['otro-f', 'otro-g'],
     nocturno: ['otro-h', 'otro-i'],
-    imaginaria: compIncompatibleImaginariaUS08.id,
+    imaginaria: 'otro-c',
   }),
 
   // 18 de Noviembre: Turno de compCompatibleOtraFecha (Diurno permutable)
@@ -322,7 +322,7 @@ console.log('\n--- PRUEBA 1: Cambio Individual (Cesión Unilateral de Turno Diur
   assert(!!incImag, 'compIncompatibleImaginariaUS08 aparece en INCOMPATIBLES');
   assert(
     incImag?.motivos.some((m) => m.codigoRegla === 'US-08'),
-    'Identifica la regla US-08 por imaginaria en día posterior'
+    'Identifica la regla US-08 por imaginaria en día anterior que empalma a las 07:00'
   );
 }
 
