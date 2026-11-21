@@ -35,6 +35,8 @@ import {
   Settings,
   ChevronRight,
   Database,
+  BellRing,
+  Send,
 } from 'lucide-react';
 
 // Pages
@@ -53,6 +55,16 @@ import { PatrullasModule } from '../patrullas/PatrullasModule';
 import { MatriculasModuleView } from '../matriculas/MatriculasModuleView';
 import { RespaldosModuleView } from '../backups/RespaldosModuleView';
 import { asegurarBackupDiario } from '../../services/backupRestoreService';
+import { AvisoProgramadoCuadrantesModal } from '../configuracion/AvisoProgramadoCuadrantesModal';
+import {
+  getAvisoProgramadoConfig,
+  getSlotsCompletadosLocal,
+  mostrarNotificacionLocalAviso,
+} from '../../services/emailAvisoManualService';
+import {
+  EmailProgramacionConfig,
+  evaluarAvisoProgramadoPendiente,
+} from '../../services/emailProgramacionScheduleHelper';
 
 export const AdminLayout: React.FC = () => {
   const { currentCuenta, loginAsSimulatedUser } = useAuth();
@@ -70,6 +82,17 @@ export const AdminLayout: React.FC = () => {
 
   // Modal for new persona from top action
   const [isNewPersonaModalOpen, setIsNewPersonaModalOpen] = useState(false);
+
+  // Estado global de aviso programado de envío de cuadrantes (UG + US)
+  const [avisoPendiente, setAvisoPendiente] = useState<{
+    config: EmailProgramacionConfig;
+    slotKey: string;
+    descripcionHorario: string | null;
+    esAvisoAtrasado: boolean;
+  } | null>(null);
+  const [mostrarModalAviso, setMostrarModalAviso] = useState(false);
+  const slotsPospuestosRef = React.useRef<Set<string>>(new Set());
+  const slotsNotificadosRef = React.useRef<Set<string>>(new Set());
 
   const fetchAllData = async () => {
     try {
@@ -100,8 +123,61 @@ export const AdminLayout: React.FC = () => {
     }
   };
 
+  const verificarAvisoProgramado = async () => {
+    try {
+      const cfg = await getAvisoProgramadoConfig();
+      const evaluacion = evaluarAvisoProgramadoPendiente({
+        config: cfg,
+        slotsCompletados: getSlotsCompletadosLocal(),
+      });
+
+      if (evaluacion.pendiente && evaluacion.slotKeyPendiente) {
+        const slot = evaluacion.slotKeyPendiente;
+        setAvisoPendiente({
+          config: cfg,
+          slotKey: slot,
+          descripcionHorario: evaluacion.descripcionHorarioPendiente,
+          esAvisoAtrasado: evaluacion.esAvisoAtrasado,
+        });
+
+        if (!slotsNotificadosRef.current.has(slot)) {
+          slotsNotificadosRef.current.add(slot);
+          if (!slotsPospuestosRef.current.has(slot)) {
+            setMostrarModalAviso(true);
+          }
+          mostrarNotificacionLocalAviso({
+            slotKey: slot,
+            titulo: 'Recordatorio: Enviar Cuadrantes UG y US',
+            mensaje: `Toca enviar los cuadrantes actualizados a ${cfg.destinatario} (${evaluacion.descripcionHorarioPendiente || cfg.horaEnvio}).`,
+          });
+        }
+      } else {
+        setAvisoPendiente(null);
+      }
+    } catch (err) {
+      console.warn('[AdminLayout] Error comprobando aviso programado:', err);
+    }
+  };
+
   useEffect(() => {
     fetchAllData();
+    verificarAvisoProgramado();
+
+    const intervalId = setInterval(() => {
+      verificarAvisoProgramado();
+    }, 20000);
+
+    const handleAvisoUpdate = () => {
+      verificarAvisoProgramado();
+    };
+    window.addEventListener('aviso_programado_updated', handleAvisoUpdate);
+    window.addEventListener('focus', handleAvisoUpdate);
+
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener('aviso_programado_updated', handleAvisoUpdate);
+      window.removeEventListener('focus', handleAvisoUpdate);
+    };
   }, []);
 
   const adminInfo = {
@@ -356,6 +432,26 @@ export const AdminLayout: React.FC = () => {
               </div>
             </div>
 
+            {avisoPendiente && (
+              <div className="mb-4 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs shadow-xs dark:border-amber-700/70 dark:bg-amber-950/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-start sm:items-center gap-2.5">
+                  <BellRing className="h-4 w-4 text-amber-600 shrink-0 mt-0.5 sm:mt-0" />
+                  <div className="text-amber-950 dark:text-amber-100">
+                    <strong>Recordatorio programado pendiente:</strong> Enviar los cuadrantes actualizados de <strong>UG y US</strong> a <span className="font-mono">{avisoPendiente.config.destinatario}</span>
+                    {avisoPendiente.descripcionHorario ? ` (${avisoPendiente.descripcionHorario})` : ''}.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMostrarModalAviso(true)}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white px-3.5 py-2 text-[11px] font-bold shrink-0 cursor-pointer"
+                >
+                  <Send className="h-3.5 w-3.5" />
+                  <span>Generar Excel (.xlsx) y Preparar Correo</span>
+                </button>
+              </div>
+            )}
+
             {selectedPersona ? (
               <PersonaDetailPage
                 persona={selectedPersona}
@@ -587,6 +683,27 @@ export const AdminLayout: React.FC = () => {
         onClose={() => setIsNewPersonaModalOpen(false)}
         onSave={handleSavePersona}
       />
+
+      {/* Modal Global de Aviso Programado de Envío (UG + US Excel .xlsx) */}
+      {avisoPendiente && (
+        <AvisoProgramadoCuadrantesModal
+          isOpen={mostrarModalAviso}
+          onClose={() => setMostrarModalAviso(false)}
+          config={avisoPendiente.config}
+          slotKeyPendiente={avisoPendiente.slotKey}
+          descripcionHorario={avisoPendiente.descripcionHorario}
+          esAvisoAtrasado={avisoPendiente.esAvisoAtrasado}
+          onCompletado={() => {
+            setMostrarModalAviso(false);
+            setAvisoPendiente(null);
+            verificarAvisoProgramado();
+          }}
+          onPosponer={() => {
+            slotsPospuestosRef.current.add(avisoPendiente.slotKey);
+            setMostrarModalAviso(false);
+          }}
+        />
+      )}
     </div>
   );
 };

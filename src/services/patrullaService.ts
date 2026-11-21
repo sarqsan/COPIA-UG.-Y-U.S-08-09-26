@@ -10,7 +10,7 @@ import {
   runTransaction,
   limit,
 } from 'firebase/firestore';
-import { db } from '../firebase/config';
+import { db, FIREBASE_RUNTIME_ENV } from '../firebase/config';
 import { Persona, Empleo } from '../types';
 import {
   Patrulla,
@@ -450,8 +450,13 @@ export const getPatrullas = async (filtro?: {
     snap.forEach((docSnap) => {
       items.push(docSnap.data() as Patrulla);
     });
-    memoryPatrullasCache = items;
-    saveLocalStorage();
+    if (
+      items.length > 0 ||
+      (!snap.metadata.fromCache && FIREBASE_RUNTIME_ENV.envType !== 'NODE_TSX_TEST')
+    ) {
+      memoryPatrullasCache = items;
+      saveLocalStorage();
+    }
   } catch (err) {
     console.warn('Error al cargar patrullas desde Firestore, usando caché local:', err);
   }

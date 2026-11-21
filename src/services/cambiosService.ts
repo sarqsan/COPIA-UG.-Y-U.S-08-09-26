@@ -25,7 +25,6 @@ import { registrarAuditLog } from './auditService';
 import { crearNotificacion } from './notificacionesService';
 import { getServiciosByCuadranteId, aplicarCambioServiciosAutorizado, getCuadrantes } from './cuadranteService';
 import { getPersonas } from './personasService';
-import { enviarDocumentoCambioPorGmail } from './emailCambioEnvioService';
 
 const SOLICITUDES_COLLECTION = 'solicitudes_cambio';
 const DOCUMENTOS_FIRMA_COLLECTION = 'documentos_cambios_firmados';
@@ -2780,20 +2779,6 @@ export const resolverSolicitudAdmin = async (params: {
     cuadranteId: sol.cuadranteId,
     servicioId: sol.servicioId,
   });
-
-  // 7. Despacho automático de correo oficial con Excel a Personal (sarqsan2@gmail.com)
-  try {
-    enviarDocumentoCambioPorGmail({
-      doc: documentoFirmado,
-      tipoEnvio: 'AUTOMATICO',
-      personasProp: personasList,
-      serviciosProp: servicios,
-    }).catch((err) => {
-      console.warn('[CambiosService] Envío automático a Personal diferido:', err?.message || err);
-    });
-  } catch (errEmail) {
-    console.warn('[CambiosService] Error iniciando envío por correo a Personal:', errEmail);
-  }
 
   return {
     success: true,

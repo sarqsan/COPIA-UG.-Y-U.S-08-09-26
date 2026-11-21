@@ -20,7 +20,6 @@ import {
   DocumentoCambioFirmado,
 } from '../types';
 import { registrarDocumentoFirmadoDirecto } from './cambiosService';
-import { enviarDocumentoCambioPorGmail } from './emailCambioEnvioService';
 import { CuadranteSimulacionUSResult, ServicioDiaUS } from '../types/usTypes';
 import { registrarAuditLog } from './auditService';
 import { validarCuadrante } from './cuadranteValidatorService';
@@ -1370,18 +1369,8 @@ export const modificarServicioUSManual = async (params: {
     };
 
     await registrarDocumentoFirmadoDirecto(docModUS);
-
-    enviarDocumentoCambioPorGmail({
-      doc: docModUS,
-      tipoEnvio: 'AUTOMATICO',
-      cuadranteProp: cuadrante,
-      serviciosProp: servicios as any,
-      personasProp: personasUS,
-    }).catch((err) => {
-      console.warn('[CuadranteUS] Envío automático a Personal diferido:', err?.message || err);
-    });
   } catch (errEmail) {
-    console.warn('[CuadranteUS] Error iniciando envío por correo a Personal:', errEmail);
+    console.warn('[CuadranteUS] Error registrando diligencia de modificación U.S.:', errEmail);
   }
 
   return {

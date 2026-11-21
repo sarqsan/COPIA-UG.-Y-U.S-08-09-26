@@ -295,8 +295,6 @@ export const DetalleAprobacionCambioModal: React.FC<DetalleAprobacionCambioModal
         );
         if (res.documentoId) {
           setDocGeneradoId(res.documentoId);
-          // Disparar la descarga inmediata del Excel con cuadrante tras autorizar
-          handleDescargarExcel(res.documentoId);
         }
         setSolicitud((prev) =>
           prev
