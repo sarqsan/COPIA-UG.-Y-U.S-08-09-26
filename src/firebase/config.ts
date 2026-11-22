@@ -442,8 +442,8 @@ export const IS_PRODUCTION_ENVIRONMENT = FIREBASE_RUNTIME_ENV.isProduction;
 export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
-// Use custom firestore databaseId if specified in the config, otherwise standard
-const dbId = (firebaseConfigJson as any).firestoreDatabaseId;
+// Use custom firestore databaseId if specified in the config, falling back to PRODUCTION_DATABASE_ID
+const dbId = (firebaseConfigJson as any).firestoreDatabaseId || PRODUCTION_DATABASE_ID;
 const rawFirestoreDb =
   dbId && dbId !== '(default)' ? getFirestore(app, dbId) : getFirestore(app);
 

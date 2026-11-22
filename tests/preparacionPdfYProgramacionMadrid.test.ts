@@ -10,11 +10,14 @@ import {
 } from '../src/services/emailProgramacionScheduleHelper';
 import {
   XLSX_MIME_TYPE,
+  codificarMimeParaGmailRaw,
   compartirExcelsNativo,
   construirBorradorEmlConExcels,
   construirMailtoUrl,
   crearArchivosExcelParaCompartir,
+  crearBorradorGmailConExcels,
   detectarCapacidadesEnvioCorreo,
+  enviarCorreoGmailConExcels,
   generarDosExcelsActualizados,
   getSlotsCompletadosLocal,
   prepararCorreoDesdeAviso,
@@ -690,14 +693,27 @@ async function runTests() {
   assert.equal(fileUG.size, excels.excelUGBytes.length);
   assert.equal(fileUS.size, excels.excelUSBytes.length);
 
-  // Detección móvil vs escritorio
-  const capMovil = detectarCapacidadesEnvioCorreo({
+  // Detección iOS Safari vs Android Chrome vs Escritorio
+  const capIOS = detectarCapacidadesEnvioCorreo({
     userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15',
     canShare: () => true,
     share: async () => {},
   });
-  assert.equal(capMovil.esMovil, true);
-  assert.equal(capMovil.soportaWebShareArchivos, true);
+  assert.equal(capIOS.esMovil, true);
+  assert.equal(capIOS.esIOS, true);
+  assert.equal(capIOS.esAndroid, false);
+  assert.equal(capIOS.soportaWebShareArchivos, true);
+
+  const capAndroidChrome = detectarCapacidadesEnvioCorreo({
+    userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36',
+    // Incluso si Chrome Android miente en canShare() devolviendo true, no debe ofrecerse Web Share de .xlsx
+    canShare: () => true,
+    share: async () => {},
+  });
+  assert.equal(capAndroidChrome.esMovil, true);
+  assert.equal(capAndroidChrome.esAndroid, true);
+  assert.equal(capAndroidChrome.esIOS, false);
+  assert.equal(capAndroidChrome.soportaWebShareArchivos, false);
 
   const capDesktop = detectarCapacidadesEnvioCorreo({
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130.0.0.0',
@@ -707,7 +723,7 @@ async function runTests() {
   assert.equal(capDesktop.esMovil, false);
   assert.equal(capDesktop.soportaWebShareArchivos, false);
 
-  // Compartición nativa exitosa pasando los 2 .xlsx reales
+  // Compartición nativa exitosa pasando los 2 .xlsx reales (iOS Safari)
   let payloadRecibido: any = null;
   const resShareOk = await compartirExcelsNativo({
     excels,
@@ -747,7 +763,7 @@ async function runTests() {
   assert.equal(resShareCancel.estado, 'CANCELADO');
   assert.equal(resShareCancel.adjuntosRealesEnviados, false);
 
-  // Bloqueo por navegador (ej. Chrome Android rechazando .xlsx con NotAllowedError): NO simula adjuntos
+  // Bloqueo por navegador: NO simula adjuntos
   const notAllowedErr = new Error('Permission denied');
   notAllowedErr.name = 'NotAllowedError';
   const resShareBlocked = await compartirExcelsNativo({
@@ -766,7 +782,107 @@ async function runTests() {
   assert.equal(resShareBlocked.estado, 'NO_COMPATIBLE_NAVEGADOR');
   assert.equal(resShareBlocked.adjuntosRealesEnviados, false);
 
-  console.log('✓ Flujo de adjuntos reales móvil/escritorio y codificación UTF-8 de .eml verificados.');
+  console.log('✓ Detección Android/iOS/escritorio y codificación UTF-8 de .eml verificados.');
+
+  console.log('=== 6. Pruebas de creación de borrador y envío directo vía Gmail API con los 2 .xlsx reales ===');
+
+  const rawTest = codificarMimeParaGmailRaw(
+    construirBorradorEmlConExcels({
+      destinatario: cfg.destinatario,
+      asunto,
+      cuerpo: 'Envío oficial con ñ y tildes.',
+      excels,
+      incluirXUnsent: false,
+    })
+  );
+  assert.ok(!rawTest.includes('+') && !rawTest.includes('/') && !rawTest.includes('='), 'Gmail raw debe ser Base64URL sin padding');
+
+  let draftReqUrl = '';
+  let draftReqHeaders: Record<string, string> = {};
+  let draftReqBody: any = null;
+  const resDraft = await crearBorradorGmailConExcels({
+    accessToken: 'token-demo-123',
+    destinatario: cfg.destinatario,
+    asunto,
+    cuerpo: 'Cuerpo borrador Gmail',
+    excels,
+    fetchImpl: (async (url: any, init: any) => {
+      draftReqUrl = String(url);
+      draftReqHeaders = init?.headers || {};
+      draftReqBody = JSON.parse(init?.body || '{}');
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 'draft-abc', message: { id: 'msg-xyz', threadId: 'thr-1' } }),
+      } as any;
+    }) as typeof fetch,
+  });
+
+  assert.equal(resDraft.success, true);
+  assert.equal(resDraft.draftId, 'draft-abc');
+  assert.equal(draftReqUrl, 'https://gmail.googleapis.com/gmail/v1/users/me/drafts');
+  assert.equal(draftReqHeaders.Authorization, 'Bearer token-demo-123');
+  assert.ok(typeof draftReqBody?.message?.raw === 'string' && draftReqBody.message.raw.length > 500);
+
+  // Decodificar raw de Gmail y validar que ambos .xlsx se abren con ExcelJS
+  const decodedGmailMime = Buffer.from(
+    draftReqBody.message.raw.replace(/-/g, '+').replace(/_/g, '/'),
+    'base64'
+  ).toString('utf8');
+  assert.ok(!decodedGmailMime.includes('X-Unsent: 1'));
+  const gmailBoundary = decodedGmailMime.match(/boundary="([^"]+)"/)![1];
+  const gmailAdjParts = decodedGmailMime
+    .split(`--${gmailBoundary}`)
+    .filter((p) => p.includes('Content-Disposition: attachment'));
+  assert.equal(gmailAdjParts.length, 2, 'El borrador Gmail debe contener exactamente 2 .xlsx adjuntos');
+  for (const part of gmailAdjParts) {
+    const start = part.indexOf('\r\n\r\n');
+    const buf = Buffer.from(part.slice(start + 4).replace(/\s+/g, ''), 'base64');
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+    assert.ok(wb.worksheets.length > 0, 'Cada adjunto dentro del borrador Gmail debe abrir como .xlsx válido');
+  }
+
+  // Error 401 -> requiere re-autorización
+  const resDraft401 = await crearBorradorGmailConExcels({
+    accessToken: 'expired-token',
+    destinatario: cfg.destinatario,
+    asunto,
+    cuerpo: 'Test',
+    excels,
+    fetchImpl: (async () => ({
+      ok: false,
+      status: 401,
+      json: async () => ({ error: { message: 'Invalid Credentials' } }),
+    }) as any) as typeof fetch,
+  });
+  assert.equal(resDraft401.success, false);
+  assert.equal(resDraft401.requireAuth, true);
+
+  // Envío directo vía Gmail API
+  let sendReqUrl = '';
+  const resSend = await enviarCorreoGmailConExcels({
+    accessToken: 'token-demo-send',
+    destinatario: cfg.destinatario,
+    asunto,
+    cuerpo: 'Envío directo',
+    excels,
+    fetchImpl: (async (url: any, init: any) => {
+      sendReqUrl = String(url);
+      const parsed = JSON.parse(init?.body || '{}');
+      assert.ok(typeof parsed.raw === 'string' && parsed.raw.length > 500);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 'sent-msg-1', threadId: 'thr-sent-1' }),
+      } as any;
+    }) as typeof fetch,
+  });
+  assert.equal(resSend.success, true);
+  assert.equal(sendReqUrl, 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send');
+  assert.equal(resSend.messageId, 'sent-msg-1');
+
+  console.log('✓ Borrador y envío directo vía Gmail API con ambos .xlsx reales verificados.');
 }
 
 runTests().catch((err) => {

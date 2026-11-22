@@ -1,16 +1,27 @@
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  inMemoryPersistence,
+  setPersistence,
+  onAuthStateChanged,
+} from 'firebase/auth';
 import { auth } from '../firebase/config';
-import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import firebaseConfigJson from '../../firebase-applet-config.json';
 
 export const CUENTA_EMISORA_GMAIL = 'sarqsan2@gmail.com';
 export const GMAIL_SEND_SCOPE = 'https://www.googleapis.com/auth/gmail.send';
+export const GMAIL_COMPOSE_SCOPE = 'https://www.googleapis.com/auth/gmail.compose';
+export const GMAIL_OAUTH_SCOPES = [GMAIL_SEND_SCOPE, GMAIL_COMPOSE_SCOPE] as const;
 export const OAUTH_CLIENT_ID = (firebaseConfigJson as any).oAuthClientId || '';
 
 // Almacenamiento ESTRICTAMENTE EN MEMORIA para el token OAuth
-// NUNCA en localStorage, NUNCA en cookies persistentes, NUNCA en Firestore
+// NUNCA en localStorage, NUNCA en sessionStorage, NUNCA en cookies persistentes, NUNCA en Firestore
 let inMemoryGmailToken: string | null = null;
 let inMemoryTokenExpiresAt: number | null = null;
 let inMemoryConnectedEmail: string = CUENTA_EMISORA_GMAIL;
+let inMemoryGrantedScopes: Set<string> = new Set();
 
 const emitirCambioAuth = () => {
   if (typeof window !== 'undefined') {
@@ -18,9 +29,39 @@ const emitirCambioAuth = () => {
       detail: {
         conectado: Boolean(inMemoryGmailToken),
         email: inMemoryConnectedEmail,
+        scopes: Array.from(inMemoryGrantedScopes),
       }
     }));
   }
+};
+
+// Sincronizar cierre de sesión principal con limpieza del token en memoria
+if (typeof window !== 'undefined') {
+  try {
+    onAuthStateChanged(auth, (user) => {
+      if (!user && inMemoryGmailToken) {
+        inMemoryGmailToken = null;
+        inMemoryTokenExpiresAt = null;
+        inMemoryGrantedScopes.clear();
+        emitirCambioAuth();
+      }
+    });
+  } catch {}
+}
+
+/**
+ * Instancia aislada de Firebase Auth en memoria para obtener el token OAuth de Gmail
+ * sin sobrescribir la sesión principal del administrador en AuthContext.
+ * Se inicializa de forma síncrona para conservar el gesto de usuario ante bloqueadores de popups móviles.
+ */
+const getGmailPopupAuth = () => {
+  const secondaryName = 'gmailOAuthIsolatedClient';
+  const existing = getApps().find((a) => a.name === secondaryName);
+  const mainApp = getApp();
+  const secondaryApp = existing || initializeApp(mainApp.options, secondaryName);
+  const secondaryAuth = getAuth(secondaryApp);
+  setPersistence(secondaryAuth, inMemoryPersistence).catch(() => {});
+  return secondaryAuth;
 };
 
 /**
@@ -31,18 +72,28 @@ export const getGmailAccessToken = (): string | null => {
   if (inMemoryTokenExpiresAt && Date.now() > inMemoryTokenExpiresAt) {
     inMemoryGmailToken = null;
     inMemoryTokenExpiresAt = null;
+    inMemoryGrantedScopes.clear();
     emitirCambioAuth();
     return null;
   }
   return inMemoryGmailToken;
 };
 
+export const hasGmailComposeScope = (): boolean => {
+  return Boolean(getGmailAccessToken()) && inMemoryGrantedScopes.has(GMAIL_COMPOSE_SCOPE);
+};
+
 /**
  * Establece el token de acceso en memoria de forma segura
  */
-export const setGmailAccessToken = (token: string, expiresInSeconds: number = 3500): void => {
+export const setGmailAccessToken = (
+  token: string,
+  expiresInSeconds: number = 3500,
+  grantedScopes: string[] = [...GMAIL_OAUTH_SCOPES]
+): void => {
   inMemoryGmailToken = token;
   inMemoryTokenExpiresAt = Date.now() + (expiresInSeconds * 1000);
+  inMemoryGrantedScopes = new Set(grantedScopes);
   emitirCambioAuth();
 };
 
@@ -53,6 +104,7 @@ export const getGmailAuthState = (): {
   conectado: boolean;
   cuentaEmisora: string;
   tiempoRestanteMinutos?: number;
+  puedeCrearBorradores: boolean;
 } => {
   const token = getGmailAccessToken();
   const conectado = Boolean(token);
@@ -66,6 +118,7 @@ export const getGmailAuthState = (): {
     conectado,
     cuentaEmisora: inMemoryConnectedEmail,
     tiempoRestanteMinutos,
+    puedeCrearBorradores: conectado && inMemoryGrantedScopes.has(GMAIL_COMPOSE_SCOPE),
   };
 };
 
@@ -75,13 +128,26 @@ export const getGmailAuthState = (): {
 export const desconectarGmailOAuth = (): void => {
   inMemoryGmailToken = null;
   inMemoryTokenExpiresAt = null;
+  inMemoryGrantedScopes.clear();
   emitirCambioAuth();
+};
+
+const esEntornoPreviewOLocal = (): boolean => {
+  if (typeof window === 'undefined' || !window.location) return false;
+  const host = (window.location.hostname || '').toLowerCase();
+  return (
+    host.endsWith('.run.app') ||
+    host.endsWith('.googleusercontent.com') ||
+    host.endsWith('.cloudworkstations.dev') ||
+    host === 'localhost' ||
+    host === '127.0.0.1'
+  );
 };
 
 /**
  * Intenta autorizar mediante Google Identity Services (GSI Token Client) en el cliente
  */
-const autorizarConGSI = (): Promise<{
+const autorizarConGSI = (scopes: readonly string[]): Promise<{
   success: boolean;
   message: string;
   token?: string;
@@ -96,7 +162,7 @@ const autorizarConGSI = (): Promise<{
     try {
       const client = (window as any).google.accounts.oauth2.initTokenClient({
         client_id: OAUTH_CLIENT_ID,
-        scope: GMAIL_SEND_SCOPE,
+        scope: scopes.join(' '),
         hint: CUENTA_EMISORA_GMAIL,
         callback: (response: any) => {
           if (response?.error) {
@@ -115,9 +181,11 @@ const autorizarConGSI = (): Promise<{
             }
           } else if (response?.access_token) {
             const expiresIn = response.expires_in ? Number(response.expires_in) : 3500;
-            setGmailAccessToken(response.access_token, expiresIn);
+            const granted = typeof response.scope === 'string'
+              ? response.scope.split(/\s+/).filter(Boolean)
+              : [...scopes];
             inMemoryConnectedEmail = CUENTA_EMISORA_GMAIL;
-            emitirCambioAuth();
+            setGmailAccessToken(response.access_token, expiresIn, granted);
             resolve({
               success: true,
               message: `Conexión autorizada con éxito para ${CUENTA_EMISORA_GMAIL}`,
@@ -133,6 +201,13 @@ const autorizarConGSI = (): Promise<{
         },
         error_callback: (err: any) => {
           console.warn('[GmailAuth GSI] Error en callback:', err);
+          if (err?.type === 'popup_closed') {
+            resolve({
+              success: false,
+              message: 'Ventana de autorización cerrada por el usuario.',
+            });
+            return;
+          }
           resolve({
             success: false,
             message: `Error al abrir autorización: ${err?.message || 'Ventana emergente bloqueada'}`,
@@ -148,46 +223,30 @@ const autorizarConGSI = (): Promise<{
   });
 };
 
-/**
- * Conecta con Google OAuth para autorizar el envío de correo desde sarqsan2@gmail.com.
- * Prueba primero mediante Google Identity Services (GSI) con el OAuth Client ID aprovisionado,
- * y en caso necesario recurre al popup de Firebase Auth configurado.
- */
-export const conectarGmailOAuth = async (): Promise<{
+const autorizarConFirebasePopup = async (scopes: readonly string[]): Promise<{
   success: boolean;
   message: string;
   token?: string;
   email?: string;
 }> => {
-  // 1. Intentar con Google Identity Services si está disponible
-  if (typeof window !== 'undefined' && (window as any).google?.accounts?.oauth2 && OAUTH_CLIENT_ID) {
-    const gsiRes = await autorizarConGSI();
-    if (gsiRes.success) {
-      return gsiRes;
-    }
-    // Si fue cancelación del usuario, respetarla directamente
-    if (gsiRes.message.includes('cerrada')) {
-      return gsiRes;
-    }
-  }
-
-  // 2. Intentar con Firebase Auth Popup
   try {
     const provider = new GoogleAuthProvider();
-    provider.addScope(GMAIL_SEND_SCOPE);
+    for (const s of scopes) {
+      provider.addScope(s);
+    }
     provider.setCustomParameters({
       login_hint: CUENTA_EMISORA_GMAIL,
       prompt: 'consent select_account',
     });
 
-    const userCredential = await signInWithPopup(auth, provider);
+    const gmailAuth = getGmailPopupAuth();
+    const userCredential = await signInWithPopup(gmailAuth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(userCredential);
 
     if (credential?.accessToken) {
-      setGmailAccessToken(credential.accessToken);
       const userEmail = userCredential.user?.email || CUENTA_EMISORA_GMAIL;
       inMemoryConnectedEmail = userEmail;
-      emitirCambioAuth();
+      setGmailAccessToken(credential.accessToken, 3500, [...scopes]);
 
       return {
         success: true,
@@ -217,13 +276,13 @@ export const conectarGmailOAuth = async (): Promise<{
       const inIframe = typeof window !== 'undefined' && window.top !== window.self;
       msg = inIframe
         ? 'Ventana de autorización cerrada. Si el navegador la cerró automáticamente dentro de la vista previa integrada, abre la app en una pestaña nueva para autorizar con Google.'
-        : 'Ventana de autorización cerrada por el usuario. Pulsa de nuevo en "Conectar sarqsan2@gmail.com" cuando desees autorizar el envío.';
+        : 'Ventana de autorización cerrada por el usuario. Pulsa de nuevo en "Conectar con Google" cuando desees autorizar Gmail.';
     } else if (error?.code === 'auth/cancelled-popup-request') {
       msg = 'Solicitud de autorización cancelada.';
     } else if (error?.code === 'auth/popup-blocked') {
-      msg = 'El navegador ha bloqueado la ventana emergente. Por favor, habilita las ventanas emergentes (popups) o abre la aplicación en una pestaña nueva.';
+      msg = 'El navegador ha bloqueado la ventana emergente. Por favor, habilita las ventanas emergentes (popups) e inténtalo de nuevo.';
     } else if (error?.code === 'auth/unauthorized-domain') {
-      msg = 'Dominio web no autorizado en Firebase Auth. Habilita este dominio en la consola de Firebase o abre la aplicación en una pestaña nueva.';
+      msg = 'Dominio web no autorizado en Firebase Auth. Habilita este dominio en Firebase o prueba desde la URL autorizada.';
     }
 
     return {
@@ -232,3 +291,40 @@ export const conectarGmailOAuth = async (): Promise<{
     };
   }
 };
+
+/**
+ * Conecta con Google OAuth para autorizar la creación de borradores y el envío desde sarqsan2@gmail.com.
+ * - En entornos AI Studio / localhost utiliza GSI si está cargado.
+ * - En dominios externos (p. ej. Vercel en Android Chrome) usa directamente un único popup de Firebase Auth aislado
+ *   en memoria para conservar el gesto de usuario y evitar origin_mismatch o cierres de sesión del admin.
+ */
+export const conectarGmailOAuth = async (): Promise<{
+  success: boolean;
+  message: string;
+  token?: string;
+  email?: string;
+}> => {
+  const gsiDisponible =
+    typeof window !== 'undefined' &&
+    Boolean((window as any).google?.accounts?.oauth2) &&
+    Boolean(OAUTH_CLIENT_ID);
+
+  if (esEntornoPreviewOLocal() && gsiDisponible) {
+    const gsiRes = await autorizarConGSI(GMAIL_OAUTH_SCOPES);
+    if (gsiRes.success || gsiRes.message.includes('cerrada')) {
+      return gsiRes;
+    }
+  }
+
+  const popupRes = await autorizarConFirebasePopup(GMAIL_OAUTH_SCOPES);
+  if (popupRes.success || popupRes.message.includes('cerrada') || popupRes.message.includes('cancelada')) {
+    return popupRes;
+  }
+
+  if (gsiDisponible) {
+    return autorizarConGSI(GMAIL_OAUTH_SCOPES);
+  }
+
+  return popupRes;
+};
+

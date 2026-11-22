@@ -543,7 +543,7 @@ const utf8ToBase64 = (text: string): string => {
 };
 
 /**
- * Construye un borrador de correo RFC 2822 (.eml con X-Unsent: 1) que incluye
+ * Construye un borrador de correo RFC 2822 (.eml con X-Unsent: 1 opcional) que incluye
  * destinatario, asunto, cuerpo UTF-8 y ambos archivos Excel (.xlsx) oficiales adjuntos en Base64.
  */
 export const construirBorradorEmlConExcels = (params: {
@@ -552,6 +552,7 @@ export const construirBorradorEmlConExcels = (params: {
   asunto: string;
   cuerpo: string;
   excels: ExcelsCuadrantesGenerados;
+  incluirXUnsent?: boolean;
 }): string => {
   const boundary = `----=_Part_Cuadrantes_${Date.now()}`;
   const encodedSubject = `=?UTF-8?B?${utf8ToBase64(params.asunto)}?=`;
@@ -559,15 +560,21 @@ export const construirBorradorEmlConExcels = (params: {
   const cuerpoB64 = base64Wrap76(utf8ToBase64(cuerpoCrlf));
   const excelUGB64 = uint8ToBase64Wrapped(params.excels.excelUGBytes);
   const excelUSB64 = uint8ToBase64Wrapped(params.excels.excelUSBytes);
+  const incluirXUnsent = params.incluirXUnsent !== false;
 
-  return [
+  const headers = [
     `Date: ${new Date().toUTCString()}`,
     `From: ${params.emisor || 'sarqsan2@gmail.com'}`,
     `To: ${params.destinatario}`,
     `Subject: ${encodedSubject}`,
-    `X-Unsent: 1`,
-    `MIME-Version: 1.0`,
-    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+  ];
+  if (incluirXUnsent) {
+    headers.push(`X-Unsent: 1`);
+  }
+  headers.push(`MIME-Version: 1.0`, `Content-Type: multipart/mixed; boundary="${boundary}"`);
+
+  return [
+    ...headers,
     ``,
     `--${boundary}`,
     `Content-Type: text/plain; charset="UTF-8"`,
@@ -591,6 +598,196 @@ export const construirBorradorEmlConExcels = (params: {
     ``,
     `--${boundary}--`,
   ].join('\r\n');
+};
+
+/**
+ * Codifica un mensaje MIME RFC 2822 a Base64URL válido para la API REST de Gmail.
+ */
+export const codificarMimeParaGmailRaw = (mimeContent: string): string => {
+  const bytes = new TextEncoder().encode(mimeContent);
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+};
+
+export interface ResultadoGmailApiCuadrantes {
+  success: boolean;
+  requireAuth?: boolean;
+  draftId?: string;
+  messageId?: string;
+  threadId?: string;
+  gmailDraftsUrl?: string;
+  adjuntos: string[];
+  error?: string;
+}
+
+/**
+ * Crea un borrador REAL en la cuenta Gmail del usuario (POST /gmail/v1/users/me/drafts)
+ * con destinatario, asunto, cuerpo y ambos archivos .xlsx oficiales ya adjuntos.
+ * Funciona 100% gratis desde el navegador (Android Chrome y escritorio) sin servidor SMTP.
+ */
+export const crearBorradorGmailConExcels = async (params: {
+  accessToken: string;
+  emisor?: string;
+  destinatario: string;
+  asunto: string;
+  cuerpo: string;
+  excels: ExcelsCuadrantesGenerados;
+  fetchImpl?: typeof fetch;
+}): Promise<ResultadoGmailApiCuadrantes> => {
+  const adjuntos = [params.excels.fileNameUG, params.excels.fileNameUS];
+  if (!params.accessToken) {
+    return {
+      success: false,
+      requireAuth: true,
+      adjuntos,
+      error: 'Falta autorización de Gmail para crear el borrador.',
+    };
+  }
+  if (!params.destinatario || !params.destinatario.includes('@')) {
+    return {
+      success: false,
+      adjuntos,
+      error: 'Configura primero un correo electrónico destinatario válido.',
+    };
+  }
+
+  const mime = construirBorradorEmlConExcels({
+    emisor: params.emisor || 'sarqsan2@gmail.com',
+    destinatario: params.destinatario,
+    asunto: params.asunto,
+    cuerpo: params.cuerpo,
+    excels: params.excels,
+    incluirXUnsent: false,
+  });
+  const raw = codificarMimeParaGmailRaw(mime);
+  const fetcher = params.fetchImpl || fetch;
+
+  try {
+    const resp = await fetcher('https://gmail.googleapis.com/gmail/v1/users/me/drafts', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${params.accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ message: { raw } }),
+    });
+
+    const data: any = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      const requireAuth = resp.status === 401 || resp.status === 403;
+      return {
+        success: false,
+        requireAuth,
+        adjuntos,
+        error:
+          data?.error?.message ||
+          (requireAuth
+            ? 'La sesión de Gmail ha caducado o necesita permiso para crear borradores. Vuelve a conectar Gmail.'
+            : `Error de Gmail al crear borrador (${resp.status}).`),
+      };
+    }
+
+    return {
+      success: true,
+      draftId: data?.id,
+      messageId: data?.message?.id,
+      threadId: data?.message?.threadId,
+      gmailDraftsUrl: 'https://mail.google.com/mail/u/0/#drafts',
+      adjuntos,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      adjuntos,
+      error: err?.message || 'Error de red al conectar con Gmail para crear el borrador.',
+    };
+  }
+};
+
+/**
+ * Envía directamente el correo a través de la API REST de Gmail (POST /gmail/v1/users/me/messages/send)
+ * con ambos archivos .xlsx oficiales reales adjuntos. Requiere confirmación explícita previa del usuario.
+ */
+export const enviarCorreoGmailConExcels = async (params: {
+  accessToken: string;
+  emisor?: string;
+  destinatario: string;
+  asunto: string;
+  cuerpo: string;
+  excels: ExcelsCuadrantesGenerados;
+  fetchImpl?: typeof fetch;
+}): Promise<ResultadoGmailApiCuadrantes> => {
+  const adjuntos = [params.excels.fileNameUG, params.excels.fileNameUS];
+  if (!params.accessToken) {
+    return {
+      success: false,
+      requireAuth: true,
+      adjuntos,
+      error: 'Falta autorización de Gmail para enviar el correo.',
+    };
+  }
+  if (!params.destinatario || !params.destinatario.includes('@')) {
+    return {
+      success: false,
+      adjuntos,
+      error: 'Configura primero un correo electrónico destinatario válido.',
+    };
+  }
+
+  const mime = construirBorradorEmlConExcels({
+    emisor: params.emisor || 'sarqsan2@gmail.com',
+    destinatario: params.destinatario,
+    asunto: params.asunto,
+    cuerpo: params.cuerpo,
+    excels: params.excels,
+    incluirXUnsent: false,
+  });
+  const raw = codificarMimeParaGmailRaw(mime);
+  const fetcher = params.fetchImpl || fetch;
+
+  try {
+    const resp = await fetcher('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${params.accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ raw }),
+    });
+
+    const data: any = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      const requireAuth = resp.status === 401 || resp.status === 403;
+      return {
+        success: false,
+        requireAuth,
+        adjuntos,
+        error:
+          data?.error?.message ||
+          (requireAuth
+            ? 'La sesión de Gmail ha caducado o requiere autorización. Vuelve a conectar Gmail.'
+            : `Error de Gmail al enviar correo (${resp.status}).`),
+      };
+    }
+
+    return {
+      success: true,
+      messageId: data?.id,
+      threadId: data?.threadId,
+      adjuntos,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      adjuntos,
+      error: err?.message || 'Error de red al conectar con Gmail para enviar el correo.',
+    };
+  }
 };
 
 export const construirMailtoUrl = (params: {
@@ -630,6 +827,8 @@ export const abrirEnlaceMailtoSeguro = (mailtoUrl: string) => {
 
 export interface CapacidadesEnvioCorreo {
   esMovil: boolean;
+  esAndroid: boolean;
+  esIOS: boolean;
   soportaWebShareArchivos: boolean;
 }
 
@@ -643,6 +842,8 @@ export const detectarCapacidadesEnvioCorreo = (
 ): CapacidadesEnvioCorreo => {
   const nav: any = navOverride ?? (typeof navigator !== 'undefined' ? navigator : undefined);
   const ua = (navOverride?.userAgent ?? nav?.userAgent ?? '').toString();
+  const esAndroid = /\bAndroid\b/i.test(ua);
+  const esIOS = /iPhone|iPad|iPod/i.test(ua);
   const uaMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
   const clientHintMobile = Boolean(navOverride?.mobile ?? nav?.userAgentData?.mobile);
   const coarsePointer =
@@ -657,8 +858,10 @@ export const detectarCapacidadesEnvioCorreo = (
     typeof nav.canShare === 'function' &&
     typeof File !== 'undefined';
 
+  // Chrome en Android devuelve true en canShare() pero rechaza .xlsx con NotAllowedError al ejecutar share().
+  // Por ello solo anunciamos soporte nativo Web Share de .xlsx fuera de Android (ej. Safari en iOS).
   let soportaWebShareArchivos = false;
-  if (hasShareApi) {
+  if (hasShareApi && !esAndroid) {
     try {
       const dummyUG = new File([new Uint8Array([0x50, 0x4b, 0x03, 0x04])], 'test_ug.xlsx', {
         type: XLSX_MIME_TYPE,
@@ -672,7 +875,7 @@ export const detectarCapacidadesEnvioCorreo = (
     }
   }
 
-  return { esMovil, soportaWebShareArchivos };
+  return { esMovil, esAndroid, esIOS, soportaWebShareArchivos };
 };
 
 export const crearArchivosExcelParaCompartir = (
@@ -695,7 +898,7 @@ export interface ResultadoCompartirNativo {
 
 /**
  * Invoca navigator.share pasando los 2 File (.xlsx) reales SIN realizar ningún await previo
- * para conservar intacta la activación del gesto de usuario en dispositivos móviles.
+ * para conservar intacta la activación del gesto de usuario en dispositivos compatibles (iOS Safari).
  * NUNCA abre un mailto: vacío si el navegador rechaza compartir .xlsx.
  */
 export const compartirExcelsNativo = async (params: {
@@ -717,7 +920,7 @@ export const compartirExcelsNativo = async (params: {
       estado: 'NO_COMPATIBLE_NAVEGADOR',
       adjuntosRealesEnviados: false,
       mensaje:
-        'Este navegador no dispone de compartición nativa de archivos Excel (.xlsx). Descarga ambos archivos o el borrador .eml para adjuntarlos.',
+        'Este navegador no dispone de compartición nativa de archivos Excel (.xlsx). Usa "Crear Borrador en Gmail" o descarga los archivos.',
     };
   }
 
@@ -736,7 +939,7 @@ export const compartirExcelsNativo = async (params: {
           estado: 'NO_COMPATIBLE_NAVEGADOR',
           adjuntosRealesEnviados: false,
           mensaje:
-            'El navegador bloquea compartir archivos .xlsx directamente mediante Web Share. Utiliza la descarga de los 2 Excel (.xlsx) o el paquete .eml con adjuntos incrustados.',
+            'El navegador no permite compartir .xlsx por esta vía. Utiliza "Crear Borrador en Gmail" con ambos Excel adjuntos.',
         };
       }
     } catch {
@@ -745,7 +948,7 @@ export const compartirExcelsNativo = async (params: {
         estado: 'NO_COMPATIBLE_NAVEGADOR',
         adjuntosRealesEnviados: false,
         mensaje:
-          'El navegador no pudo validar la compartición de archivos .xlsx. Descarga ambos Excel reales o el correo completo (.eml).',
+          'El navegador no pudo validar la compartición de archivos .xlsx. Utiliza "Crear Borrador en Gmail" con ambos Excel adjuntos.',
       };
     }
   }
@@ -774,7 +977,7 @@ export const compartirExcelsNativo = async (params: {
       estado: 'NO_COMPATIBLE_NAVEGADOR',
       adjuntosRealesEnviados: false,
       mensaje:
-        'Este navegador restringe enviar archivos .xlsx directamente al selector de compartir (p. ej. política de Chrome/Android para hojas .xlsx). Descarga ambos Excel oficiales o el borrador .eml para incorporarlos al correo.',
+        'Este navegador restringe enviar archivos .xlsx directamente al selector de compartir. Utiliza la opción principal de Gmail para adjuntarlos automáticamente.',
     };
   }
 };
