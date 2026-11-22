@@ -521,6 +521,8 @@ export const generarDosExcelsActualizados = async (): Promise<ExcelsCuadrantesGe
   };
 };
 
+const base64Wrap76 = (b64: string): string => b64.match(/.{1,76}/g)?.join('\r\n') || b64;
+
 const uint8ToBase64Wrapped = (bytes: Uint8Array): string => {
   let binary = '';
   const chunkSize = 0x8000;
@@ -528,8 +530,7 @@ const uint8ToBase64Wrapped = (bytes: Uint8Array): string => {
     const chunk = bytes.subarray(i, i + chunkSize);
     binary += String.fromCharCode(...chunk);
   }
-  const b64 = btoa(binary);
-  return b64.match(/.{1,76}/g)?.join('\r\n') || b64;
+  return base64Wrap76(btoa(binary));
 };
 
 const utf8ToBase64 = (text: string): string => {
@@ -543,7 +544,7 @@ const utf8ToBase64 = (text: string): string => {
 
 /**
  * Construye un borrador de correo RFC 2822 (.eml con X-Unsent: 1) que incluye
- * destinatario, asunto, cuerpo y ambos archivos Excel (.xlsx) oficiales adjuntos en Base64.
+ * destinatario, asunto, cuerpo UTF-8 y ambos archivos Excel (.xlsx) oficiales adjuntos en Base64.
  */
 export const construirBorradorEmlConExcels = (params: {
   emisor?: string;
@@ -554,10 +555,13 @@ export const construirBorradorEmlConExcels = (params: {
 }): string => {
   const boundary = `----=_Part_Cuadrantes_${Date.now()}`;
   const encodedSubject = `=?UTF-8?B?${utf8ToBase64(params.asunto)}?=`;
+  const cuerpoCrlf = (params.cuerpo || '').replace(/\r?\n/g, '\r\n');
+  const cuerpoB64 = base64Wrap76(utf8ToBase64(cuerpoCrlf));
   const excelUGB64 = uint8ToBase64Wrapped(params.excels.excelUGBytes);
   const excelUSB64 = uint8ToBase64Wrapped(params.excels.excelUSBytes);
 
   return [
+    `Date: ${new Date().toUTCString()}`,
     `From: ${params.emisor || 'sarqsan2@gmail.com'}`,
     `To: ${params.destinatario}`,
     `Subject: ${encodedSubject}`,
@@ -567,9 +571,9 @@ export const construirBorradorEmlConExcels = (params: {
     ``,
     `--${boundary}`,
     `Content-Type: text/plain; charset="UTF-8"`,
-    `Content-Transfer-Encoding: 8bit`,
+    `Content-Transfer-Encoding: base64`,
     ``,
-    params.cuerpo,
+    cuerpoB64,
     ``,
     `--${boundary}`,
     `Content-Type: ${XLSX_MIME_TYPE}; name="${params.excels.fileNameUG}"`,
@@ -607,10 +611,11 @@ export const descargarBlobEnNavegador = (blob: Blob, filename: string) => {
   const link = document.createElement('a');
   link.href = url;
   link.download = filename;
+  link.style.display = 'none';
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-  setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+  setTimeout(() => window.URL.revokeObjectURL(url), 1500);
 };
 
 export const abrirEnlaceMailtoSeguro = (mailtoUrl: string) => {
@@ -623,17 +628,175 @@ export const abrirEnlaceMailtoSeguro = (mailtoUrl: string) => {
   document.body.removeChild(link);
 };
 
-export const prepararCorreoDesdeAviso = async (params: {
-  config: EmailProgramacionConfig;
-  excelsPreGenerados?: ExcelsCuadrantesGenerados;
-}): Promise<{
+export interface CapacidadesEnvioCorreo {
+  esMovil: boolean;
+  soportaWebShareArchivos: boolean;
+}
+
+export const detectarCapacidadesEnvioCorreo = (
+  navOverride?: {
+    userAgent?: string;
+    mobile?: boolean;
+    canShare?: (data: any) => boolean;
+    share?: (data: any) => Promise<void>;
+  }
+): CapacidadesEnvioCorreo => {
+  const nav: any = navOverride ?? (typeof navigator !== 'undefined' ? navigator : undefined);
+  const ua = (navOverride?.userAgent ?? nav?.userAgent ?? '').toString();
+  const uaMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+  const clientHintMobile = Boolean(navOverride?.mobile ?? nav?.userAgentData?.mobile);
+  const coarsePointer =
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(pointer: coarse)').matches;
+
+  const esMovil = Boolean(clientHintMobile || uaMobile || coarsePointer);
+  const hasShareApi =
+    Boolean(nav) &&
+    typeof nav.share === 'function' &&
+    typeof nav.canShare === 'function' &&
+    typeof File !== 'undefined';
+
+  let soportaWebShareArchivos = false;
+  if (hasShareApi) {
+    try {
+      const dummyUG = new File([new Uint8Array([0x50, 0x4b, 0x03, 0x04])], 'test_ug.xlsx', {
+        type: XLSX_MIME_TYPE,
+      });
+      const dummyUS = new File([new Uint8Array([0x50, 0x4b, 0x03, 0x04])], 'test_us.xlsx', {
+        type: XLSX_MIME_TYPE,
+      });
+      soportaWebShareArchivos = Boolean(nav.canShare({ files: [dummyUG, dummyUS] }));
+    } catch {
+      soportaWebShareArchivos = false;
+    }
+  }
+
+  return { esMovil, soportaWebShareArchivos };
+};
+
+export const crearArchivosExcelParaCompartir = (
+  excels: ExcelsCuadrantesGenerados
+): { fileUG: File; fileUS: File } => ({
+  fileUG: new File([new Uint8Array(excels.excelUGBytes)], excels.fileNameUG, {
+    type: XLSX_MIME_TYPE,
+  }),
+  fileUS: new File([new Uint8Array(excels.excelUSBytes)], excels.fileNameUS, {
+    type: XLSX_MIME_TYPE,
+  }),
+});
+
+export interface ResultadoCompartirNativo {
+  ok: boolean;
+  estado: 'SHARE_NATIVO' | 'CANCELADO' | 'NO_COMPATIBLE_NAVEGADOR';
+  adjuntosRealesEnviados: boolean;
+  mensaje: string;
+}
+
+/**
+ * Invoca navigator.share pasando los 2 File (.xlsx) reales SIN realizar ningún await previo
+ * para conservar intacta la activación del gesto de usuario en dispositivos móviles.
+ * NUNCA abre un mailto: vacío si el navegador rechaza compartir .xlsx.
+ */
+export const compartirExcelsNativo = async (params: {
+  excels: ExcelsCuadrantesGenerados;
+  asunto: string;
+  cuerpo: string;
+  destinatario: string;
+  navigatorShareImpl?: {
+    canShare?: (data: any) => boolean;
+    share?: (data: any) => Promise<void>;
+  };
+}): Promise<ResultadoCompartirNativo> => {
+  const nav: any =
+    params.navigatorShareImpl ?? (typeof navigator !== 'undefined' ? navigator : undefined);
+
+  if (!nav || typeof nav.share !== 'function' || typeof File === 'undefined') {
+    return {
+      ok: false,
+      estado: 'NO_COMPATIBLE_NAVEGADOR',
+      adjuntosRealesEnviados: false,
+      mensaje:
+        'Este navegador no dispone de compartición nativa de archivos Excel (.xlsx). Descarga ambos archivos o el borrador .eml para adjuntarlos.',
+    };
+  }
+
+  const { fileUG, fileUS } = crearArchivosExcelParaCompartir(params.excels);
+  const sharePayload = {
+    files: [fileUG, fileUS],
+    title: params.asunto,
+    text: `${params.cuerpo}\n\nDestinatario: ${params.destinatario}`,
+  };
+
+  if (typeof nav.canShare === 'function') {
+    try {
+      if (!nav.canShare({ files: [fileUG, fileUS] })) {
+        return {
+          ok: false,
+          estado: 'NO_COMPATIBLE_NAVEGADOR',
+          adjuntosRealesEnviados: false,
+          mensaje:
+            'El navegador bloquea compartir archivos .xlsx directamente mediante Web Share. Utiliza la descarga de los 2 Excel (.xlsx) o el paquete .eml con adjuntos incrustados.',
+        };
+      }
+    } catch {
+      return {
+        ok: false,
+        estado: 'NO_COMPATIBLE_NAVEGADOR',
+        adjuntosRealesEnviados: false,
+        mensaje:
+          'El navegador no pudo validar la compartición de archivos .xlsx. Descarga ambos Excel reales o el correo completo (.eml).',
+      };
+    }
+  }
+
+  try {
+    await nav.share(sharePayload);
+    return {
+      ok: true,
+      estado: 'SHARE_NATIVO',
+      adjuntosRealesEnviados: true,
+      mensaje:
+        'Se abrió el selector nativo del dispositivo con los dos archivos Excel (.xlsx) reales adjuntos.',
+    };
+  } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      return {
+        ok: false,
+        estado: 'CANCELADO',
+        adjuntosRealesEnviados: false,
+        mensaje:
+          'Has cerrado el selector de compartir. Ambos archivos Excel (.xlsx) siguen preparados debajo.',
+      };
+    }
+    return {
+      ok: false,
+      estado: 'NO_COMPATIBLE_NAVEGADOR',
+      adjuntosRealesEnviados: false,
+      mensaje:
+        'Este navegador restringe enviar archivos .xlsx directamente al selector de compartir (p. ej. política de Chrome/Android para hojas .xlsx). Descarga ambos Excel oficiales o el borrador .eml para incorporarlos al correo.',
+    };
+  }
+};
+
+export interface PaqueteCorreoCuadrantes {
   excels: ExcelsCuadrantesGenerados;
   asunto: string;
   cuerpo: string;
   mailtoUrl: string;
-  metodoUsado: 'SHARE_NATIVO' | 'DESCARGA_Y_MAILTO';
-  copiadoPortapapeles: boolean;
-}> => {
+  emlContent: string;
+  emlFileName: string;
+  capacidades: CapacidadesEnvioCorreo;
+}
+
+/**
+ * Prepara de forma íntegra los 2 Excel oficiales (.xlsx) + borrador .eml con ambos adjuntos reales
+ * incrustados en Base64 + enlace mailto opcional. NO abre mailto automáticamente ni simula adjuntos.
+ */
+export const prepararCorreoDesdeAviso = async (params: {
+  config: EmailProgramacionConfig;
+  excelsPreGenerados?: ExcelsCuadrantesGenerados;
+}): Promise<PaqueteCorreoCuadrantes> => {
   const madrid = obtenerFechaHoraMadrid(new Date());
   const excels = params.excelsPreGenerados || (await generarDosExcelsActualizados());
   const asunto = construirAsuntoCuadrantes(params.config.asuntoPersonalizado, madrid);
@@ -641,15 +804,7 @@ export const prepararCorreoDesdeAviso = async (params: {
     params.config.cuerpoPersonalizado?.trim() ||
     CONFIG_PROGRAMACION_DEFAULT.cuerpoPersonalizado ||
     '';
-  const cuerpo = `${cuerpoBase}\n\nDestinatario configurado: ${params.config.destinatario}\nFecha de generación: ${madrid.fechaEs} ${madrid.horaMinuto} (Europe/Madrid)\nArchivos Excel adjuntos: ${excels.fileNameUG} y ${excels.fileNameUS}`;
-
-  let copiadoPortapapeles = false;
-  try {
-    if (typeof navigator !== 'undefined' && navigator.clipboard && params.config.destinatario) {
-      await navigator.clipboard.writeText(params.config.destinatario);
-      copiadoPortapapeles = true;
-    }
-  } catch {}
+  const cuerpo = `${cuerpoBase}\n\nDestinatario configurado: ${params.config.destinatario}\nFecha de generación: ${madrid.fechaEs} ${madrid.horaMinuto} (Europe/Madrid)\nArchivos Excel oficiales: ${excels.fileNameUG} y ${excels.fileNameUS}`;
 
   const mailtoUrl = construirMailtoUrl({
     destinatario: params.config.destinatario,
@@ -657,49 +812,21 @@ export const prepararCorreoDesdeAviso = async (params: {
     cuerpo,
   });
 
-  // En dispositivos compatibles (ej. móvil Android/iOS), Web Share Level 2 adjunta directamente ambos .xlsx
-  if (typeof navigator !== 'undefined' && typeof File !== 'undefined' && typeof navigator.canShare === 'function') {
-    try {
-      const fileUG = new File([new Uint8Array(excels.excelUGBytes)], excels.fileNameUG, { type: XLSX_MIME_TYPE });
-      const fileUS = new File([new Uint8Array(excels.excelUSBytes)], excels.fileNameUS, { type: XLSX_MIME_TYPE });
-      if (navigator.canShare({ files: [fileUG, fileUS] })) {
-        await navigator.share({
-          files: [fileUG, fileUS],
-          title: asunto,
-          text: `${cuerpo}\n\nEnviar a: ${params.config.destinatario}`,
-        });
-        return {
-          excels,
-          asunto,
-          cuerpo,
-          mailtoUrl,
-          metodoUsado: 'SHARE_NATIVO',
-          copiadoPortapapeles,
-        };
-      }
-    } catch (shareErr: any) {
-      if (shareErr?.name === 'AbortError') {
-        throw shareErr;
-      }
-    }
-  }
-
-  // Descarga directa de los 2 archivos Excel oficiales + apertura de la app de correo pre-rellenada
-  descargarBlobEnNavegador(new Blob([new Uint8Array(excels.excelUGBytes)], { type: XLSX_MIME_TYPE }), excels.fileNameUG);
-  setTimeout(() => {
-    descargarBlobEnNavegador(new Blob([new Uint8Array(excels.excelUSBytes)], { type: XLSX_MIME_TYPE }), excels.fileNameUS);
-  }, 250);
-  setTimeout(() => {
-    abrirEnlaceMailtoSeguro(mailtoUrl);
-  }, 450);
+  const emlContent = construirBorradorEmlConExcels({
+    destinatario: params.config.destinatario,
+    asunto,
+    cuerpo,
+    excels,
+  });
 
   return {
     excels,
     asunto,
     cuerpo,
     mailtoUrl,
-    metodoUsado: 'DESCARGA_Y_MAILTO',
-    copiadoPortapapeles,
+    emlContent,
+    emlFileName: `Correo_Cuadrantes_UG_US_${excels.fechaIso}.eml`,
+    capacidades: detectarCapacidadesEnvioCorreo(),
   };
 };
 

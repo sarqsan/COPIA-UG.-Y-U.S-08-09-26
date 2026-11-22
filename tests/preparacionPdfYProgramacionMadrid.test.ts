@@ -10,10 +10,14 @@ import {
 } from '../src/services/emailProgramacionScheduleHelper';
 import {
   XLSX_MIME_TYPE,
+  compartirExcelsNativo,
   construirBorradorEmlConExcels,
   construirMailtoUrl,
+  crearArchivosExcelParaCompartir,
+  detectarCapacidadesEnvioCorreo,
   generarDosExcelsActualizados,
   getSlotsCompletadosLocal,
+  prepararCorreoDesdeAviso,
 } from '../src/services/emailAvisoManualService';
 import { generarWorkbookCuadranteExcel } from '../src/services/excelCuadranteExport';
 import { generarWorkbookCuadranteUS } from '../src/services/excelUSCuadranteExport';
@@ -647,6 +651,122 @@ async function runTests() {
   );
 
   console.log('✓ Adjuntos .xlsx en .eml reabiertos con ExcelJS y validación ante fallo verificados.');
+
+  console.log('=== 5. Pruebas de flujo de adjuntos reales en móvil (Web Share) y escritorio (.eml + cuerpo UTF-8) ===');
+
+  // Restaurar datos completos para probar prepararCorreoDesdeAviso y compartirExcelsNativo
+  clearMemoryServiciosTest();
+  setMemoryCuadrantesTest([cuadUGVigente, cuadUSNov, cuadUSDicEne]);
+  setMemoryServiciosTest(cuadUGVigente.id, serviciosUGVigente);
+  setMemoryServiciosTest(cuadUSNov.id, serviciosUSNov as unknown as ServicioDia[]);
+  setMemoryServiciosTest(cuadUSDicEne.id, serviciosUSDicEne as unknown as ServicioDia[]);
+
+  const paquete = await prepararCorreoDesdeAviso({
+    config: cfg,
+    excelsPreGenerados: excels,
+  });
+  assert.ok(paquete.emlFileName.endsWith('.eml'));
+  assert.ok(paquete.emlContent.includes('Content-Transfer-Encoding: base64'));
+
+  // Verificar que el cuerpo UTF-8 del .eml conserva tildes y texto completo
+  const emlParts = paquete.emlContent.split(/--[^\r\n]+/);
+  const textPart = emlParts.find((p) => p.includes('Content-Type: text/plain; charset="UTF-8"'));
+  assert.ok(textPart, 'El .eml debe contener parte text/plain UTF-8');
+  const textBodyStart = textPart.indexOf('\r\n\r\n');
+  const decodedBody = Buffer.from(
+    textPart.slice(textBodyStart + 4).replace(/\s+/g, ''),
+    'base64'
+  ).toString('utf8');
+  assert.ok(decodedBody.includes('Destinatario configurado: personal.unidad@ejemplo.es'));
+  assert.ok(decodedBody.includes(excels.fileNameUG));
+  assert.ok(decodedBody.includes(excels.fileNameUS));
+
+  // Verificar File objects reales generados para Web Share
+  const { fileUG, fileUS } = crearArchivosExcelParaCompartir(excels);
+  assert.equal(fileUG.name, excels.fileNameUG);
+  assert.equal(fileUS.name, excels.fileNameUS);
+  assert.equal(fileUG.type, XLSX_MIME_TYPE);
+  assert.equal(fileUS.type, XLSX_MIME_TYPE);
+  assert.equal(fileUG.size, excels.excelUGBytes.length);
+  assert.equal(fileUS.size, excels.excelUSBytes.length);
+
+  // Detección móvil vs escritorio
+  const capMovil = detectarCapacidadesEnvioCorreo({
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15',
+    canShare: () => true,
+    share: async () => {},
+  });
+  assert.equal(capMovil.esMovil, true);
+  assert.equal(capMovil.soportaWebShareArchivos, true);
+
+  const capDesktop = detectarCapacidadesEnvioCorreo({
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130.0.0.0',
+    canShare: () => false,
+    share: async () => {},
+  });
+  assert.equal(capDesktop.esMovil, false);
+  assert.equal(capDesktop.soportaWebShareArchivos, false);
+
+  // Compartición nativa exitosa pasando los 2 .xlsx reales
+  let payloadRecibido: any = null;
+  const resShareOk = await compartirExcelsNativo({
+    excels,
+    asunto,
+    cuerpo: 'Envío cuadrantes',
+    destinatario: cfg.destinatario,
+    navigatorShareImpl: {
+      canShare: (d) => Array.isArray(d?.files) && d.files.length === 2,
+      share: async (d) => {
+        payloadRecibido = d;
+      },
+    },
+  });
+  assert.equal(resShareOk.ok, true);
+  assert.equal(resShareOk.estado, 'SHARE_NATIVO');
+  assert.equal(resShareOk.adjuntosRealesEnviados, true);
+  assert.equal(payloadRecibido.files.length, 2);
+  assert.equal(payloadRecibido.files[0].name, excels.fileNameUG);
+  assert.equal(payloadRecibido.files[1].name, excels.fileNameUS);
+
+  // Cancelación por usuario
+  const abortErr = new Error('User cancelled');
+  abortErr.name = 'AbortError';
+  const resShareCancel = await compartirExcelsNativo({
+    excels,
+    asunto,
+    cuerpo: 'Envío cuadrantes',
+    destinatario: cfg.destinatario,
+    navigatorShareImpl: {
+      canShare: () => true,
+      share: async () => {
+        throw abortErr;
+      },
+    },
+  });
+  assert.equal(resShareCancel.ok, false);
+  assert.equal(resShareCancel.estado, 'CANCELADO');
+  assert.equal(resShareCancel.adjuntosRealesEnviados, false);
+
+  // Bloqueo por navegador (ej. Chrome Android rechazando .xlsx con NotAllowedError): NO simula adjuntos
+  const notAllowedErr = new Error('Permission denied');
+  notAllowedErr.name = 'NotAllowedError';
+  const resShareBlocked = await compartirExcelsNativo({
+    excels,
+    asunto,
+    cuerpo: 'Envío cuadrantes',
+    destinatario: cfg.destinatario,
+    navigatorShareImpl: {
+      canShare: () => true,
+      share: async () => {
+        throw notAllowedErr;
+      },
+    },
+  });
+  assert.equal(resShareBlocked.ok, false);
+  assert.equal(resShareBlocked.estado, 'NO_COMPATIBLE_NAVEGADOR');
+  assert.equal(resShareBlocked.adjuntosRealesEnviados, false);
+
+  console.log('✓ Flujo de adjuntos reales móvil/escritorio y codificación UTF-8 de .eml verificados.');
 }
 
 runTests().catch((err) => {
