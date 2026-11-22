@@ -294,9 +294,9 @@ const autorizarConFirebasePopup = async (scopes: readonly string[]): Promise<{
 
 /**
  * Conecta con Google OAuth para autorizar la creación de borradores y el envío desde sarqsan2@gmail.com.
- * - En entornos AI Studio / localhost utiliza GSI si está cargado.
- * - En dominios externos (p. ej. Vercel en Android Chrome) usa directamente un único popup de Firebase Auth aislado
- *   en memoria para conservar el gesto de usuario y evitar origin_mismatch o cierres de sesión del admin.
+ * Utiliza directamente el popup estándar de Firebase Auth en una instancia aislada en memoria
+ * (que redirige por startup-sanctuary-sln7n.firebaseapp.com/__/auth/handler y evita Error 400: origin_mismatch
+ * sin requerir permisos de edición sobre el cliente OAuth administrado por AI Studio).
  */
 export const conectarGmailOAuth = async (): Promise<{
   success: boolean;
@@ -304,24 +304,19 @@ export const conectarGmailOAuth = async (): Promise<{
   token?: string;
   email?: string;
 }> => {
-  const gsiDisponible =
-    typeof window !== 'undefined' &&
-    Boolean((window as any).google?.accounts?.oauth2) &&
-    Boolean(OAUTH_CLIENT_ID);
-
-  if (esEntornoPreviewOLocal() && gsiDisponible) {
-    const gsiRes = await autorizarConGSI(GMAIL_OAUTH_SCOPES);
-    if (gsiRes.success || gsiRes.message.includes('cerrada')) {
-      return gsiRes;
-    }
-  }
-
   const popupRes = await autorizarConFirebasePopup(GMAIL_OAUTH_SCOPES);
   if (popupRes.success || popupRes.message.includes('cerrada') || popupRes.message.includes('cancelada')) {
     return popupRes;
   }
 
-  if (gsiDisponible) {
+  const gsiDisponible =
+    typeof window !== 'undefined' &&
+    Boolean((window as any).google?.accounts?.oauth2) &&
+    Boolean(OAUTH_CLIENT_ID);
+
+  // Solo intentar GSI en vista previa/local si Firebase Auth devolvió dominio no autorizado;
+  // en dominios externos (p. ej. Vercel) nunca abrir GSI para evitar Error 400: origin_mismatch.
+  if (esEntornoPreviewOLocal() && gsiDisponible && popupRes.message.includes('no autorizado')) {
     return autorizarConGSI(GMAIL_OAUTH_SCOPES);
   }
 
