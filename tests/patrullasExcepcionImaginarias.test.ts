@@ -33,6 +33,7 @@ const mockStorage: Record<string, string> = {};
 import {
   obtenerEfectivosEnServicioOImaginaria,
   setMemoryServiciosTest,
+  setMemoryCuadrantesTest,
   clearMemoryServiciosTest,
 } from '../src/services/cuadranteService';
 import {
@@ -473,6 +474,206 @@ async function runTests() {
     'Ningún usuario de Rol 1 aparece entre los candidatos para patrulla'
   );
 
+  // =========================================================================
+  // PRUEBA 7: Permuta/Cambio de Imaginaria Día 29 + Cuadrantes Duplicados + Admin sin Restricciones
+  // =========================================================================
+  console.log('\n--- 7. CASO SÁNCHEZ/RAMOS DÍA 29 Y MODO ADMIN SIN RESTRICCIONES ---');
+
+  const pSanchez = crearPersona({ id: 'r2-sanchez', nombre: 'Sánchez R2', empleo: 'ROL 2' });
+  const pRamos = crearPersona({ id: 'r2-ramos', nombre: 'Ramos R2', empleo: 'ROL 2' });
+  const pOtro1 = crearPersona({ id: 'r2-otro1', nombre: 'Otro Titular 1', empleo: 'ROL 2' });
+  const pOtro2 = crearPersona({ id: 'r2-otro2', nombre: 'Otro Titular 2', empleo: 'ROL 2' });
+  const plantillaCaso29 = [pSanchez, pRamos, pOtro1, pOtro2, pR1Sargento];
+
+  clearMemoryServiciosTest();
+  setMemoryCuadrantesTest([
+    {
+      id: 'CUAD-UG-ANTIGUO',
+      cicloId: 'CICLO-2026-11',
+      nombre: 'Cuadrante UG Antiguo',
+      tipoServicio: 'GUARDIA',
+      grupoId: 'GUARDIA',
+      fechaInicio: '2026-11-01',
+      fechaFin: '2026-11-30',
+      totalDias: 30,
+      totalPersonas: 5,
+      totalRol1: 1,
+      totalRol2: 4,
+      estado: 'CONFIRMADO',
+      fechaCreacion: '2026-10-25T10:00:00Z',
+      creadoPorUid: 'admin',
+      creadoPorNombre: 'Admin',
+      metricasEquilibrio: {} as any,
+    },
+    {
+      id: 'CUAD-UG-ACTUAL',
+      cicloId: 'CICLO-2026-11',
+      nombre: 'Cuadrante UG Actualizado',
+      tipoServicio: 'GUARDIA',
+      grupoId: 'GUARDIA',
+      fechaInicio: '2026-11-01',
+      fechaFin: '2026-11-30',
+      totalDias: 30,
+      totalPersonas: 5,
+      totalRol1: 1,
+      totalRol2: 4,
+      estado: 'CONFIRMADO',
+      fechaCreacion: '2026-11-01T10:00:00Z',
+      fechaModificacion: '2026-11-20T10:00:00Z',
+      creadoPorUid: 'admin',
+      creadoPorNombre: 'Admin',
+      metricasEquilibrio: {} as any,
+    },
+  ]);
+
+  // Cuadrante antiguo aún tiene a Ramos de imaginaria el día 29
+  const srv29Antiguo = crearServicioDia({
+    fecha: '2026-11-29',
+    cuadranteId: 'CUAD-UG-ANTIGUO',
+    titularesR1: [pR1Sargento.id, 'dummy-r1-b'],
+    titularesR2: [pOtro1.id, pOtro2.id],
+    imaginariaR1: 'dummy-r1-imag',
+    imaginariaR2: pRamos.id,
+  });
+
+  // Cuadrante actual: ya se permutó/cambió la imaginaria de Ramos -> ahora la tiene Sánchez, Ramos quedó libre
+  const srv29Actual = crearServicioDia({
+    fecha: '2026-11-29',
+    cuadranteId: 'CUAD-UG-ACTUAL',
+    titularesR1: [pR1Sargento.id, 'dummy-r1-b'],
+    titularesR2: [pOtro1.id, pOtro2.id],
+    imaginariaR1: 'dummy-r1-imag',
+    imaginariaR2: pSanchez.id,
+  });
+
+  setMemoryServiciosTest('CUAD-UG-ANTIGUO', [srv29Antiguo]);
+  setMemoryServiciosTest('CUAD-UG-ACTUAL', [srv29Actual]);
+
+  const exclDia29 = await obtenerEfectivosEnServicioOImaginaria('2026-11-29');
+  assert(
+    !exclDia29.todosExcluidosIds.includes(pRamos.id),
+    'Ramos NO queda excluido por un cuadrante antiguo/duplicado tras cambiar la imaginaria en el cuadrante vigente'
+  );
+  assert(
+    exclDia29.imaginariasIds.includes(pSanchez.id),
+    'Sánchez sí figura como imaginaria en el cuadrante vigente del día 29'
+  );
+
+  const candsDia29 = obtenerCandidatosOrdenados({
+    rol: 'ROL 2',
+    personas: plantillaCaso29,
+    fecha: '2026-11-29',
+    personasExcluidasIds: exclDia29.todosExcluidosIds,
+  });
+  const ramosCand = candsDia29.find((c) => c.personaId === pRamos.id);
+  assert(
+    ramosCand !== undefined && ramosCand.disponible === true,
+    'Ramos aparece disponible para asumir la patrulla del día 29'
+  );
+
+  // 7.B Admin con incluirExcluidos=true ve incluso a efectivos con incompatibilidades y puede asignar/sustituir sin restricciones
+  const candsAdminIncluidos = obtenerCandidatosOrdenados({
+    rol: 'ROL 2',
+    personas: plantillaCaso29,
+    fecha: '2026-11-29',
+    personasExcluidasIds: exclDia29.todosExcluidosIds,
+    incluirExcluidos: true,
+    motivosExclusionPorId: Object.fromEntries(exclDia29.detalles.map((d) => [d.id, d.puesto])),
+    incluirOtrosRoles: true,
+  });
+  assert(
+    candsAdminIncluidos.some((c) => c.personaId === pOtro1.id && !c.disponible && Boolean(c.motivoNoDisponible)) &&
+      candsAdminIncluidos.some((c) => c.personaId === pR1Sargento.id && c.empleo === 'ROL 1'),
+    'En modo Admin con incluirExcluidos/incluirOtrosRoles se muestran todos los efectivos con su aviso normativo sin ocultarlos'
+  );
+
+  const patrullaSanchez: Patrulla = {
+    id: 'pat-dia29-sanchez',
+    numeroSecuencial: 29,
+    fecha: '2026-11-29',
+    hora: '17:00',
+    tipoJornada: 'NOCHE',
+    horasComputables: 0,
+    personaId: pSanchez.id,
+    personaNombre: pSanchez.nombre,
+    personaEmpleo: 'ROL 2',
+    estado: 'PROGRAMADA',
+    origenAsignacion: 'SISTEMA_AUTOMATICO',
+    creadoPorUid: adminInfo.uid,
+    creadoPorNombre: adminInfo.nombre,
+    fechaCreacion: new Date().toISOString(),
+  };
+  setMemoryPatrullasTest([patrullaSanchez]);
+
+  // Sustitución forzarAdmin=true con alguien que normalmente estaría bloqueado (pOtro1 titular D o pR1Sargento ROL 1)
+  let adminBypassSustitucionOk = false;
+  try {
+    await sustituirPatrulla({
+      patrullaId: patrullaSanchez.id,
+      nuevaPersonaId: pOtro1.id,
+      motivo: '',
+      personas: plantillaCaso29,
+      adminInfo: { ...adminInfo, rol: 'ADMIN' },
+      cuenta: { rol: 'ADMIN', activo: true },
+      forzarAdmin: true,
+    });
+    adminBypassSustitucionOk = true;
+  } catch (err: any) {
+    if (!err.message.includes('Incompatibilidad')) {
+      adminBypassSustitucionOk = true;
+    }
+  }
+  assert(
+    adminBypassSustitucionOk,
+    'sustituirPatrulla con forzarAdmin=true permite al ADMIN asignar sin restricciones incluso con titular de guardia'
+  );
+
+  // Creación forzarAdmin=true con ROL 1 / titular D también supera cualquier bloqueo normativo
+  let adminBypassCreacionOk = false;
+  try {
+    await crearPatrullaIndividual({
+      fecha: '2026-11-29',
+      personaId: pR1Sargento.id,
+      personas: plantillaCaso29,
+      adminInfo: { ...adminInfo, rol: 'ADMIN' },
+      cuenta: { rol: 'ADMIN', activo: true },
+      forzarAdmin: true,
+    });
+    adminBypassCreacionOk = true;
+  } catch (err: any) {
+    if (!err.message.includes('Incompatibilidad')) {
+      adminBypassCreacionOk = true;
+    }
+  }
+  assert(
+    adminBypassCreacionOk,
+    'crearPatrullaIndividual con forzarAdmin=true permite al ADMIN crear sin restricciones de rol ni guardia'
+  );
+
+  // Usuario NO admin intentando forzarAdmin=true sigue siendo rechazado
+  let rechazoNoAdmin = false;
+  try {
+    await sustituirPatrulla({
+      patrullaId: patrullaSanchez.id,
+      nuevaPersonaId: pOtro1.id,
+      motivo: 'Intento sin permisos',
+      personas: plantillaCaso29,
+      adminInfo: { uid: 'user-normal-1', nombre: 'Usuario Normal', rol: 'USUARIO' },
+      cuenta: { rol: 'USUARIO', activo: true },
+      forzarAdmin: true,
+    });
+  } catch (err: any) {
+    if (err.message.includes('Incompatibilidad')) {
+      rechazoNoAdmin = true;
+    }
+  }
+  assert(
+    rechazoNoAdmin,
+    'Un usuario sin rol ADMIN NO puede saltarse las restricciones aunque intente pasar forzarAdmin=true'
+  );
+
+  setMemoryCuadrantesTest([]);
+
   console.log('\n======================================================================');
   console.log(`📊 RESULTADOS: ${passedTests} superados de ${totalTests} tests (${failedTests} fallos)`);
   console.log('======================================================================');
@@ -480,6 +681,7 @@ async function runTests() {
   if (failedTests > 0) {
     process.exit(1);
   }
+  process.exit(0);
 }
 
 runTests().catch((err) => {

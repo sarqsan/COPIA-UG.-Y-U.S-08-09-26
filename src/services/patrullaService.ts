@@ -218,6 +218,16 @@ export const puedeGestionarPatrullas = (cuenta?: {
   return false;
 };
 
+const esAdminPatrullasAutorizado = (
+  cuenta?: { rol?: string; permisos?: string[] },
+  adminInfo?: { uid?: string; nombre?: string; rol?: string }
+): boolean => {
+  if (cuenta?.rol === 'ADMIN' || puedeGestionarPatrullas(cuenta)) return true;
+  if (adminInfo?.rol === 'ADMIN' || adminInfo?.rol === 'ADMINISTRADOR_PATRULLAS') return true;
+  if (adminInfo?.uid?.startsWith('admin-') || adminInfo?.uid === 'admin-system') return true;
+  return false;
+};
+
 /**
  * Consulta el siguiente número secuencial que le correspondería a la próxima patrulla.
  * OPERACIÓN PURA DE CONSULTA (SOLO LECTURA): No incrementa ni muta el contador en Firestore ni memoria.
@@ -353,16 +363,28 @@ export const obtenerCandidatosOrdenados = (params: {
   patrullasHistoricas?: Patrulla[];
   fecha: string;
   personasExcluidasIds?: string[];
+  incluirExcluidos?: boolean;
+  motivosExclusionPorId?: Record<string, string>;
+  incluirOtrosRoles?: boolean;
 }): CandidatoPatrulla[] => {
-  const { rol, personas, patrullasHistoricas = memoryPatrullasCache, fecha, personasExcluidasIds = [] } = params;
+  const {
+    rol,
+    personas,
+    patrullasHistoricas = memoryPatrullasCache,
+    fecha,
+    personasExcluidasIds = [],
+    incluirExcluidos = false,
+    motivosExclusionPorId = {},
+    incluirOtrosRoles = false,
+  } = params;
 
-  // Filtrar personas del rol candidatas
+  // Filtrar personas operativas U.G. (por defecto solo rol indicado y no excluidos; en modo admin opcional incluye excluidos/otros roles con aviso)
   const personasRol = personas.filter(
     (p) =>
-      p.empleo === rol &&
       p.activo &&
       (p.grupo === 'U.G.' || p.tipoServicio !== 'US') &&
-      !personasExcluidasIds.includes(p.id)
+      (incluirOtrosRoles || p.empleo === rol) &&
+      (incluirExcluidos || !personasExcluidasIds.includes(p.id))
   );
 
   const fechaObj = new Date(fecha);
@@ -378,6 +400,9 @@ export const obtenerCandidatosOrdenados = (params: {
       (p) => p.fecha === fecha && p.personaId === persona.id && p.estado !== 'CANCELADA'
     );
 
+    const excluidoPorCuadrante = personasExcluidasIds.includes(persona.id);
+    const distintoRol = persona.empleo !== rol;
+
     // Última fecha de patrulla realizada o programada antes de esta fecha
     const patrullasAnteriores = historialPersona
       .filter((p) => p.fecha < fecha)
@@ -392,10 +417,20 @@ export const obtenerCandidatosOrdenados = (params: {
       diasDesdeUltima = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     }
 
-    const disponible = !yaTienePatrullaHoy;
-    const motivoNoDisponible = yaTienePatrullaHoy
-      ? 'Ya tiene asignada una patrulla en la misma fecha'
-      : undefined;
+    const disponible = !yaTienePatrullaHoy && !excluidoPorCuadrante && !distintoRol;
+    const motivos: string[] = [];
+    if (distintoRol) {
+      motivos.push(`Rol ${persona.empleo} distinto de ${rol}`);
+    }
+    if (excluidoPorCuadrante) {
+      motivos.push(
+        motivosExclusionPorId[persona.id] || 'Incompatible por servicio o imaginaria en cuadrante'
+      );
+    }
+    if (yaTienePatrullaHoy) {
+      motivos.push('Ya tiene asignada una patrulla en la misma fecha');
+    }
+    const motivoNoDisponible = motivos.length > 0 ? motivos.join(' • ') : undefined;
 
     return {
       personaId: persona.id,
@@ -409,11 +444,16 @@ export const obtenerCandidatosOrdenados = (params: {
     };
   });
 
-  // Ordenar con las 3 prioridades obligatorias
+  // Ordenar con las prioridades obligatorias (disponibles primero, luego mismo rol, luego resto)
   candidatos.sort((a, b) => {
     // Disponibles primero
     if (a.disponible && !b.disponible) return -1;
     if (!a.disponible && b.disponible) return 1;
+
+    // Mismo rol antes que otros roles
+    const aMismoRol = a.empleo === rol ? 1 : 0;
+    const bMismoRol = b.empleo === rol ? 1 : 0;
+    if (aMismoRol !== bMismoRol) return bMismoRol - aMismoRol;
 
     // Prioridad 1: Menor número histórico de patrullas
     if (a.patrullasPrevias !== b.patrullasPrevias) {
@@ -488,16 +528,23 @@ export const crearPatrulla = async (params: {
   cuadranteId?: string;
   servicioId?: string;
   origenAsignacion?: 'SISTEMA_AUTOMATICO' | 'MANUAL_ADMIN';
-  adminInfo: { uid: string; nombre: string };
+  adminInfo: { uid: string; nombre: string; rol?: string };
   observaciones?: string;
+  forzarAdmin?: boolean;
+  cuenta?: any;
 }): Promise<Patrulla> => {
   const persona = params.personas.find((p) => p.id === params.personaId);
   if (!persona) {
     throw new Error(`Persona con ID ${params.personaId} no encontrada.`);
   }
 
-  // REGLA OBLIGATORIA: Las patrullas solo pueden asignarse a usuarios de Rol 2 (Rol 1 no puede ser nombrado)
-  if (persona.empleo !== 'ROL 2') {
+  const saltarRestricciones = Boolean(
+    params.forzarAdmin && esAdminPatrullasAutorizado(params.cuenta, params.adminInfo)
+  );
+
+  // REGLA OBLIGATORIA: En flujo normal / automático las patrullas son exclusivas de Rol 2.
+  // El Administrador con asignación directa (forzarAdmin) opera sin restricciones.
+  if (!saltarRestricciones && persona.empleo !== 'ROL 2') {
     throw new Error(
       `Incompatibilidad de rol: Las patrullas son exclusivas de ROL 2 (${persona.nombre} es ${persona.empleo}).`
     );
@@ -507,33 +554,39 @@ export const crearPatrulla = async (params: {
   // En D: NO puede tener servicio U.G. titular en D (24h).
   // En D: NO puede ser saliente de guardia de 24h del día anterior (D-1).
   // NO puede tener imaginaria U.G. en D o D+1 (EXCEPCIÓN: imaginaria en D-1 sí está permitida).
-  const excluidos = await obtenerEfectivosEnServicioOImaginaria(params.fecha);
-  if (excluidos.todosExcluidosIds.includes(persona.id)) {
-    const det = excluidos.detalles.find((d) => d.id === persona.id);
-    let motivo = `Incompatibilidad detectada: ${persona.nombre} (${persona.empleo}) no puede realizar patrulla el ${params.fecha}`;
-    if (det && det.rol === 'SALIENTE_GUARDIA') {
-      motivo += ' por ser saliente de guardia de 24 horas del día anterior.';
-    } else if (excluidos.salientesGuardiaIds?.includes(persona.id)) {
-      motivo += ' por ser saliente de guardia de 24 horas del día anterior.';
-    } else if (det) {
-      motivo += ` (${det.puesto}).`;
-    } else if (excluidos.titularesIds.includes(persona.id)) {
-      motivo += ' por estar asignado/a como servicio titular de guardia (24h) en esta fecha (D).';
-    } else {
-      motivo += ' por coincidencia de imaginaria de guardia (D o D+1).';
+  if (!saltarRestricciones) {
+    const excluidos = await obtenerEfectivosEnServicioOImaginaria(params.fecha, {
+      cuadranteId: params.cuadranteId,
+    });
+    if (excluidos.todosExcluidosIds.includes(persona.id)) {
+      const det = excluidos.detalles.find((d) => d.id === persona.id);
+      let motivo = `Incompatibilidad detectada: ${persona.nombre} (${persona.empleo}) no puede realizar patrulla el ${params.fecha}`;
+      if (det && det.rol === 'SALIENTE_GUARDIA') {
+        motivo += ' por ser saliente de guardia de 24 horas del día anterior.';
+      } else if (excluidos.salientesGuardiaIds?.includes(persona.id)) {
+        motivo += ' por ser saliente de guardia de 24 horas del día anterior.';
+      } else if (det) {
+        motivo += ` (${det.puesto}).`;
+      } else if (excluidos.titularesIds.includes(persona.id)) {
+        motivo += ' por estar asignado/a como servicio titular de guardia (24h) en esta fecha (D).';
+      } else {
+        motivo += ' por coincidencia de imaginaria de guardia (D o D+1).';
+      }
+      throw new Error(motivo);
     }
-    throw new Error(motivo);
   }
 
   // Cargar patrullas reales de Firestore para comprobar si ya tiene otra patrulla activa en la misma fecha
   await getPatrullas();
-  const patrullaMismoDia = memoryPatrullasCache.find(
-    (p) => p.fecha === params.fecha && p.personaId === persona.id && p.estado !== 'CANCELADA'
-  );
-  if (patrullaMismoDia) {
-    throw new Error(
-      `Incompatibilidad: ${persona.nombre} ya tiene asignada la Patrulla #${patrullaMismoDia.numeroSecuencial} el día ${params.fecha}.`
+  if (!saltarRestricciones) {
+    const patrullaMismoDia = memoryPatrullasCache.find(
+      (p) => p.fecha === params.fecha && p.personaId === persona.id && p.estado !== 'CANCELADA'
     );
+    if (patrullaMismoDia) {
+      throw new Error(
+        `Incompatibilidad: ${persona.nombre} ya tiene asignada la Patrulla #${patrullaMismoDia.numeroSecuencial} el día ${params.fecha}.`
+      );
+    }
   }
 
   // Obtener el siguiente número secuencial (persistencia atómica que consume el número SOLO tras pasar todas las validaciones)
@@ -584,7 +637,7 @@ export const crearPatrulla = async (params: {
       usuarioUid: params.adminInfo.uid,
       usuarioNombre: params.adminInfo.nombre,
       valorNuevo: nuevaPatrulla,
-      detalles: `Patrulla #${numeroSecuencial} creada para ${persona.nombre} (${persona.empleo}) en fecha ${params.fecha} a las ${hora} (${tipoJornada}). 0 horas computables.`,
+      detalles: `Patrulla #${numeroSecuencial} creada para ${persona.nombre} (${persona.empleo}) en fecha ${params.fecha} a las ${hora} (${tipoJornada}). 0 horas computables.${saltarRestricciones ? ' [Asignación directa de Administrador sin restricciones]' : ''}`,
     });
   } catch (auditErr) {
     console.warn('Aviso: Registro de auditoría diferido:', auditErr);
@@ -694,12 +747,19 @@ export const sustituirPatrulla = async (params: {
   nuevaPersonaId: string;
   motivo: string;
   personas: Persona[];
-  adminInfo: { uid: string; nombre: string };
+  adminInfo: { uid: string; nombre: string; rol?: string };
+  forzarAdmin?: boolean;
+  cuenta?: any;
+  cuadranteId?: string;
 }): Promise<Patrulla> => {
   const { patrullaId, nuevaPersonaId, motivo, personas, adminInfo } = params;
 
-  // Buscar patrulla
-  const patrulla = memoryPatrullasCache.find((p) => p.id === patrullaId);
+  // Buscar patrulla en memoria o recargar desde Firestore
+  let patrulla = memoryPatrullasCache.find((p) => p.id === patrullaId);
+  if (!patrulla) {
+    await getPatrullas();
+    patrulla = memoryPatrullasCache.find((p) => p.id === patrullaId);
+  }
   if (!patrulla) {
     throw new Error(`Patrulla con ID ${patrullaId} no encontrada.`);
   }
@@ -709,45 +769,56 @@ export const sustituirPatrulla = async (params: {
     throw new Error(`Persona sustituta con ID ${nuevaPersonaId} no encontrada.`);
   }
 
-  // REGLA OBLIGATORIA: Las patrullas son exclusivas de Rol 2 (Rol 1 no puede ser nombrado)
-  if (nuevaPersona.empleo !== 'ROL 2') {
+  const saltarRestricciones = Boolean(
+    params.forzarAdmin && esAdminPatrullasAutorizado(params.cuenta, adminInfo)
+  );
+
+  // REGLA OBLIGATORIA: En flujo normal las patrullas son exclusivas de Rol 2.
+  // El Administrador con sustitución directa (forzarAdmin) opera sin restricciones.
+  if (!saltarRestricciones && nuevaPersona.empleo !== 'ROL 2') {
     throw new Error(
       `Incompatibilidad de rol en sustitución: Las patrullas son exclusivas de ROL 2 (${nuevaPersona.nombre} es ${nuevaPersona.empleo}).`
     );
   }
 
   // VALIDACIÓN DEFENSIVA ESTRICTA DE COMPATIBILIDAD (Bloque 4 / Nivel 2 de protección):
-  const excluidos = await obtenerEfectivosEnServicioOImaginaria(patrulla.fecha);
-  if (excluidos.todosExcluidosIds.includes(nuevaPersona.id)) {
-    const det = excluidos.detalles.find((d) => d.id === nuevaPersona.id);
-    let motivoExclusion = `Incompatibilidad en sustitución: ${nuevaPersona.nombre} no puede realizar la patrulla el ${patrulla.fecha}`;
-    if (det && det.rol === 'SALIENTE_GUARDIA') {
-      motivoExclusion += ' por ser saliente de guardia de 24 horas del día anterior.';
-    } else if (excluidos.salientesGuardiaIds?.includes(nuevaPersona.id)) {
-      motivoExclusion += ' por ser saliente de guardia de 24 horas del día anterior.';
-    } else if (det) {
-      motivoExclusion += ` (${det.puesto}).`;
-    } else if (excluidos.titularesIds.includes(nuevaPersona.id)) {
-      motivoExclusion += ' por tener servicio titular de guardia (24h) en esa fecha (D).';
-    } else {
-      motivoExclusion += ' por coincidencia de imaginaria de guardia (D o D+1).';
+  if (!saltarRestricciones) {
+    const excluidos = await obtenerEfectivosEnServicioOImaginaria(patrulla.fecha, {
+      cuadranteId: params.cuadranteId || patrulla.cuadranteId,
+    });
+    if (excluidos.todosExcluidosIds.includes(nuevaPersona.id)) {
+      const det = excluidos.detalles.find((d) => d.id === nuevaPersona.id);
+      let motivoExclusion = `Incompatibilidad en sustitución: ${nuevaPersona.nombre} no puede realizar la patrulla el ${patrulla.fecha}`;
+      if (det && det.rol === 'SALIENTE_GUARDIA') {
+        motivoExclusion += ' por ser saliente de guardia de 24 horas del día anterior.';
+      } else if (excluidos.salientesGuardiaIds?.includes(nuevaPersona.id)) {
+        motivoExclusion += ' por ser saliente de guardia de 24 horas del día anterior.';
+      } else if (det) {
+        motivoExclusion += ` (${det.puesto}).`;
+      } else if (excluidos.titularesIds.includes(nuevaPersona.id)) {
+        motivoExclusion += ' por tener servicio titular de guardia (24h) en esa fecha (D).';
+      } else {
+        motivoExclusion += ' por coincidencia de imaginaria de guardia (D o D+1).';
+      }
+      throw new Error(motivoExclusion);
     }
-    throw new Error(motivoExclusion);
-  }
 
-  const patrullaMismoDia = memoryPatrullasCache.find(
-    (p) => p.id !== patrullaId && p.fecha === patrulla.fecha && p.personaId === nuevaPersona.id && p.estado !== 'CANCELADA'
-  );
-  if (patrullaMismoDia) {
-    throw new Error(
-      `Incompatibilidad: ${nuevaPersona.nombre} ya tiene asignada otra Patrulla (#${patrullaMismoDia.numeroSecuencial}) el día ${patrulla.fecha}.`
+    const patrullaMismoDia = memoryPatrullasCache.find(
+      (p) => p.id !== patrullaId && p.fecha === patrulla!.fecha && p.personaId === nuevaPersona.id && p.estado !== 'CANCELADA'
     );
+    if (patrullaMismoDia) {
+      throw new Error(
+        `Incompatibilidad: ${nuevaPersona.nombre} ya tiene asignada otra Patrulla (#${patrullaMismoDia.numeroSecuencial}) el día ${patrulla.fecha}.`
+      );
+    }
   }
 
   // Comprobar que pertenece al mismo rol para mantener la equidad del rol
   if (nuevaPersona.empleo !== patrulla.personaEmpleo) {
     console.warn(`Sustitución inter-rol: de ${patrulla.personaEmpleo} a ${nuevaPersona.empleo}.`);
   }
+
+  const motivoFinal = motivo?.trim() || 'Sustitución directa administrativa';
 
   const valorAnterior: Partial<Patrulla> = {
     personaId: patrulla.personaId,
@@ -771,7 +842,7 @@ export const sustituirPatrulla = async (params: {
     personaOriginalEmpleo,
     personaSustitutaId: nuevaPersona.id,
     personaSustitutaNombre: nuevaPersona.nombre,
-    motivoSustitucion: motivo,
+    motivoSustitucion: motivoFinal,
     fechaModificacion: new Date().toISOString(),
     modificadoPorUid: adminInfo.uid,
     modificadoPorNombre: adminInfo.nombre,
@@ -798,8 +869,8 @@ export const sustituirPatrulla = async (params: {
       usuarioNombre: adminInfo.nombre,
       valorAnterior,
       valorNuevo: patrullaActualizada,
-      motivo,
-      detalles: `Sustitución en Patrulla #${patrulla.numeroSecuencial} (${patrulla.fecha} a las ${patrulla.hora}). Original: ${personaOriginalNombre} (${personaOriginalEmpleo}). Sustituto: ${nuevaPersona.nombre} (${nuevaPersona.empleo}). Motivo: ${motivo}.`,
+      motivo: motivoFinal,
+      detalles: `Sustitución en Patrulla #${patrulla.numeroSecuencial} (${patrulla.fecha} a las ${patrulla.hora}). Original: ${personaOriginalNombre} (${personaOriginalEmpleo}). Sustituto: ${nuevaPersona.nombre} (${nuevaPersona.empleo}). Motivo: ${motivoFinal}.${saltarRestricciones ? ' [Cambio directo Administrador sin restricciones]' : ''}`,
     });
   } catch (auditErr) {
     console.warn('Aviso: Registro de auditoría diferido en sustitución:', auditErr);
@@ -810,7 +881,7 @@ export const sustituirPatrulla = async (params: {
     await crearNotificacion({
       tipo: 'AVISO_IMPORTANTE',
       titulo: `Sustitución en Patrulla #${patrulla.numeroSecuencial}`,
-      mensaje: `Has sido asignado como sustituto en la Patrulla #${patrulla.numeroSecuencial} del día ${patrulla.fecha} a las ${patrulla.hora}. Motivo: ${motivo}.`,
+      mensaje: `Has sido asignado como sustituto en la Patrulla #${patrulla.numeroSecuencial} del día ${patrulla.fecha} a las ${patrulla.hora}. Motivo: ${motivoFinal}.`,
       destinatarioPersonaId: nuevaPersona.id,
       linkTab: 'cuadrantes',
     });

@@ -3,18 +3,19 @@ import { Persona } from '../../types';
 import { Patrulla } from '../../types/patrullaTypes';
 import {
   obtenerCandidatosOrdenados,
+  puedeGestionarPatrullas,
   sustituirPatrulla,
 } from '../../services/patrullaService';
 import { obtenerEfectivosEnServicioOImaginaria } from '../../services/cuadranteService';
 import {
   X,
   Repeat,
-  AlertTriangle,
   UserCheck,
   Clock,
   Calendar,
   AlertCircle,
   ShieldAlert,
+  ShieldCheck,
 } from 'lucide-react';
 
 interface SustituirPatrullaModalProps {
@@ -23,7 +24,9 @@ interface SustituirPatrullaModalProps {
   patrulla: Patrulla;
   personas: Persona[];
   patrullasHistoricas: Patrulla[];
-  adminInfo: { uid: string; nombre: string };
+  cuadranteId?: string;
+  adminInfo: { uid: string; nombre: string; rol?: string };
+  cuenta?: any;
   onSuccess: () => void;
 }
 
@@ -33,24 +36,44 @@ export const SustituirPatrullaModal: React.FC<SustituirPatrullaModalProps> = ({
   patrulla,
   personas,
   patrullasHistoricas,
+  cuadranteId,
   adminInfo,
+  cuenta,
   onSuccess,
 }) => {
   const [nuevaPersonaId, setNuevaPersonaId] = useState<string>('');
   const [motivo, setMotivo] = useState<string>('');
+  const [incluirRol1, setIncluirRol1] = useState<boolean>(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Excluidos por estar de servicio o imaginaria
+  // Excluidos por estar de servicio o imaginaria + motivos detallados
   const [excluidosGuardia, setExcluidosGuardia] = useState<string[]>([]);
+  const [motivosExclusionPorId, setMotivosExclusionPorId] = useState<Record<string, string>>({});
+
+  const esAdmin = Boolean(
+    cuenta?.rol === 'ADMIN' ||
+      puedeGestionarPatrullas(cuenta) ||
+      adminInfo?.rol === 'ADMIN' ||
+      adminInfo?.rol === 'ADMINISTRADOR_PATRULLAS'
+  );
 
   useEffect(() => {
     let active = true;
     const fetchExcluidos = async () => {
       try {
-        const res = await obtenerEfectivosEnServicioOImaginaria(patrulla.fecha);
+        const res = await obtenerEfectivosEnServicioOImaginaria(patrulla.fecha, {
+          cuadranteId: cuadranteId || patrulla.cuadranteId,
+        });
         if (active) {
           setExcluidosGuardia(res.todosExcluidosIds);
+          const motivosMap: Record<string, string> = {};
+          res.detalles.forEach((d) => {
+            if (d.id && d.puesto) {
+              motivosMap[d.id] = d.puesto;
+            }
+          });
+          setMotivosExclusionPorId(motivosMap);
         }
       } catch (err) {
         console.warn('Error obteniendo guardia en sustitución:', err);
@@ -60,35 +83,47 @@ export const SustituirPatrullaModal: React.FC<SustituirPatrullaModalProps> = ({
     return () => {
       active = false;
     };
-  }, [patrulla.fecha]);
+  }, [patrulla.fecha, cuadranteId, patrulla.cuadranteId]);
 
-  // Candidatos válidos del rol correspondiente (excluyendo a la persona actual y a los de servicio/imaginaria)
-  const personasExcluidas = useMemo(() => {
-    const setIds = new Set<string>([patrulla.personaId, ...excluidosGuardia]);
-    return Array.from(setIds);
-  }, [patrulla.personaId, excluidosGuardia]);
+  const rolBase = patrulla.personaOriginalEmpleo || patrulla.personaEmpleo || 'ROL 2';
 
   const candidatos = useMemo(() => {
-    return obtenerCandidatosOrdenados({
-      rol: patrulla.personaEmpleo,
+    const lista = obtenerCandidatosOrdenados({
+      rol: rolBase,
       personas,
       patrullasHistoricas,
       fecha: patrulla.fecha,
-      personasExcluidasIds: personasExcluidas,
+      personasExcluidasIds: excluidosGuardia,
+      incluirExcluidos: esAdmin,
+      motivosExclusionPorId,
+      incluirOtrosRoles: esAdmin && incluirRol1,
     });
-  }, [patrulla, personas, patrullasHistoricas, personasExcluidas]);
+    return lista.filter((c) => c.personaId !== patrulla.personaId);
+  }, [
+    rolBase,
+    personas,
+    patrullasHistoricas,
+    patrulla.fecha,
+    patrulla.personaId,
+    excluidosGuardia,
+    esAdmin,
+    motivosExclusionPorId,
+    incluirRol1,
+  ]);
 
-  // Preseleccionar el primer candidato disponible
+  // Preseleccionar el primer candidato disponible si aún no se eligió uno
   useEffect(() => {
     if (candidatos.length > 0 && !nuevaPersonaId) {
-      const top = candidatos.find((c) => c.disponible);
+      const top = candidatos.find((c) => c.disponible) || (esAdmin ? candidatos[0] : undefined);
       if (top) {
         setNuevaPersonaId(top.personaId);
       }
     }
-  }, [candidatos, nuevaPersonaId]);
+  }, [candidatos, nuevaPersonaId, esAdmin]);
 
   if (!isOpen) return null;
+
+  const candidatoSeleccionado = candidatos.find((c) => c.personaId === nuevaPersonaId);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -96,7 +131,7 @@ export const SustituirPatrullaModal: React.FC<SustituirPatrullaModalProps> = ({
       setError('Debes seleccionar a un efectivo sustituto.');
       return;
     }
-    if (!motivo.trim()) {
+    if (!esAdmin && !motivo.trim()) {
       setError('Debes indicar el motivo formal de la sustitución.');
       return;
     }
@@ -107,9 +142,12 @@ export const SustituirPatrullaModal: React.FC<SustituirPatrullaModalProps> = ({
       await sustituirPatrulla({
         patrullaId: patrulla.id,
         nuevaPersonaId,
-        motivo: motivo.trim(),
+        motivo: motivo.trim() || 'Sustitución directa administrativa',
         adminInfo,
         personas,
+        forzarAdmin: esAdmin,
+        cuenta,
+        cuadranteId: cuadranteId || patrulla.cuadranteId,
       });
       onSuccess();
       onClose();
@@ -119,9 +157,6 @@ export const SustituirPatrullaModal: React.FC<SustituirPatrullaModalProps> = ({
       setLoading(false);
     }
   };
-
-  const rolRequerido =
-    patrulla.personaOriginalEmpleo || patrulla.personaEmpleo;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm animate-fade-in overflow-hidden">
@@ -180,17 +215,30 @@ export const SustituirPatrullaModal: React.FC<SustituirPatrullaModalProps> = ({
               </div>
             </div>
 
+            {esAdmin && (
+              <div className="flex items-start gap-2 rounded-xl border border-blue-200 bg-blue-50/80 px-3 py-2 text-[11px] text-blue-900 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-blue-200">
+                <ShieldCheck className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                <span>
+                  <strong>Modo Administrador sin restricciones:</strong> puedes asignar directamente a cualquier efectivo de U.G., incluso si tiene avisos de guardia o imaginaria.
+                </span>
+              </div>
+            )}
+
             {/* Motivo de la sustitución */}
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Motivo Oficial de la Sustitución *
+                Motivo de la Sustitución {esAdmin ? '(Opcional para Admin)' : '*'}
               </label>
               <textarea
                 value={motivo}
                 onChange={(e) => setMotivo(e.target.value)}
-                required
+                required={!esAdmin}
                 rows={2}
-                placeholder="Indique el motivo reglamentario (ej: Baja médica, indisposición, orden de servicio)..."
+                placeholder={
+                  esAdmin
+                    ? 'Opcional: ej. Cambio patrulla por imaginaria, orden de servicio... (si se deja vacío se registra como "Sustitución directa administrativa")'
+                    : 'Indique el motivo reglamentario (ej: Baja médica, indisposición, orden de servicio)...'
+                }
                 className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-xs text-slate-800 focus:border-amber-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
               />
             </div>
@@ -199,66 +247,107 @@ export const SustituirPatrullaModal: React.FC<SustituirPatrullaModalProps> = ({
               <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-[11px] text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300">
                 <ShieldAlert className="h-4 w-4 text-amber-600 shrink-0" />
                 <span>
-                  {excluidosGuardia.length} efectivos excluidos (de guardia 24h en D, saliente de guardia de D-1 o imaginaria en D/D+1).
+                  {excluidosGuardia.length} efectivos con aviso de incompatibilidad normativa (guardia 24h en D, saliente D-1 o imaginaria en D/D+1). {esAdmin ? 'Se muestran igualmente para cambio directo.' : ''}
                 </span>
               </div>
             )}
 
             {/* Selector de Nuevo Efectivo */}
             <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Seleccionar Efectivo Sustituto (Rol Requerido: {rolRequerido})
-              </label>
-              <div className="max-h-40 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800">
-                {candidatos.map((c, index) => {
-                  const isSelected = nuevaPersonaId === c.personaId;
-                  const isTop = index === 0 && c.disponible;
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                  Seleccionar Efectivo Sustituto (Rol base: {rolBase})
+                </label>
+                {esAdmin && (
+                  <label className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 dark:text-slate-300 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={incluirRol1}
+                      onChange={(e) => setIncluirRol1(e.target.checked)}
+                      className="h-3.5 w-3.5 rounded text-amber-600"
+                    />
+                    <span>Incluir ROL 1</span>
+                  </label>
+                )}
+              </div>
 
-                  return (
-                    <div
-                      key={c.personaId}
-                      onClick={() => c.disponible && setNuevaPersonaId(c.personaId)}
-                      className={`flex items-center justify-between p-2.5 text-xs transition cursor-pointer ${
-                        !c.disponible
-                          ? 'opacity-50 cursor-not-allowed bg-slate-50 dark:bg-slate-900'
-                          : isSelected
-                          ? 'bg-amber-50 dark:bg-amber-950/50 text-amber-900 dark:text-amber-200 font-bold'
-                          : 'hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-700 dark:text-slate-300'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="radio"
-                          name="nuevaPersona"
-                          checked={isSelected}
-                          disabled={!c.disponible}
-                          onChange={() => setNuevaPersonaId(c.personaId)}
-                          className="h-3.5 w-3.5 text-amber-600"
-                        />
-                        <span>{c.personaNombre}</span>
-                        {isTop && (
-                          <span className="rounded-full bg-emerald-100 px-1.5 py-0.2 text-[9px] font-black text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                            RECOMENDADO
-                          </span>
-                        )}
-                        {!c.disponible && (
-                          <span className="text-[10px] text-red-500 italic">
-                            ({c.motivoNoDisponible})
-                          </span>
-                        )}
-                      </div>
+              <div className="max-h-52 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800">
+                {candidatos.length === 0 ? (
+                  <div className="p-4 text-center text-xs text-slate-400">
+                    No hay efectivos registrados en U.G. para sustituir.
+                  </div>
+                ) : (
+                  candidatos.map((c, index) => {
+                    const isSelected = nuevaPersonaId === c.personaId;
+                    const isTop = index === 0 && c.disponible;
+                    const puedeSeleccionar = c.disponible || esAdmin;
 
-                      <div className="text-[11px] text-slate-400">
-                        Patrullas previas:{' '}
-                        <strong className="text-slate-700 dark:text-slate-300">
-                          {c.patrullasPrevias}
-                        </strong>
+                    return (
+                      <div
+                        key={c.personaId}
+                        onClick={() => puedeSeleccionar && setNuevaPersonaId(c.personaId)}
+                        className={`flex items-center justify-between gap-2 p-2.5 text-xs transition ${
+                          !puedeSeleccionar
+                            ? 'opacity-50 cursor-not-allowed bg-slate-50 dark:bg-slate-900'
+                            : isSelected
+                            ? 'bg-amber-50 dark:bg-amber-950/50 text-amber-900 dark:text-amber-200 font-bold cursor-pointer'
+                            : !c.disponible
+                            ? 'bg-amber-50/30 dark:bg-amber-950/10 hover:bg-amber-50/70 dark:hover:bg-amber-950/30 text-slate-700 dark:text-slate-300 cursor-pointer'
+                            : 'hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-700 dark:text-slate-300 cursor-pointer'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <input
+                            type="radio"
+                            name="nuevaPersona"
+                            checked={isSelected}
+                            disabled={!puedeSeleccionar}
+                            onChange={() => setNuevaPersonaId(c.personaId)}
+                            className="h-3.5 w-3.5 text-amber-600 shrink-0"
+                          />
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="truncate">{c.personaNombre}</span>
+                              <span className="rounded bg-slate-100 px-1 py-0.2 text-[9px] font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                {c.empleo}
+                              </span>
+                              {isTop && (
+                                <span className="rounded-full bg-emerald-100 px-1.5 py-0.2 text-[9px] font-black text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                                  RECOMENDADO
+                                </span>
+                              )}
+                            </div>
+                            {!c.disponible && c.motivoNoDisponible && (
+                              <div className="text-[10px] text-amber-700 dark:text-amber-400 italic mt-0.5">
+                                Aviso: {c.motivoNoDisponible}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="text-[11px] text-slate-400 shrink-0">
+                          Patrullas:{' '}
+                          <strong className="text-slate-700 dark:text-slate-300">
+                            {c.patrullasPrevias}
+                          </strong>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })
+                )}
               </div>
             </div>
+
+            {esAdmin && candidatoSeleccionado && !candidatoSeleccionado.disponible && (
+              <div className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 p-2.5 text-[11px] text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                <ShieldAlert className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                <span>
+                  Se aplicará <strong>cambio directo de Administrador</strong> para{' '}
+                  <strong>{candidatoSeleccionado.personaNombre}</strong> omitiendo la restricción:{' '}
+                  {candidatoSeleccionado.motivoNoDisponible}.
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="shrink-0 p-3 sm:p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex justify-end gap-2 sm:gap-3">
@@ -272,7 +361,7 @@ export const SustituirPatrullaModal: React.FC<SustituirPatrullaModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={loading || !nuevaPersonaId || !motivo.trim()}
+              disabled={loading || !nuevaPersonaId || (!esAdmin && !motivo.trim())}
               className="flex items-center gap-1.5 rounded-xl bg-amber-600 px-4 py-2 text-xs font-bold text-white hover:bg-amber-700 shadow-md transition disabled:opacity-50 cursor-pointer"
             >
               <UserCheck className="h-4 w-4" />
@@ -284,3 +373,4 @@ export const SustituirPatrullaModal: React.FC<SustituirPatrullaModalProps> = ({
     </div>
   );
 };
+

@@ -9,7 +9,7 @@ import {
   query,
   orderBy,
 } from 'firebase/firestore';
-import { db } from '../firebase/config';
+import { db, FIREBASE_RUNTIME_ENV } from '../firebase/config';
 import {
   CuadranteMaestro,
   ServicioDia,
@@ -265,6 +265,7 @@ export const getCuadranteById = async (
 export const getServiciosByCuadranteId = async (
   cuadranteId: string
 ): Promise<ServicioDia[]> => {
+  const cachedLocal = memoryServiciosCache.get(cuadranteId) || [];
   let servicios: ServicioDia[] = [];
   try {
     const srvCol = collection(db, CUADRANTES_COLLECTION, cuadranteId, 'servicios');
@@ -274,6 +275,27 @@ export const getServiciosByCuadranteId = async (
       servicios.push(docSnap.data() as ServicioDia);
     });
     if (servicios.length > 0) {
+      // En entornos con bloqueo de escrituras (AI Studio Preview), preservar ediciones locales
+      // más recientes en memoria/localStorage para no perder permutas o ajustes manuales aún no persistidos en Firestore.
+      if (FIREBASE_RUNTIME_ENV.blockWrites && cachedLocal.length > 0) {
+        const cachedByIdOrFecha = new Map<string, ServicioDia>();
+        cachedLocal.forEach((sc) => {
+          if (sc?.id) cachedByIdOrFecha.set(`id:${sc.id}`, sc);
+          if (sc?.fecha) cachedByIdOrFecha.set(`fecha:${sc.fecha}`, sc);
+        });
+        servicios = servicios.map((srvRemote) => {
+          const localMatch =
+            (srvRemote?.id ? cachedByIdOrFecha.get(`id:${srvRemote.id}`) : undefined) ||
+            (srvRemote?.fecha ? cachedByIdOrFecha.get(`fecha:${srvRemote.fecha}`) : undefined);
+          if (!localMatch) return srvRemote;
+          const tRemote = new Date(srvRemote.ultimaActualizacion || 0).getTime();
+          const tLocal = new Date(localMatch.ultimaActualizacion || 0).getTime();
+          if (tLocal > tRemote || (localMatch.tieneModificacionesManuales && !srvRemote.tieneModificacionesManuales)) {
+            return localMatch;
+          }
+          return srvRemote;
+        });
+      }
       memoryServiciosCache.set(cuadranteId, servicios);
       saveLocalCache();
     }
@@ -282,7 +304,7 @@ export const getServiciosByCuadranteId = async (
   }
 
   if (servicios.length === 0) {
-    servicios = memoryServiciosCache.get(cuadranteId) || [];
+    servicios = cachedLocal;
   }
 
   // Si son servicios de la U.S. y no tienen ediciones manuales previas, aplicar normalización estricta (7h/laborable, 24 y 31 Dic festivos 0h)
@@ -324,7 +346,10 @@ export const getServiciosByCuadranteId = async (
  *   SÍ puede ser nombrado para una patrulla al día siguiente (D).
  * Esta lista se utiliza para excluirlos de la selección de patrullas.
  */
-export const obtenerEfectivosEnServicioOImaginaria = async (fecha: string): Promise<{
+export const obtenerEfectivosEnServicioOImaginaria = async (
+  fecha: string,
+  options?: { cuadranteId?: string }
+): Promise<{
   titularesIds: string[];
   salientesGuardiaIds: string[];
   imaginariasIds: string[];
@@ -365,15 +390,9 @@ export const obtenerEfectivosEnServicioOImaginaria = async (fecha: string): Prom
     }
   };
 
-  let encontroDiaHoy = false;
-  let encontroDiaAyer = false;
-
-  const procesarServicios = (serviciosList: ServicioDia[]) => {
-    if (!Array.isArray(serviciosList)) return;
+  const procesarServicios = (srvHoy?: ServicioDia, srvAyer?: ServicioDia, srvManana?: ServicioDia) => {
     // 1. Día D: Titulares (24h) e Imaginarias
-    const srvHoy = serviciosList.find((s) => s && s.fecha === fecha);
     if (srvHoy) {
-      encontroDiaHoy = true;
       srvHoy.titulares?.rol1?.forEach((t, i) => {
         const id = t?.personaIdReal || t?.personaIdOriginal || (t as any)?.personaId;
         registrarPersona(id, `Titular R1 #${i + 1} (Día D)`, 'TITULAR');
@@ -395,10 +414,7 @@ export const obtenerEfectivosEnServicioOImaginaria = async (fecha: string): Prom
     // 2. Día D-1 (Ayer): Titulares de guardia 24h (Saliente de guardia en Día D).
     // EXCEPCIÓN NORMATIVA OBLIGATORIA: Quien estuvo de IMAGINARIA el día anterior (D-1)
     // SÍ puede ser nombrado para patrulla al día siguiente (D).
-    // Se mantiene intacto el bloqueo para los titulares de servicio ordinario de 24h (salientes de guardia).
-    const srvAyer = serviciosList.find((s) => s && s.fecha === fechaAyer);
     if (srvAyer) {
-      encontroDiaAyer = true;
       srvAyer.titulares?.rol1?.forEach((t, i) => {
         const id = t?.personaIdReal || t?.personaIdOriginal || (t as any)?.personaId;
         registrarPersona(id, `Saliente de guardia 24h R1 #${i + 1} (Día anterior D-1)`, 'SALIENTE_GUARDIA');
@@ -407,11 +423,9 @@ export const obtenerEfectivosEnServicioOImaginaria = async (fecha: string): Prom
         const id = t?.personaIdReal || t?.personaIdOriginal || (t as any)?.personaId;
         registrarPersona(id, `Saliente de guardia 24h R2 #${i + 1} (Día anterior D-1)`, 'SALIENTE_GUARDIA');
       });
-      // EXCEPCIÓN: Las imaginarias del día anterior (D-1) NO se añaden a la lista de exclusión.
     }
 
     // 3. Día D+1 (Mañana): Imaginarias
-    const srvManana = serviciosList.find((s) => s && s.fecha === fechaManana);
     if (srvManana) {
       if (srvManana.imaginarias?.rol1) {
         const id = srvManana.imaginarias.rol1.personaIdReal || srvManana.imaginarias.rol1.personaIdOriginal || (srvManana.imaginarias.rol1 as any)?.personaId;
@@ -424,23 +438,86 @@ export const obtenerEfectivosEnServicioOImaginaria = async (fecha: string): Prom
     }
   };
 
-  // 1. Buscar en la memoria de servicios cargados
-  for (const [, serviciosList] of memoryServiciosCache.entries()) {
-    procesarServicios(serviciosList);
-  }
+  let resolvedFromCuadrantes = false;
 
-  // 2. Si no se halló fecha u hoy o ayer en memoria rápida, buscar cuadrantes de GUARDIA en Firestore
-  if (!encontroDiaHoy || !encontroDiaAyer) {
-    try {
-      const cuadrantes = await getCuadrantes({ tipoServicio: 'GUARDIA' });
-      for (const c of cuadrantes) {
-        if (!c.fechaInicio || (c.fechaInicio <= fechaManana && (!c.fechaFin || c.fechaFin >= fechaAyer))) {
-          const srvs = await getServiciosByCuadranteId(c.id);
-          procesarServicios(srvs);
+  try {
+    const cuadrantesGuardia = await getCuadrantes({ tipoServicio: 'GUARDIA' });
+    if (cuadrantesGuardia.length > 0) {
+      // Ordenar por prioridad: cuadranteId explícito -> CONFIRMADO -> más reciente (modificación / creación)
+      const ordenados = [...cuadrantesGuardia].sort((a, b) => {
+        if (options?.cuadranteId) {
+          if (a.id === options.cuadranteId && b.id !== options.cuadranteId) return -1;
+          if (b.id === options.cuadranteId && a.id !== options.cuadranteId) return 1;
+        }
+        const aConf = a.estado === 'CONFIRMADO' ? 1 : 0;
+        const bConf = b.estado === 'CONFIRMADO' ? 1 : 0;
+        if (aConf !== bConf) return bConf - aConf;
+        const tA = Math.max(new Date(a.fechaModificacion || 0).getTime(), new Date(a.fechaCreacion || 0).getTime());
+        const tB = Math.max(new Date(b.fechaModificacion || 0).getTime(), new Date(b.fechaCreacion || 0).getTime());
+        return tB - tA;
+      });
+
+      const cubreFecha = (c: CuadranteMaestro, target: string) =>
+        (!c.fechaInicio || c.fechaInicio <= target) && (!c.fechaFin || c.fechaFin >= target);
+
+      const candidatosIds = new Set<string>();
+      for (const target of [fecha, fechaAyer, fechaManana]) {
+        const match = ordenados.find((c) => cubreFecha(c, target));
+        if (match) {
+          candidatosIds.add(match.id);
         }
       }
-    } catch (err) {
-      console.warn('Búsqueda de servicios/imaginarias en Firestore diferida:', err);
+
+      const serviciosPorCuadrante = new Map<string, ServicioDia[]>();
+      for (const cid of candidatosIds) {
+        const srvs = await getServiciosByCuadranteId(cid);
+        if (Array.isArray(srvs) && srvs.length > 0) {
+          serviciosPorCuadrante.set(cid, srvs);
+        }
+      }
+
+      const buscarServicioAutorizado = (targetFecha: string): ServicioDia | undefined => {
+        for (const c of ordenados) {
+          if (!cubreFecha(c, targetFecha)) continue;
+          const srvs = serviciosPorCuadrante.get(c.id);
+          if (!srvs) continue;
+          const found = srvs.find((s) => s && s.fecha === targetFecha);
+          if (found) return found;
+        }
+        return undefined;
+      };
+
+      const srvHoy = buscarServicioAutorizado(fecha);
+      const srvAyer = buscarServicioAutorizado(fechaAyer);
+      const srvManana = buscarServicioAutorizado(fechaManana);
+
+      if (srvHoy || srvAyer || srvManana) {
+        procesarServicios(srvHoy, srvAyer, srvManana);
+        resolvedFromCuadrantes = true;
+      }
+    }
+  } catch (err) {
+    console.warn('Búsqueda de servicios/imaginarias en Firestore diferida:', err);
+  }
+
+  // Fallback para tests unitarios o caché local sin metadatos de cuadrante
+  if (!resolvedFromCuadrantes) {
+    if (options?.cuadranteId && memoryServiciosCache.has(options.cuadranteId)) {
+      const list = memoryServiciosCache.get(options.cuadranteId) || [];
+      procesarServicios(
+        list.find((s) => s && s.fecha === fecha),
+        list.find((s) => s && s.fecha === fechaAyer),
+        list.find((s) => s && s.fecha === fechaManana)
+      );
+    } else {
+      for (const [, serviciosList] of memoryServiciosCache.entries()) {
+        if (!Array.isArray(serviciosList)) continue;
+        procesarServicios(
+          serviciosList.find((s) => s && s.fecha === fecha),
+          serviciosList.find((s) => s && s.fecha === fechaAyer),
+          serviciosList.find((s) => s && s.fecha === fechaManana)
+        );
+      }
     }
   }
 
@@ -895,6 +972,10 @@ export const modificarServicioManual = async (params: {
       },
     ],
   });
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('cuadrante_updated'));
+  }
 
   return {
     success: true,
@@ -1874,6 +1955,10 @@ export const aplicarCambioServiciosAutorizado = async (params: {
     await batch.commit();
   } catch (err: any) {
     console.warn('Persistencia Firestore diferida:', err.message || err);
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('cuadrante_updated'));
   }
 
   return {

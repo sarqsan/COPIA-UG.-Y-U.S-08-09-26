@@ -70,10 +70,11 @@ export const PatrullasModule: React.FC<PatrullasModuleProps> = ({
   const adminInfo = {
     uid: cuenta?.uid || cuenta?.id || 'admin-ug',
     nombre: cuenta?.nombre || cuenta?.displayName || 'Administrador U.G.',
+    rol: cuenta?.rol || (puedeGestionar ? 'ADMIN' : undefined),
   };
 
-  const cargarDatos = async () => {
-    setLoading(true);
+  const cargarDatos = async (showSpinner = true) => {
+    if (showSpinner) setLoading(true);
     try {
       const data = await getPatrullas();
       setPatrullas(data);
@@ -82,12 +83,21 @@ export const PatrullasModule: React.FC<PatrullasModuleProps> = ({
     } catch (e) {
       console.warn('Error cargando patrullas:', e);
     } finally {
-      setLoading(false);
+      if (showSpinner) setLoading(false);
     }
   };
 
   useEffect(() => {
-    cargarDatos();
+    cargarDatos(true);
+    const onRefreshEvent = () => {
+      cargarDatos(false);
+    };
+    window.addEventListener('patrullas_actualizadas', onRefreshEvent);
+    window.addEventListener('cuadrante_updated', onRefreshEvent);
+    return () => {
+      window.removeEventListener('patrullas_actualizadas', onRefreshEvent);
+      window.removeEventListener('cuadrante_updated', onRefreshEvent);
+    };
   }, []);
 
   // Navegación temporal
@@ -475,6 +485,7 @@ export const PatrullasModule: React.FC<PatrullasModuleProps> = ({
           siguienteNumero={siguienteSecuencial}
           cuadranteId={cuadranteId}
           adminInfo={adminInfo}
+          cuenta={cuenta}
           onSuccess={cargarDatos}
         />
       )}
@@ -489,7 +500,9 @@ export const PatrullasModule: React.FC<PatrullasModuleProps> = ({
           patrulla={patrullaParaSustituir}
           personas={personas}
           patrullasHistoricas={patrullas}
+          cuadranteId={patrullaParaSustituir.cuadranteId || cuadranteId}
           adminInfo={adminInfo}
+          cuenta={cuenta}
           onSuccess={cargarDatos}
         />
       )}

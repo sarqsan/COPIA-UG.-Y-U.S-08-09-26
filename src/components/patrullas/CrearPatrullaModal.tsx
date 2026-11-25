@@ -2,8 +2,8 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Persona, Empleo } from '../../types';
 import { Patrulla } from '../../types/patrullaTypes';
 import {
-  determinarRolCandidato,
   obtenerCandidatosOrdenados,
+  puedeGestionarPatrullas,
   crearPatrulla,
   generarPatrullasRango,
   getHorarioPorSecuencial,
@@ -14,7 +14,6 @@ import {
   X,
   Shield,
   Clock,
-  Calendar,
   Sun,
   Moon,
   Sparkles,
@@ -33,7 +32,8 @@ interface CrearPatrullaModalProps {
   patrullasHistoricas: Patrulla[];
   siguienteNumero: number;
   cuadranteId?: string;
-  adminInfo: { uid: string; nombre: string };
+  adminInfo: { uid: string; nombre: string; rol?: string };
+  cuenta?: any;
   onSuccess: () => void;
 }
 
@@ -45,6 +45,7 @@ export const CrearPatrullaModal: React.FC<CrearPatrullaModalProps> = ({
   siguienteNumero,
   cuadranteId,
   adminInfo,
+  cuenta,
   onSuccess,
 }) => {
   const [modo, setModo] = useState<'individual' | 'rango'>('individual');
@@ -54,16 +55,24 @@ export const CrearPatrullaModal: React.FC<CrearPatrullaModalProps> = ({
     d.setDate(d.getDate() + 6);
     return d.toISOString().split('T')[0];
   });
-  const [rolManual, setRolManual] = useState<Empleo | null>(null);
   const [personaSeleccionadaId, setPersonaSeleccionadaId] = useState<string>('');
   const [observaciones, setObservaciones] = useState<string>('');
+  const [incluirRol1, setIncluirRol1] = useState<boolean>(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mostrarOpcionesManuales, setMostrarOpcionesManuales] = useState(false);
 
   // Excluidos por estar de Servicio (Guardia 24h) o Imaginaria en la fecha seleccionada
   const [excluidosIds, setExcluidosIds] = useState<string[]>([]);
+  const [motivosExclusionPorId, setMotivosExclusionPorId] = useState<Record<string, string>>({});
   const [cargandoExcluidos, setCargandoExcluidos] = useState(false);
+
+  const esAdmin = Boolean(
+    cuenta?.rol === 'ADMIN' ||
+      puedeGestionarPatrullas(cuenta) ||
+      adminInfo?.rol === 'ADMIN' ||
+      adminInfo?.rol === 'ADMINISTRADOR_PATRULLAS'
+  );
 
   // Cargar efectivos en servicio e imaginaria cada vez que cambia la fecha
   useEffect(() => {
@@ -71,9 +80,16 @@ export const CrearPatrullaModal: React.FC<CrearPatrullaModalProps> = ({
     const cargarExcluidosFecha = async () => {
       setCargandoExcluidos(true);
       try {
-        const res = await obtenerEfectivosEnServicioOImaginaria(fecha);
+        const res = await obtenerEfectivosEnServicioOImaginaria(fecha, { cuadranteId });
         if (active) {
           setExcluidosIds(res.todosExcluidosIds);
+          const motivosMap: Record<string, string> = {};
+          res.detalles.forEach((d) => {
+            if (d.id && d.puesto) {
+              motivosMap[d.id] = d.puesto;
+            }
+          });
+          setMotivosExclusionPorId(motivosMap);
         }
       } catch (err) {
         console.warn('Error cargando efectivos de servicio/imaginaria:', err);
@@ -85,12 +101,12 @@ export const CrearPatrullaModal: React.FC<CrearPatrullaModalProps> = ({
     return () => {
       active = false;
     };
-  }, [fecha]);
+  }, [fecha, cuadranteId]);
 
-  // Rol Candidato obligatorio: ROL 2 exclusivo para patrullas
+  // Rol Candidato obligatorio por normativa: ROL 2 (admin puede ampliar manualmente sin restricciones)
   const rolActivo: Empleo = 'ROL 2';
 
-  // Candidatos ordenados equitativamente (excluyendo automáticamente los que están de servicio o imaginaria)
+  // Candidatos ordenados equitativamente (en modo admin incluye también los que tienen avisos para cambio directo)
   const candidatos = useMemo(() => {
     return obtenerCandidatosOrdenados({
       rol: rolActivo,
@@ -98,8 +114,11 @@ export const CrearPatrullaModal: React.FC<CrearPatrullaModalProps> = ({
       patrullasHistoricas,
       fecha,
       personasExcluidasIds: excluidosIds,
+      incluirExcluidos: esAdmin,
+      motivosExclusionPorId,
+      incluirOtrosRoles: esAdmin && incluirRol1,
     });
-  }, [rolActivo, personas, patrullasHistoricas, fecha, excluidosIds]);
+  }, [rolActivo, personas, patrullasHistoricas, fecha, excluidosIds, esAdmin, motivosExclusionPorId, incluirRol1]);
 
   // Candidato asignado automáticamente según las normas de equidad
   const candidatoAuto = useMemo(() => {
@@ -119,8 +138,11 @@ export const CrearPatrullaModal: React.FC<CrearPatrullaModalProps> = ({
       setPersonaSeleccionadaId(candidatoAuto.personaId);
     } else {
       setPersonaSeleccionadaId('');
+      if (esAdmin && candidatos.length > 0) {
+        setMostrarOpcionesManuales(true);
+      }
     }
-  }, [candidatoAuto]);
+  }, [candidatoAuto, esAdmin, candidatos.length]);
 
   if (!isOpen) return null;
 
@@ -135,14 +157,17 @@ export const CrearPatrullaModal: React.FC<CrearPatrullaModalProps> = ({
     setLoading(true);
     setError(null);
     try {
+      const esManual = idParaAsignar !== candidatoAuto?.personaId;
       await crearPatrulla({
         fecha,
         personaId: idParaAsignar,
         personas,
         cuadranteId,
-        origenAsignacion: personaSeleccionadaId === candidatoAuto?.personaId ? 'SISTEMA_AUTOMATICO' : 'MANUAL_ADMIN',
+        origenAsignacion: esManual ? 'MANUAL_ADMIN' : 'SISTEMA_AUTOMATICO',
         adminInfo,
         observaciones: observaciones.trim() || undefined,
+        forzarAdmin: esAdmin && esManual,
+        cuenta,
       });
       onSuccess();
       onClose();
@@ -360,7 +385,7 @@ export const CrearPatrullaModal: React.FC<CrearPatrullaModalProps> = ({
                 </div>
               )}
 
-              {/* Ajuste manual opcional (colapsable) */}
+              {/* Ajuste manual / directo Admin (colapsable) */}
               <div className="pt-0.5">
                 <button
                   type="button"
@@ -369,7 +394,11 @@ export const CrearPatrullaModal: React.FC<CrearPatrullaModalProps> = ({
                 >
                   <span className="flex items-center gap-1.5">
                     <Sparkles className="h-3 w-3 text-blue-600" />
-                    <span>Cambio manual opcional ({candidatos.length} disponibles)</span>
+                    <span>
+                      {esAdmin
+                        ? `Asignación manual directa Admin (${candidatos.filter((c) => c.disponible).length} libres / ${candidatos.length} total)`
+                        : `Cambio manual opcional (${candidatos.length} disponibles)`}
+                    </span>
                   </span>
                   {mostrarOpcionesManuales ? (
                     <ChevronUp className="h-3.5 w-3.5 text-slate-400" />
@@ -380,42 +409,66 @@ export const CrearPatrullaModal: React.FC<CrearPatrullaModalProps> = ({
 
                 {mostrarOpcionesManuales && (
                   <div className="mt-2 space-y-2 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/60 animate-fade-in text-xs">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="text-[11px] text-slate-600 dark:text-slate-300">
-                        Rol asignado: <strong>ROL 2 (Exclusivo)</strong>
+                        {esAdmin ? 'Modo Admin sin restricciones' : 'Rol asignado: ROL 2'}
                       </span>
-                      <span className="text-[10px] text-slate-400 font-medium">
-                        Patrullas exclusivas de ROL 2
-                      </span>
+                      {esAdmin && (
+                        <label className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-600 dark:text-slate-300 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={incluirRol1}
+                            onChange={(e) => setIncluirRol1(e.target.checked)}
+                            className="h-3 w-3 rounded text-blue-600"
+                          />
+                          <span>Incluir ROL 1</span>
+                        </label>
+                      )}
                     </div>
 
-                    <div className="max-h-28 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800/60">
+                    <div className="max-h-36 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800/60">
                       {candidatos.map((c, index) => {
                         const isSelected = (personaSeleccionadaId || candidatoAuto?.personaId) === c.personaId;
+                        const puedeSeleccionar = c.disponible || esAdmin;
                         return (
                           <div
                             key={c.personaId}
-                            onClick={() => c.disponible && setPersonaSeleccionadaId(c.personaId)}
-                            className={`flex items-center justify-between p-1.5 text-xs transition cursor-pointer ${
-                              isSelected
-                                ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-900 dark:text-blue-200 font-bold'
-                                : 'hover:bg-slate-100/60 dark:hover:bg-slate-800/50 text-slate-700 dark:text-slate-300'
+                            onClick={() => puedeSeleccionar && setPersonaSeleccionadaId(c.personaId)}
+                            className={`flex items-center justify-between gap-2 p-1.5 text-xs transition ${
+                              !puedeSeleccionar
+                                ? 'opacity-50 cursor-not-allowed'
+                                : isSelected
+                                ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-900 dark:text-blue-200 font-bold cursor-pointer'
+                                : !c.disponible
+                                ? 'bg-amber-50/30 dark:bg-amber-950/10 hover:bg-amber-50/70 text-slate-700 dark:text-slate-300 cursor-pointer'
+                                : 'hover:bg-slate-100/60 dark:hover:bg-slate-800/50 text-slate-700 dark:text-slate-300 cursor-pointer'
                             }`}
                           >
-                            <div className="flex items-center gap-1.5 truncate">
+                            <div className="min-w-0 flex items-center gap-1.5">
                               <input
                                 type="radio"
                                 name="personaSeleccionada"
                                 checked={isSelected}
+                                disabled={!puedeSeleccionar}
                                 onChange={() => setPersonaSeleccionadaId(c.personaId)}
-                                className="h-3 w-3 text-blue-600"
+                                className="h-3 w-3 text-blue-600 shrink-0"
                               />
-                              <span className="truncate">{c.personaNombre}</span>
-                              {index === 0 && (
-                                <span className="rounded-full bg-emerald-100 px-1 py-0.1 text-[7px] font-black text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                                  AUTO
-                                </span>
-                              )}
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1 truncate">
+                                  <span className="truncate">{c.personaNombre}</span>
+                                  <span className="text-[9px] text-slate-400">({c.empleo})</span>
+                                  {index === 0 && c.disponible && (
+                                    <span className="rounded-full bg-emerald-100 px-1 py-0.1 text-[7px] font-black text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                                      AUTO
+                                    </span>
+                                  )}
+                                </div>
+                                {!c.disponible && c.motivoNoDisponible && (
+                                  <div className="text-[9px] text-amber-700 dark:text-amber-400 italic truncate">
+                                    Aviso: {c.motivoNoDisponible}
+                                  </div>
+                                )}
+                              </div>
                             </div>
                             <span className="text-[9px] text-slate-400 shrink-0">
                               {c.patrullasPrevias} patr.
