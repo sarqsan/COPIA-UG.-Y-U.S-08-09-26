@@ -102,7 +102,7 @@ export const DocumentosCambioSection: React.FC<DocumentosCambioSectionProps> = (
         setDocumentos(misDocs);
       }
     } catch (err) {
-      console.error('Error al cargar documentos oficiales de cambio:', err);
+      console.error('Error al cargar documentos de cambio:', err);
     } finally {
       setCargando(false);
     }
@@ -151,17 +151,17 @@ export const DocumentosCambioSection: React.FC<DocumentosCambioSectionProps> = (
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded-md">
-                  {NOMBRE_GRUPO_UG} • Diligencias Oficiales
+                  {NOMBRE_GRUPO_UG} • Diligencias Registradas
                 </span>
                 <span className="text-[10px] font-mono text-slate-500">
                   {documentos.length} {documentos.length === 1 ? 'documento' : 'documentos'}
                 </span>
               </div>
               <h2 className="text-xl font-black text-slate-900 dark:text-white mt-1">
-                Documentos Oficiales de Cambio y Permutas Firmadas
+                Documentos de Cambio y Permutas Firmadas
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Expedientes y diligencias con validez jurídica y firma electrónica tripartita (Solicitante, Compañero y Mando de la U.G.)
+                Expedientes y diligencias con validez y firma electrónica tripartita (Solicitante, Compañero y Administración de la U.G.)
               </p>
             </div>
           </div>
@@ -218,7 +218,7 @@ export const DocumentosCambioSection: React.FC<DocumentosCambioSectionProps> = (
       {/* Lista de Documentos */}
       {cargando ? (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-12 text-center text-slate-500 text-xs">
-          Cargando archivo de documentos oficiales...
+          Cargando archivo de documentos...
         </div>
       ) : docsFiltrados.length === 0 ? (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-12 text-center space-y-3">
@@ -226,10 +226,10 @@ export const DocumentosCambioSection: React.FC<DocumentosCambioSectionProps> = (
             <FileText className="w-6 h-6" />
           </div>
           <h3 className="text-sm font-black text-slate-800 dark:text-slate-200">
-            {busqueda ? 'No hay documentos que coincidan con la búsqueda' : 'No hay documentos de cambio oficiales emitidos todavía'}
+            {busqueda ? 'No hay documentos que coincidan con la búsqueda' : 'No hay documentos de cambio emitidos todavía'}
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-            Cuando un cambio de servicio o imaginaria sea acordado entre dos compañeros y autorizado oficialmente por el mando de la {NOMBRE_GRUPO_UG}, la diligencia firmada se archivará automáticamente aquí.
+            Cuando un cambio de servicio o imaginaria sea acordado entre dos compañeros y autorizado por la administración de la {NOMBRE_GRUPO_UG}, la diligencia firmada se archivará automáticamente aquí.
           </p>
         </div>
       ) : (
@@ -258,7 +258,7 @@ export const DocumentosCambioSection: React.FC<DocumentosCambioSectionProps> = (
                 <div className="flex items-center gap-2">
                   <ArrowRightLeft className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                   <h4 className="text-sm font-black text-slate-900 dark:text-white">
-                    Permuta / Cambio de Guardia Oficial
+                    Permuta / Cambio de Guardia
                   </h4>
                 </div>
 
@@ -317,7 +317,7 @@ export const DocumentosCambioSection: React.FC<DocumentosCambioSectionProps> = (
                   </div>
                   <div className="p-1.5 bg-emerald-100/60 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-700 rounded-lg text-emerald-950 dark:text-emerald-200 font-black flex items-center justify-center gap-1">
                     <Lock className="w-3 h-3 text-emerald-700" />
-                    <span>Mando UG</span>
+                    <span>Admin. UG</span>
                   </div>
                 </div>
 
@@ -379,7 +379,7 @@ export const DocumentosCambioSection: React.FC<DocumentosCambioSectionProps> = (
                     onClick={() => handleEnviarEmailPersonal(doc)}
                     disabled={enviandoEmailId === doc.id}
                     className="w-full py-2.5 px-3 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
-                    title="Enviar o reenviar el Excel oficial de este cambio a Personal vía Gmail (sarqsan2@gmail.com)"
+                    title="Enviar o reenviar el Excel de este cambio a Personal vía Gmail (sarqsan2@gmail.com)"
                   >
                     <Mail className="w-4 h-4" />
                     {enviandoEmailId === doc.id

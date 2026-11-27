@@ -53,7 +53,6 @@ async function runTests() {
     grupo: 'U.G.',
     tipoServicio: 'GUARDIA',
     activo: true,
-    dni: '12345678A',
     telefono: '600111222',
     fechaCreacion: '2026-01-01',
     fechaActualizacion: '2026-01-01',
@@ -66,7 +65,6 @@ async function runTests() {
     grupo: 'U.G.',
     tipoServicio: 'GUARDIA',
     activo: true,
-    dni: '12345678B',
     telefono: '600111223',
     fechaCreacion: '2026-01-01',
     fechaActualizacion: '2026-01-01',
@@ -79,7 +77,6 @@ async function runTests() {
     grupo: 'U.G.',
     tipoServicio: 'GUARDIA',
     activo: true,
-    dni: '12345678C',
     telefono: '600111224',
     fechaCreacion: '2026-01-01',
     fechaActualizacion: '2026-01-01',
@@ -92,7 +89,6 @@ async function runTests() {
     grupo: 'U.G.',
     tipoServicio: 'GUARDIA',
     activo: true,
-    dni: '12345678D',
     telefono: '600111225',
     fechaCreacion: '2026-01-01',
     fechaActualizacion: '2026-01-01',
@@ -216,7 +212,7 @@ async function runTests() {
   const candMartinez = candidatos.find((c) => c.persona.id === pMartinezRol2.id);
   assert(
     !candMartinez,
-    'Efectivo de distinto rol (ROL 2 vs ROL 1) es estrictamente excluido en UG'
+    'Usuario de distinto rol (ROL 2 vs ROL 1) es estrictamente excluido en UG'
   );
 
   // =========================================================================

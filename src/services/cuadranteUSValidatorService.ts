@@ -34,7 +34,7 @@ export const validarCuadranteUS = (params: {
         codigo: 'US-01',
         severidad: 'ERROR',
         fecha: s.fecha,
-        descripcion: `El turno Diurno (07:00 a 19:00) del día ${s.fecha} está incompleto (se requieren 2 efectivos).`,
+        descripcion: `El turno Diurno (07:00 a 19:00) del día ${s.fecha} está incompleto (se requieren 2 personas).`,
       });
     }
 
@@ -44,7 +44,7 @@ export const validarCuadranteUS = (params: {
         codigo: 'US-02',
         severidad: 'ERROR',
         fecha: s.fecha,
-        descripcion: `El turno Nocturno (19:00 a 07:00/07:45) del día ${s.fecha} está incompleto (se requieren 2 efectivos).`,
+        descripcion: `El turno Nocturno (19:00 a 07:00/07:45) del día ${s.fecha} está incompleto (se requieren 2 personas).`,
       });
     }
 
@@ -269,14 +269,14 @@ export const validarCuadranteUS = (params: {
       items.push({
         codigo: 'US-14',
         severidad: 'ADVERTENCIA',
-        descripcion: `Desviación en reparto de servicios: la diferencia máxima de servicios entre efectivos es de ${met.diferenciaServicios}.`,
+        descripcion: `Desviación en reparto de servicios: la diferencia máxima de servicios entre personas es de ${met.diferenciaServicios}.`,
       });
     }
     if (met.diferenciaNocturnos > 3) {
       items.push({
         codigo: 'US-15',
         severidad: 'ADVERTENCIA',
-        descripcion: `Desviación en turnos nocturnos: la diferencia máxima de noches entre efectivos es de ${met.diferenciaNocturnos}.`,
+        descripcion: `Desviación en turnos nocturnos: la diferencia máxima de noches entre personas es de ${met.diferenciaNocturnos}.`,
       });
     }
     if (met.diferenciaFinesSemana > 3) {

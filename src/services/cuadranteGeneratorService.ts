@@ -48,11 +48,11 @@ const puedeHacerServicioTitularEn = (
  * 
  * Regla: El cuadrante sigue el orden lógico escalonado (rotación circular 2 a 2).
  * Este orden se ajusta de forma quirúrgica intercambiando servicios de días especiales
- * con días ordinarios cercanos asignados a efectivos con menor puntuación especial acumulada.
+ * con días ordinarios cercanos asignados a usuarios con menor puntuación especial acumulada.
  * 
  * Garantías:
  * 1. Los puntos de días especiales (Navidad 3pts, Familiar 2pts, Festivos 1pt) se reparten equitativamente.
- * 2. Ningún efectivo acumula múltiples días de 3 puntos (Navidad/Nochebuena/Nochevieja/Año Nuevo/Reyes)
+ * 2. Ningún usuario acumula múltiples días de 3 puntos (Navidad/Nochebuena/Nochevieja/Año Nuevo/Reyes)
  *    mientras otros tienen 0 puntos.
  * 3. Se respeta escrupulosamente el descanso de 48h (sin servicios en D-1 o D+1).
  * 4. El cómputo total de servicios por persona se mantiene 100% invariable.
@@ -73,7 +73,7 @@ const equilibrarServiciosEspeciales = (
  * El ROL 2 requiere un equilibrado específico en dos fases para resolver la simetría par (N=12)
  * y asegurar que:
  * 1. Los días de máxima consideración (3 puntos: Nochebuena, Navidad, Nochevieja, Año Nuevo, Reyes)
- *    se distribuyan equitativamente sin que ningún efectivo acumule 2 días mientras otro tiene 0.
+ *    se distribuyan equitativamente sin que ningún usuario acumule 2 días mientras otro tiene 0.
  * 2. Los días especiales menores (2 puntos y 1 punto) se ajusten de forma fina mediante intercambios
  *    ordinarios con regla anti-oscilación, sin perturbar el equilibrio de los días de 3 puntos.
  * 3. Se respete estrictamente el descanso de 48h (D-1 y D+1) y el balance global de servicios.
@@ -677,7 +677,7 @@ export const generarSimulacionCuadrante = (params: {
     creadoPorNombre,
   } = params;
 
-  // 1. Filtrar y ordenar personal por empleo y por ordenRotacion ASC
+  // 1. Filtrar y ordenar personal por rol y por ordenRotacion ASC
   const rol1 = personasActivas
     .filter((p) => p.empleo === 'ROL 1')
     .sort((a, b) => (a.ordenRotacion ?? 999) - (b.ordenRotacion ?? 999) || a.id.localeCompare(b.id));
@@ -689,12 +689,12 @@ export const generarSimulacionCuadrante = (params: {
   const totalRol1 = rol1.length;
   const totalRol2 = rol2.length;
 
-  // Validación dinámica de capacidad reglamentaria y viabilidad operativa
+  // Validación dinámica de capacidad y viabilidad operativa
   const capacidad = validarCapacidadPlantilla(personasActivas);
   if (!capacidad.viable) {
     throw new Error(
       capacidad.motivoBloqueo ||
-      `La plantilla activa (${personasActivas.length} efectivos: ${totalRol1} ROL 1, ${totalRol2} ROL 2) no es operativamente viable para la estructura de guardias de 24h.`
+      `La plantilla activa (${personasActivas.length} personas: ${totalRol1} ROL 1, ${totalRol2} ROL 2) no es operativamente viable para la estructura de guardias de 24h.`
     );
   }
 

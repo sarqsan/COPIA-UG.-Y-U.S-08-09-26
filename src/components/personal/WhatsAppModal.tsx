@@ -97,7 +97,7 @@ export const WhatsAppModal: React.FC<WhatsAppModalProps> = ({
       isOpen={isOpen}
       onClose={onClose}
       title={`Enlace y Credenciales de Acceso: ${persona.nombre}`}
-      subtitle={`Credenciales iniciales normalizadas para efectivo de la Grupo (${rolTexto})`}
+      subtitle={`Credenciales iniciales normalizadas para personal del grupo (${rolTexto})`}
     >
       <div className="space-y-4">
         {/* Person details header */}

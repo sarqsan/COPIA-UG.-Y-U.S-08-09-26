@@ -4,8 +4,8 @@ import { getDiaEspecialConfig, calcularDomingoPascua } from './diasEspecialesSer
  * SERVICIO CENTRALIZADO DE FESTIVOS PARA LA UNIDAD DE SEGURIDAD (U.S.)
  * 
  * Regla funcional obligatoria de permisos y vacaciones U.S.:
- * - Un día festivo oficial NO se contabiliza como día consumido de permiso/vacaciones.
- * - El festivo aparece correctamente identificado con su denominación oficial.
+ * - Un día festivo NO se contabiliza como día consumido de permiso/vacaciones.
+ * - El festivo aparece correctamente identificado con su denominación en el calendario.
  * - Los días laborables y computables del periodo sí se descuentan con normalidad.
  * - Sábados y domingos no son considerados festivos por sí mismos (mantienen su tratamiento habitual).
  */
@@ -38,7 +38,7 @@ const cacheFestivosMovilesPorAnio = new Map<number, Map<string, string>>();
 const pad = (n: number) => n.toString().padStart(2, '0');
 
 /**
- * Nombres oficiales de los festivos fijos nacionales y locales de Alicante capital / Comunitat Valenciana
+ * Nombres de los festivos fijos nacionales y locales de Alicante capital / Comunitat Valenciana
  */
 const FESTIVOS_FIJOS_NACIONALES: Record<string, string> = {
   '01-01': 'Año Nuevo',
@@ -136,7 +136,7 @@ export const getFestivosMovilesAnio = (year: number): Map<string, string> => {
 };
 
 /**
- * Determina si una fecha específica es un día festivo oficial en el calendario aplicable a U.S.
+ * Determina si una fecha específica es un día festivo en el calendario aplicable a U.S.
  * Devuelve la información detallada del festivo si lo es.
  */
 export const getFestivoInfoUS = (fechaStr: string): FestivoInfoUS => {
@@ -162,7 +162,7 @@ export const getFestivoInfoUS = (fechaStr: string): FestivoInfoUS => {
     if (config.categoria === 'FESTIVO') {
       return {
         esFestivo: true,
-        nombre: config.descripcion || 'Festivo Oficial',
+        nombre: config.descripcion || 'Festivo',
         categoria: config.categoria,
       };
     }
@@ -208,7 +208,7 @@ export const getFestivoInfoUS = (fechaStr: string): FestivoInfoUS => {
     };
   }
 
-  // 3. Comprobar festivos trasladados al lunes cuando el festivo oficial cae en domingo
+  // 3. Comprobar festivos trasladados al lunes cuando el festivo cae en domingo
   const trasladados = getFestivosTrasladadosAnio(year);
   if (trasladados.has(fechaNormalizada)) {
     return {
@@ -256,7 +256,7 @@ export const esFinDeSemanaUS = (fechaStr: string): boolean => {
  * Un día de ausencia es consumible si y solo si:
  * 1. Es día laborable de lunes a viernes.
  * 2. No es festivo excluido.
- * 3. No está clasificado como día no laborable/especial por la lógica oficial de calendario de U.S.
+ * 3. No está clasificado como día no laborable/especial por el calendario de U.S.
  * 
  * Por tanto:
  * - Sábado = NO consumible (excluido de la bolsa).
@@ -319,11 +319,11 @@ export const desglosarPeriodoPermisoUS = (
     const esFinSemana = esFinDeSemanaUS(fecha);
 
     if (info.esFestivo) {
-      // 1. Festivo oficial excluido: no descuenta saldo
+      // 1. Festivo excluido: no descuenta saldo
       // Si además cae en sábado o domingo, se registra como festivo y no se duplica en fines de semana
       fechasFestivas.push({
         fecha,
-        nombre: info.nombre || 'Día Festivo Oficial',
+        nombre: info.nombre || 'Día Festivo',
       });
     } else if (esFinSemana) {
       // 2. Fin de semana (sábado/domingo): excluido de la bolsa para Vacaciones, Asuntos Propios y Permisos

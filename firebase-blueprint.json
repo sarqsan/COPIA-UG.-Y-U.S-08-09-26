@@ -2,14 +2,13 @@
   "entities": {
     "Persona": {
       "title": "Persona",
-      "description": "Ficha de personal militar (ROL 1 / ROL 2)",
+      "description": "Ficha de personal (ROL 1 / ROL 2)",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
         "nombre": { "type": "string", "maxLength": 150 },
         "empleo": { "type": "string", "enum": ["ROL 1", "ROL 2"] },
         "grupo": { "type": "string", "enum": ["U.G.", "US_SEGURIDAD"] },
-        "dni": { "type": "string", "maxLength": 20 },
         "telefono": { "type": "string", "maxLength": 30 },
         "activo": { "type": "boolean" },
         "cicloId": { "type": "string", "maxLength": 100 },
@@ -253,7 +252,7 @@
     },
     "/mensajes_chat/{mensajeId}": {
       "schema": "MensajeChat",
-      "description": "Colección de mensajería interna, canal de grupo y avisos de mando"
+      "description": "Colección de mensajería interna, canal de grupo y avisos administrativos"
     },
     "/matriculas_autorizadas/{matriculaNormalizada}": {
       "schema": "MatriculaAutorizada",

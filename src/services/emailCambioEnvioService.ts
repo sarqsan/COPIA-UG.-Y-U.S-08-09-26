@@ -7,10 +7,10 @@ import { generarDocumentoCambioExcelData } from './documentoCambioExcelService';
 const enviosEnCurso = new Set<string>();
 
 /**
- * Envía el Excel oficial del cambio a Personal a través de Gmail API.
+ * Envía el Excel del cambio a Personal a través de Gmail API.
  * - Emisor fijo: sarqsan2@gmail.com
  * - Destinatario, asunto y cuerpo leídos de la configuración ADMIN
- * - Excel oficial: Hoja "Diligencia Cambio" + Hoja "CUADRANTE DEL MES"
+ * - Excel: Hoja "Diligencia Cambio" + Hoja "CUADRANTE DEL MES"
  * - Deduplicación estricta (no envía dos veces automáticamente el mismo ID_CAMBIO)
  * - Tolerante a fallos: Un fallo de correo NO revierte el cambio ni el cuadrante
  */
@@ -58,7 +58,7 @@ export const enviarDocumentoCambioPorGmail = async (params: {
     // 2. Obtener configuración ADMIN vigente
     const config = await getEmailPersonalConfig();
 
-    // 3. Generar el Excel oficial (con hoja Diligencia y hoja Cuadrante)
+    // 3. Generar el Excel del cambio (con hoja Diligencia y hoja Cuadrante)
     const resExcel = await generarDocumentoCambioExcelData(doc, {
       cuadranteProp,
       serviciosProp,
@@ -233,7 +233,7 @@ export const enviarDocumentoCambioPorGmail = async (params: {
  * REGLA 13: Envía un correo de prueba a Personal para verificar la conexión Gmail.
  * - NO modifica cuadrantes
  * - NO aplica cambios
- * - Adjunta un Excel de prueba oficial
+ * - Adjunta un Excel de prueba de la aplicación
  */
 export const enviarEmailPruebaPersonal = async (opciones?: {
   destinatario?: string;
@@ -254,7 +254,7 @@ export const enviarEmailPruebaPersonal = async (opciones?: {
   const asuntoFinal = opciones?.asunto || `[PRUEBA SISTEMA] Verificación de envío a Personal — ${new Date().toLocaleDateString('es-ES')}`;
   const cuerpoFinal = opciones?.cuerpo || `Buenos días:
 
-Este es un mensaje de prueba emitido desde la cuenta oficial sarqsan2@gmail.com para verificar la comunicación y la recepción de cuadrantes de la Unidad de Guardias.
+Este es un mensaje de prueba emitido desde la cuenta configurada sarqsan2@gmail.com para verificar la comunicación y la recepción de cuadrantes de la Unidad de Guardias.
 
 Si ha recibido este correo correctamente con su archivo adjunto Excel, el canal de notificación a Personal está completamente operativo.
 
@@ -272,7 +272,7 @@ Un cordial saludo.`;
     slotTipoA: 'rol1_1',
     personaA: {
       id: 'test-1',
-      nombre: 'AGENTE DE PRUEBA 1',
+      nombre: 'USUARIO DE PRUEBA 1',
       empleo: 'ROL 1',
       grupo: 'U.G.',
       firma: 'FIRMA_TEST',
@@ -280,7 +280,7 @@ Un cordial saludo.`;
     },
     personaB: {
       id: 'test-2',
-      nombre: 'AGENTE DE PRUEBA 2',
+      nombre: 'USUARIO DE PRUEBA 2',
       empleo: 'ROL 1',
       grupo: 'U.G.',
       firma: 'FIRMA_TEST',

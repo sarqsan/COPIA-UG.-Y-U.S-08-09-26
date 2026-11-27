@@ -60,7 +60,6 @@ export interface ProcesarNuevoCicloParams {
     nombre: string;
     empleo: Empleo;
     grupo: Grupo;
-    dni: string;
     telefono?: string;
     ordenRotacion?: number;
     notas?: string;
@@ -75,7 +74,7 @@ export interface ResultadoProcesarNuevoCiclo {
   ciclo: CicloPersonal;
   personalTotalActualizado: Persona[];
   resumen: {
-    continuidadesDni: number;
+    continuidades: number;
     nuevasIncorporaciones: number;
     bajasMarcadasInactivas: number;
     totalRol1: number;
@@ -138,7 +137,7 @@ export const eliminarCiclo = async (
 };
 
 /**
- * Procesa la creación de un nuevo ciclo asegurando continuidad por DNI
+ * Procesa la creación de un nuevo ciclo asegurando continuidad por nombre
  */
 export const procesarNuevoCiclo = async (
   params: ProcesarNuevoCicloParams
@@ -166,32 +165,32 @@ export const procesarNuevoCiclo = async (
     descripcion: descripcion || `Ciclo operativo ${fechaInicio} a ${fechaFin}`,
   };
 
-  // 2. Mapear personas existentes por DNI normalizado o nombre
-  const personasPorDni = new Map<string, Persona>();
+  // 2. Mapear personas existentes por nombre normalizado
+  const personasPorNombre = new Map<string, Persona>();
   personasActuales.forEach((p) => {
-    if (p.dni && p.dni.trim()) {
-      personasPorDni.set(p.dni.trim().toUpperCase(), p);
+    if (p.nombre && p.nombre.trim()) {
+      personasPorNombre.set(p.nombre.trim().toUpperCase(), p);
     }
   });
 
-  const dnisEnNuevoCiclo = new Set<string>();
+  const nombresEnNuevoCiclo = new Set<string>();
   const nuevoPersonal: Persona[] = [];
 
-  let continuidadesDni = 0;
+  let continuidades = 0;
   let nuevasIncorporaciones = 0;
 
   // 3. Procesar lista del nuevo ciclo
   personalImportado.forEach((item, index) => {
-    const dniNorm = item.dni.trim().toUpperCase();
-    dnisEnNuevoCiclo.add(dniNorm);
+    const nombreNorm = item.nombre.trim().toUpperCase();
+    nombresEnNuevoCiclo.add(nombreNorm);
 
-    if (dniNorm && personasPorDni.has(dniNorm)) {
+    if (nombreNorm && personasPorNombre.has(nombreNorm)) {
       // CONTINUIDAD: Conserva personaId histórico
-      const existente = personasPorDni.get(dniNorm)!;
-      continuidadesDni++;
+      const existente = personasPorNombre.get(nombreNorm)!;
+      continuidades++;
       nuevoPersonal.push({
         ...existente,
-        nombre: item.nombre.trim().toUpperCase(),
+        nombre: nombreNorm,
         empleo: item.empleo,
         grupo: item.grupo,
         telefono: item.telefono || existente.telefono,
@@ -204,13 +203,12 @@ export const procesarNuevoCiclo = async (
     } else {
       // NUEVA INCORPORACIÓN: Genera nuevo personaId único
       nuevasIncorporaciones++;
-      const nuevoId = `persona-${item.empleo.toLowerCase()}-${Date.now()}-${index + 1}`;
+      const nuevoId = `persona-${item.empleo.toLowerCase().replace(/\s+/g, '')}-${Date.now()}-${index + 1}`;
       nuevoPersonal.push({
         id: nuevoId,
-        nombre: item.nombre.trim().toUpperCase(),
+        nombre: nombreNorm,
         empleo: item.empleo,
         grupo: item.grupo,
-        dni: dniNorm,
         telefono: item.telefono || '',
         activo: true,
         ordenRotacion: item.ordenRotacion || index + 1,
@@ -225,8 +223,8 @@ export const procesarNuevoCiclo = async (
   // 4. Procesar personas del ciclo anterior que NO están en el nuevo Excel (marcar inactivo/baja)
   let bajasMarcadasInactivas = 0;
   personasActuales.forEach((p) => {
-    const dniNorm = p.dni ? p.dni.trim().toUpperCase() : '';
-    if (!dniNorm || !dnisEnNuevoCiclo.has(dniNorm)) {
+    const nombreNorm = p.nombre ? p.nombre.trim().toUpperCase() : '';
+    if (!nombreNorm || !nombresEnNuevoCiclo.has(nombreNorm)) {
       // No está en el nuevo ciclo -> Se mantiene en base de datos como inactivo
       bajasMarcadasInactivas++;
       nuevoPersonal.push({
@@ -272,7 +270,7 @@ export const procesarNuevoCiclo = async (
     adminUid: adminInfo.uid,
     adminNombre: adminInfo.nombre,
     accion: 'IMPORTAR_NUEVO_CICLO',
-    detalles: `Nuevo ciclo "${nombreCiclo}" creado (${fechaInicio} a ${fechaFin}). Continuidades: ${continuidadesDni}, Nuevas altas: ${nuevasIncorporaciones}, Bajas archivadas: ${bajasMarcadasInactivas}. Efectivos activos: ${totalRol1} ROL 1 + ${totalRol2} ROL 2.`,
+    detalles: `Nuevo ciclo "${nombreCiclo}" creado (${fechaInicio} a ${fechaFin}). Continuidades: ${continuidades}, Nuevas altas: ${nuevasIncorporaciones}, Bajas archivadas: ${bajasMarcadasInactivas}. Personal activo: ${totalRol1} ROL 1 + ${totalRol2} ROL 2.`,
   });
 
   // Notificación general
@@ -285,11 +283,11 @@ export const procesarNuevoCiclo = async (
 
   return {
     success: true,
-    message: `Ciclo "${nombreCiclo}" establecido con éxito. (${continuidadesDni} continuidades, ${nuevasIncorporaciones} nuevas incorporaciones, ${bajasMarcadasInactivas} bajas archivadas).`,
+    message: `Ciclo "${nombreCiclo}" establecido con éxito. (${continuidades} continuidades, ${nuevasIncorporaciones} nuevas incorporaciones, ${bajasMarcadasInactivas} bajas archivadas).`,
     ciclo: nuevoCiclo,
     personalTotalActualizado: nuevoPersonal,
     resumen: {
-      continuidadesDni,
+      continuidades,
       nuevasIncorporaciones,
       bajasMarcadasInactivas,
       totalRol1,

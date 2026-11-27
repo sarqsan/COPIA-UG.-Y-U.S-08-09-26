@@ -63,13 +63,12 @@ function assert(condition: boolean, mensaje: string) {
   }
 }
 
-// Plantilla U.S. de prueba con 16 efectivos
+// Plantilla U.S. de prueba con 16 personas
 const testPrefix = `test-perm-${Date.now()}`;
 const plantillaUS: Persona[] = Array.from({ length: 16 }, (_, i) => ({
   id: `${testPrefix}-${i + 1}`,
-  nombre: `Guardia US ${i + 1}`,
+  nombre: `Usuario US ${i + 1}`,
   apellidos: `Apellido ${i + 1}`,
-  tip: `US-${1000 + i}`,
   rol: 'USUARIO' as any,
   tipoServicio: 'US',
   activo: true,
@@ -79,8 +78,8 @@ const plantillaUS: Persona[] = Array.from({ length: 16 }, (_, i) => ({
   diasPermisoAsignados: 5,
 })) as unknown as Persona[];
 
-const adminInfo = { uid: 'admin-1', nombre: 'Oficial Administrador', rol: 'ADMIN' };
-const usuarioNormal = { uid: 'user-normal-1', nombre: 'Guardia 1', rol: 'USUARIO' };
+const adminInfo = { uid: 'admin-1', nombre: 'Administrador', rol: 'ADMIN' };
+const usuarioNormal = { uid: 'user-normal-1', nombre: 'Usuario 1', rol: 'USUARIO' };
 
 async function runSuite() {
   console.log('\n============================================================');
@@ -158,12 +157,12 @@ async function runSuite() {
     fechaInicio: '2026-11-03',
     fechaFin: '2026-11-05',
     tipoAusencia: 'VACACIONES',
-    motivo: 'Vacaciones corregidas por resolución oficial',
+    motivo: 'Vacaciones corregidas por resolución administrativa',
   });
 
   assert(resModAdmin.success, 'Modificación exitosa por el administrador');
   assert(resModAdmin.solicitud?.diasConsumibles === 3, `Días consumibles recalculados correctamente a 3 (actual: ${resModAdmin.solicitud?.diasConsumibles})`);
-  assert(resModAdmin.solicitud?.motivo === 'Vacaciones corregidas por resolución oficial', 'Motivo actualizado');
+  assert(resModAdmin.solicitud?.motivo === 'Vacaciones corregidas por resolución administrativa', 'Motivo actualizado');
 
   // Comprobar que el saldo del usuario se actualiza inmediatamente
   todas = await getSolicitudesAusenciaUS();
@@ -268,7 +267,7 @@ async function runSuite() {
 
   assert(minFdsFestSin >= 2, `Mínimo de fines de semana y festivos en el mes es >= 2 (mínimo real: ${minFdsFestSin})`);
   assert(maxFdsFestSin <= 4, `Máximo de fines de semana y festivos en el mes es <= 4 (máximo real: ${maxFdsFestSin})`);
-  assert(maxFdsFestSin - minFdsFestSin <= 2, `Diferencia máxima entre cualquier par de efectivos es <= 2 días (diferencia real: ${maxFdsFestSin - minFdsFestSin})`);
+  assert(maxFdsFestSin - minFdsFestSin <= 2, `Diferencia máxima entre cualquier par de personas es <= 2 días (diferencia real: ${maxFdsFestSin - minFdsFestSin})`);
 
   // 2. Simulación Noviembre con continuidad real de Octubre
   const simOct = generarSimulacionCuadranteUS({
@@ -311,14 +310,14 @@ async function runSuite() {
     const m = metricasConCont.detallePorPersona[p.id];
     return (m.totalFinDeSemana + m.serviciosFestivo) <= 1;
   });
-  assert(ceroOUnFds.length === 0, 'Cero efectivos con 0 o 1 fin de semana/festivo');
+  assert(ceroOUnFds.length === 0, 'Cero personas con 0 o 1 fin de semana/festivo');
 
   // Ningún miembro tiene 5 ni 6
   const cincoOMasFds = plantillaUS.filter((p) => {
     const m = metricasConCont.detallePorPersona[p.id];
     return (m.totalFinDeSemana + m.serviciosFestivo) >= 5;
   });
-  assert(cincoOMasFds.length === 0, 'Cero efectivos con 5 o 6 fines de semana/festivos');
+  assert(cincoOMasFds.length === 0, 'Cero personas con 5 o 6 fines de semana/festivos');
 
   // Descanso y descansos reglamentarios respetados
   assert(simNovConCont.validacion.totalErrores === 0, `Cero errores de validación normativa en Noviembre (errores: ${simNovConCont.validacion.totalErrores})`);

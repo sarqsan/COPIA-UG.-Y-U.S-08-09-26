@@ -81,7 +81,7 @@ export const PersonaDetailPage: React.FC<PersonaDetailPageProps> = ({
 
   const isUS = persona.tipoServicio === 'US' || persona.grupo === 'US_SEGURIDAD';
   const nombreGrupo = isUS ? 'Unidad de Seguridad (U.S.)' : NOMBRE_GRUPO_UG;
-  const subtituloGrupo = isUS ? 'Turnos de 12h (Diurno / Nocturno / Imaginaria)' : 'Turnos Oficiales 24h';
+  const subtituloGrupo = isUS ? 'Turnos de 12h (Diurno / Nocturno / Imaginaria)' : 'Turnos de 24h';
 
   const cuentaVinculada = cuentas.find((c) => c.personaId === persona.id);
   const estadoAcceso: EstadoAcceso = determinarEstadoAcceso(persona.id, cuentas);
@@ -500,7 +500,7 @@ export const PersonaDetailPage: React.FC<PersonaDetailPageProps> = ({
           </div>
         ) : serviciosAsignados.length === 0 ? (
           <div className="py-6 text-center text-xs text-slate-500 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700">
-            No se han registrado turnos ni guardias asignadas para este efectivo en el cuadrante actual.
+            No se han registrado turnos ni guardias asignadas para este usuario en el cuadrante actual.
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -539,7 +539,7 @@ export const PersonaDetailPage: React.FC<PersonaDetailPageProps> = ({
           <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800">
             <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
               <User className="h-4 w-4 text-slate-500" />
-              Datos del Efectivo ({nombreGrupo})
+              Datos del Usuario ({nombreGrupo})
             </h3>
             <span className="text-[11px] text-slate-400">
               Registrado: {formatFecha(persona.fechaCreacion)}

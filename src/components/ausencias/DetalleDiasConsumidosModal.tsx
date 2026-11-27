@@ -260,7 +260,7 @@ export const DetalleDiasConsumidosModal: React.FC<DetalleDiasConsumidosModalProp
                 Total acumulado en el año: <strong>{balance.totalConsumidos} días computables disfrutados</strong> ({totalHorasConsumidas} horas reglamentarias, {HORAS_POR_DIA_AUSENCIA_O_PRESENTE}h por día laborable).
                 {balance.totalFestivosExcluidos > 0 && (
                   <span className="block sm:inline text-purple-700 dark:text-purple-300 font-bold sm:ml-1">
-                    • {balance.totalFestivosExcluidos} festivo(s) oficial(es) excluido(s) de cómputo.
+                    • {balance.totalFestivosExcluidos} festivo(s) excluido(s) de cómputo.
                   </span>
                 )}
               </span>
@@ -280,7 +280,7 @@ export const DetalleDiasConsumidosModal: React.FC<DetalleDiasConsumidosModalProp
             )}
           </div>
 
-          {/* Sección de Permisos / Ausencias Concedidas para el Efectivo */}
+          {/* Sección de Permisos / Ausencias Concedidas para la Persona */}
           {solicitudesPersona.length > 0 && (
             <div className="space-y-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
@@ -464,7 +464,7 @@ export const DetalleDiasConsumidosModal: React.FC<DetalleDiasConsumidosModalProp
                             }`}
                           >
                             {item.esFestivo
-                              ? `FESTIVO: ${item.nombreFestivo || 'Festivo Oficial'}`
+                              ? `FESTIVO: ${item.nombreFestivo || 'Festivo'}`
                               : item.esFinSemana
                               ? `${item.tipoLabel} - Fin de semana`
                               : item.tipoLabel}
@@ -499,7 +499,7 @@ export const DetalleDiasConsumidosModal: React.FC<DetalleDiasConsumidosModalProp
                         }`}
                         title={
                           item.esFestivo
-                            ? 'Día festivo oficial: No consume saldo de la bolsa'
+                            ? 'Día festivo: No consume saldo de la bolsa'
                             : item.esFinSemana
                             ? 'Fin de semana: No consume saldo de la bolsa'
                             : 'Día laborable computable'

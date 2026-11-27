@@ -32,7 +32,7 @@ export const CompletarPerfilModal: React.FC<CompletarPerfilModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nombre.trim()) {
-      setError('El apellido del efectivo es obligatorio');
+      setError('El apellido del usuario es obligatorio');
       return;
     }
 
@@ -63,7 +63,7 @@ export const CompletarPerfilModal: React.FC<CompletarPerfilModalProps> = ({
             notas: notas.trim(),
             activo: true,
           },
-          { uid, nombre: 'Autoregistro de Efectivo' }
+          { uid, nombre: 'Autoregistro de Usuario' }
         );
 
         // Vincular a la cuenta de usuario

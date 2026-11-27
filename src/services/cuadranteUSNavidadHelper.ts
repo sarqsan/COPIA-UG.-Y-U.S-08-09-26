@@ -7,7 +7,7 @@ export interface AnalisisNavidadUS {
   personalEnPermiso: Persona[];
   personalDisponible: Persona[];
   totalServiciosNavidad: number; // 4 por día
-  efectivosDisponiblesCount: number;
+  personalDisponibleCount: number;
   repeticionesNecesarias: number; // slots - disponibles
   requiereConfirmacionAdmin: boolean; // Si repeticiones > 1
   propuestaAsignacionRepeticion?: {
@@ -118,8 +118,8 @@ export const analizarDisponibilidadNavidadUS = (params: {
 
   // Cada día navideño cuenta con 4 servicios (2 Diurnos + 2 Nocturnos)
   const totalServiciosNavidad = 4 * 4; // 16 servicios estándar para los 4 días
-  const efectivosDisponiblesCount = personalDisponible.length;
-  const repeticionesNecesarias = Math.max(0, totalServiciosNavidad - efectivosDisponiblesCount);
+  const personalDisponibleCount = personalDisponible.length;
+  const repeticionesNecesarias = Math.max(0, totalServiciosNavidad - personalDisponibleCount);
 
   const propuestaAsignacionRepeticion: {
     personaId: string;
@@ -165,7 +165,7 @@ export const analizarDisponibilidadNavidadUS = (params: {
     personalEnPermiso,
     personalDisponible,
     totalServiciosNavidad,
-    efectivosDisponiblesCount,
+    personalDisponibleCount,
     repeticionesNecesarias,
     requiereConfirmacionAdmin: repeticionesNecesarias > 1,
     propuestaAsignacionRepeticion,
@@ -181,8 +181,8 @@ export const analizarDisponibilidadNavidadUS = (params: {
  * - 31 Dic: Diurno (2), Nocturno (2)
  * - 01 Ene: Diurno (2), Nocturno (2)
  *
- * Con 16 disponibles: 16 efectivos realizan 1 servicio cada uno (0 repeticiones).
- * Con 15 disponibles (1 en permiso): 14 efectivos realizan 1 servicio y SOLO 1 realiza 2 servicios,
+ * Con 16 disponibles: 16 personas realizan 1 servicio cada una (0 repeticiones).
+ * Con 15 disponibles (1 en permiso): 14 personas realizan 1 servicio y SOLO 1 realiza 2 servicios,
  * siendo su segundo servicio el Nocturno del 1 de enero.
  * Con < 15 disponibles: se minimizan las repeticiones según el orden de menor impacto.
  */
@@ -207,7 +207,7 @@ export const planificarBloqueNavidadUS = (params: {
   const f31 = `${refYear}-12-31`;
   const f01 = `${refYear + 1}-01-01`;
 
-  // 2. Disponibilidad de efectivos
+  // 2. Disponibilidad de personal
   const aus24 = new Set((ausenciasPorDia[f24] || []).map((a) => a.personaId));
   const aus25 = new Set((ausenciasPorDia[f25] || []).map((a) => a.personaId));
   // Filtrar los que están disponibles durante todo el bloque navideño (sin ausencias en 24, 25, 31 Dic ni 1 Ene)
@@ -234,7 +234,7 @@ export const planificarBloqueNavidadUS = (params: {
   const asignacionesPorDia = new Map<string, AsignacionDiaNavidad>();
   const personasRepiten: string[] = [];
 
-  // CASO A: 16 O MÁS DISPONIBLES -> 16 servicios asignados a 16 efectivos distintos (1 por persona)
+  // CASO A: 16 O MÁS DISPONIBLES -> 16 servicios asignados a 16 personas distintas (1 por persona)
   if (pool.length >= 16) {
     asignacionesPorDia.set(f24, {
       fecha: f24,
@@ -258,13 +258,13 @@ export const planificarBloqueNavidadUS = (params: {
     });
   } else if (pool.length === 15) {
     // CASO B: EXACTAMENTE 15 DISPONIBLES (1 en permiso, e.g. ARAGON)
-    // 14 efectivos realizan 1 servicio.
-    // Exactamente 1 efectivo realiza 2 servicios.
+    // 14 personas realizan 1 servicio.
+    // Exactamente 1 persona realiza 2 servicios.
     // El segundo servicio se asigna OBLIGATORIAMENTE al Nocturno del 1 de enero.
     const repiteId =
       personasRepitenSeleccionadas && personasRepitenSeleccionadas.length > 0
         ? personasRepitenSeleccionadas[0]
-        : pool[0].id; // Primer efectivo por rotación / menor carga
+        : pool[0].id; // Primera persona por rotación / menor carga
 
     personasRepiten.push(repiteId);
 
@@ -340,7 +340,7 @@ export const planificarBloqueNavidadUS = (params: {
       [f01]: { diurnos: [], nocturnos: [] },
     };
 
-    // Primero asignamos 1 servicio a cada efectivo disponible
+    // Primero asignamos 1 servicio a cada persona disponible
     let slotPtr = 0;
     pool.forEach((p) => {
       if (slotPtr < slots.length) {
@@ -350,7 +350,7 @@ export const planificarBloqueNavidadUS = (params: {
       }
     });
 
-    // Los slots restantes se cubren con los efectivos que repiten (priorizando Nocturno 1 Ene)
+    // Los slots restantes se cubren con las personas que repiten (priorizando Nocturno 1 Ene)
     repitenIds.forEach((rId) => {
       if (slotPtr < slots.length) {
         const s = slots[slotPtr];
@@ -394,12 +394,12 @@ export const planificarBloqueNavidadUS = (params: {
 
   const resumen =
     personasRepiten.length === 0
-      ? `Reparto equitativo perfecto: los 16 efectivos disponibles realizan exactamente 1 servicio navideño (24, 25, 31 Dic o 1 Ene).`
+      ? `Reparto equitativo perfecto: las 16 personas disponibles realizan exactamente 1 servicio navideño (24, 25, 31 Dic o 1 Ene).`
       : personasRepiten.length === 1
-      ? `Reparto equitativo U.S. (15 disponibles): 14 efectivos realizan 1 servicio y únicamente 1 efectivo (${
+      ? `Reparto equitativo U.S. (15 disponibles): 14 personas realizan 1 servicio y únicamente 1 persona (${
           personasMap.get(personasRepiten[0])?.nombre || personasRepiten[0]
         }) repite servicio, asumiendo su 2º servicio en el Nocturno del 1 de enero (menor impacto familiar).`
-      : `Reparto con déficit (${pool.length} disponibles): ${personasRepiten.length} efectivos repiten servicio asignados en los turnos de menor impacto festivo.`;
+      : `Reparto con déficit (${pool.length} disponibles): ${personasRepiten.length} personas repiten servicio asignadas en los turnos de menor impacto festivo.`;
 
   return {
     asignacionesPorDia,

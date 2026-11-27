@@ -105,7 +105,7 @@ export const PersonaFilters: React.FC<PersonaFiltersProps> = ({
             onChange={(e) => onFiltroGrupoChange(e.target.value as any)}
             className="w-full rounded-lg border border-slate-200 bg-slate-50/50 px-2.5 py-1.5 text-xs font-medium text-slate-800 focus:outline-none dark:border-slate-800 dark:bg-slate-800 dark:text-slate-200 cursor-pointer"
           >
-            <option value="TODAS">Todas las grupos</option>
+            <option value="TODAS">Todos los grupos</option>
             <option value="U.G.">U.G. (Guardia 24h)</option>
             <option value="US_SEGURIDAD">U.S. (Seguridad 12h)</option>
           </select>

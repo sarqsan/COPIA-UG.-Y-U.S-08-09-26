@@ -439,7 +439,7 @@ export const SolicitarAusenciaUSModal: FC<SolicitarAusenciaUSModalProps> = ({
                   <span className="text-purple-700 dark:text-purple-300 font-medium">
                     Se excluyen <strong>{desgloseCómputo.diasNoConsumibles} día(s) no computables</strong>
                     {desgloseCómputo.diasFinesSemanaExcluidos > 0 && ` (${desgloseCómputo.diasFinesSemanaExcluidos} fin(es) de semana)`}
-                    {desgloseCómputo.diasFestivosExcluidos > 0 && ` (${desgloseCómputo.diasFestivosExcluidos} festivo(s) oficiales)`}
+                    {desgloseCómputo.diasFestivosExcluidos > 0 && ` (${desgloseCómputo.diasFestivosExcluidos} festivo(s))`}
                     {' '}de este periodo (0h / 0 días consumidos de saldo).
                   </span>
                 ) : (
@@ -451,7 +451,7 @@ export const SolicitarAusenciaUSModal: FC<SolicitarAusenciaUSModalProps> = ({
               {desgloseCómputo.diasFestivosExcluidos > 0 && (
                 <div className="p-2.5 bg-purple-50 dark:bg-purple-950/40 rounded-xl border border-purple-200 dark:border-purple-900/60 space-y-1.5">
                   <div className="text-[10px] font-black uppercase tracking-wider text-purple-800 dark:text-purple-300 flex items-center gap-1">
-                    <span>Festivos Oficiales Incluidos (0h de consumo de saldo):</span>
+                    <span>Festivos Incluidos (0h de consumo de saldo):</span>
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {desgloseCómputo.festivosDetectados.map((fest) => (
@@ -495,7 +495,7 @@ export const SolicitarAusenciaUSModal: FC<SolicitarAusenciaUSModalProps> = ({
             >
               <div className="flex items-center justify-between font-bold">
                 <span>
-                  Plazo límite oficial para {infoPlazo.mesSolicitadoNombre}:{' '}
+                  Plazo límite para {infoPlazo.mesSolicitadoNombre}:{' '}
                   <strong className="underline underline-offset-2">{infoPlazo.fechaLimiteFormateada}</strong>
                 </span>
                 <span

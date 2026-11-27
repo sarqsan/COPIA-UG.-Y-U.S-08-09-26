@@ -5,7 +5,7 @@ import { getPatrullas } from './patrullaService';
 import { getDiaEspecialConfig } from './diasEspecialesService';
 import { getRolUG, getApellidoUG, NOMBRE_GRUPO_UG } from '../utils/ugNomenclatura';
 
-export const MESES_OFICIALES = [
+export const MESES_CICLO = [
   { key: '2026-09', nombre: 'Septiembre 2026', dias: 30, anio: 2026, mes: 9 },
   { key: '2026-10', nombre: 'Octubre 2026', dias: 31, anio: 2026, mes: 10 },
   { key: '2026-11', nombre: 'Noviembre 2026', dias: 30, anio: 2026, mes: 11 },
@@ -52,7 +52,7 @@ const esBajaMedicaSlot = (slot: any): boolean => {
  * Obtiene el rol/estado detallado de una persona en un día concreto de servicio:
  * 'S' = Servicio Titular Activo (24h)
  * 'S_CEDIDO' = Guardia 24h cedida por permuta/cambio autorizado (0h, color celeste)
- * 'I' = Imaginaria de Retén (24h)
+ * 'I' = Imaginaria (24h)
  * 'I_CEDIDO' = Imaginaria cedida por cambio autorizado (ámbar suave)
  * 'L' = Libre / Descanso
  * 'BAJA' = Titular de baja médica real (rojo 'B')
@@ -121,7 +121,7 @@ export const getEstadoPersonaEnServicio = (
     return 'I_CEDIDO';
   }
 
-  // 5b. ¿Es imaginaria activa de retén?
+  // 5b. ¿Es imaginaria activa?
   const esImaginariaRol1 = imagRol1?.personaIdReal === personaId;
   const esImaginariaRol2 = imagRol2?.personaIdReal === personaId;
   if (esImaginariaRol1 || esImaginariaRol2) return 'I';
@@ -239,9 +239,9 @@ export const generarWorkbookCuadranteExcel = async (
   servicios.forEach((s) => serviciosPorFecha.set(s.fecha, s));
 
   // =========================================================================
-  // 1. GENERAR PESTAÑAS MENSUALES (6 MESES OFICIALES)
+  // 1. GENERAR PESTAÑAS MENSUALES (6 MESES DEL CICLO)
   // =========================================================================
-  for (const mesInfo of MESES_OFICIALES) {
+  for (const mesInfo of MESES_CICLO) {
     const ws = workbook.addWorksheet(mesInfo.nombre.split(' ')[0], {
       pageSetup: {
         paperSize: 9, // A4
@@ -279,7 +279,7 @@ export const generarWorkbookCuadranteExcel = async (
     const rowSub = ws.getRow(2);
     rowSub.height = 18;
     const cellSub = ws.getCell(2, 1);
-    cellSub.value = `Ciclo: ${cuadrante.nombre} | Periodo: ${cuadrante.fechaInicio} a ${cuadrante.fechaFin} | Plantilla: ${plantillaOrdenada.length} Efectivos | Incluye Servicios de Guardia 24h, Patrullas U.G. y Días de Especial Consideración`;
+    cellSub.value = `Ciclo: ${cuadrante.nombre} | Periodo: ${cuadrante.fechaInicio} a ${cuadrante.fechaFin} | Plantilla: ${plantillaOrdenada.length} Personas | Incluye Servicios de Guardia 24h, Patrullas U.G. y Días de Especial Consideración`;
     cellSub.font = { name: 'Calibri', size: 9, italic: true, color: { argb: 'FFE2E8F0' } };
     cellSub.alignment = { vertical: 'middle', horizontal: 'center' };
     cellSub.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
@@ -293,7 +293,7 @@ export const generarWorkbookCuadranteExcel = async (
 
     ws.getCell(4, 1).value = 'Nº';
     ws.getCell(4, 2).value = 'ROL';
-    ws.getCell(4, 3).value = 'APELLIDOS / EFECTIVO';
+    ws.getCell(4, 3).value = 'APELLIDOS / PERSONAL';
 
     [1, 2, 3].forEach((colIdx) => {
       const cell = ws.getCell(4, colIdx);
@@ -667,7 +667,7 @@ export const generarWorkbookCuadranteExcel = async (
     cellL2.border = BORDER_THIN_GRAY;
 
     const cellDescI = ws.getCell(rowLeyenda1, 13);
-    cellDescI.value = 'Imaginaria Retén 24h';
+    cellDescI.value = 'Imaginaria 24h';
     cellDescI.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FF1E293B' } };
     cellDescI.alignment = { vertical: 'middle', horizontal: 'left' };
     ws.mergeCells(rowLeyenda1, 13, rowLeyenda1, 16);
@@ -731,7 +731,7 @@ export const generarWorkbookCuadranteExcel = async (
     // Configuración de anchos de columna para A4 Apaisado
     ws.getColumn(1).width = 4.0;  // Nº
     ws.getColumn(2).width = 8.5;  // ROL
-    ws.getColumn(3).width = 20.0; // APELLIDOS / EFECTIVO
+    ws.getColumn(3).width = 20.0; // APELLIDOS / PERSONAL
 
     for (let d = 1; d <= mesInfo.dias; d++) {
       ws.getColumn(3 + d).width = 4.2; // Cuadrados proporcionados e idénticos para cada día
@@ -773,7 +773,7 @@ export const generarWorkbookCuadranteExcel = async (
     'HORA',
     'JORNADA',
     'ROL',
-    'EFECTIVO ASIGNADO',
+    'PERSONAL ASIGNADO',
     'ESTADO',
     'ORIGEN ASIGNACIÓN',
     'DETALLE / SUSTITUCIÓN',
@@ -782,7 +782,7 @@ export const generarWorkbookCuadranteExcel = async (
 
   wsPatrullas.mergeCells(1, 1, 1, headersPatrullas.length);
   const cellTitlePat = wsPatrullas.getCell(1, 1);
-  cellTitlePat.value = `${NOMBRE_GRUPO_UG} — RELACIÓN OFICIAL DE PATRULLAS — ${cuadrante.nombre.toUpperCase()}`;
+  cellTitlePat.value = `${NOMBRE_GRUPO_UG} — RELACIÓN DE PATRULLAS — ${cuadrante.nombre.toUpperCase()}`;
   cellTitlePat.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FFFFFFFF' } };
   cellTitlePat.alignment = { vertical: 'middle', horizontal: 'center' };
   cellTitlePat.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F766E' } };
@@ -790,7 +790,7 @@ export const generarWorkbookCuadranteExcel = async (
 
   wsPatrullas.mergeCells(2, 1, 2, headersPatrullas.length);
   const cellSubPat = wsPatrullas.getCell(2, 1);
-  cellSubPat.value = `Total Patrullas Registradas: ${(patrullas || []).length} | Horas computables: 0h | Asignaciones oficiales, sustituciones y control administrativo`;
+  cellSubPat.value = `Total Patrullas Registradas: ${(patrullas || []).length} | Horas computables: 0h | Asignaciones, sustituciones y control administrativo`;
   cellSubPat.font = { name: 'Calibri', size: 9, italic: true, color: { argb: 'FFE2E8F0' } };
   cellSubPat.alignment = { vertical: 'middle', horizontal: 'center' };
   cellSubPat.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF134E4A' } };
@@ -868,7 +868,7 @@ export const generarWorkbookCuadranteExcel = async (
     c6.alignment = { vertical: 'middle', horizontal: 'center' };
     c6.border = BORDER_THIN_GRAY;
 
-    // Efectivo Asignado
+    // Personal Asignado
     const c7 = wsPatrullas.getCell(rowNum, 7);
     c7.value = p.personaNombre;
     c7.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FF0F172A' } };
@@ -931,7 +931,7 @@ export const generarWorkbookCuadranteExcel = async (
   wsPatrullas.getColumn(4).width = 10; // HORA
   wsPatrullas.getColumn(5).width = 11; // JORNADA
   wsPatrullas.getColumn(6).width = 10; // ROL
-  wsPatrullas.getColumn(7).width = 28; // EFECTIVO ASIGNADO
+  wsPatrullas.getColumn(7).width = 28; // PERSONAL ASIGNADO
   wsPatrullas.getColumn(8).width = 15; // ESTADO
   wsPatrullas.getColumn(9).width = 20; // ORIGEN ASIGNACIÓN
   wsPatrullas.getColumn(10).width = 38; // DETALLE / SUSTITUCIÓN
@@ -983,7 +983,7 @@ export const generarWorkbookCuadranteExcel = async (
 
   wsEspeciales.mergeCells(2, 1, 2, headersEspeciales.length);
   const cellSubEsp = wsEspeciales.getCell(2, 1);
-  cellSubEsp.value = `Días de Especial Consideración (Navidad: 3 pts, Familiar: 2 pts, Festivo: 1 pt) | Asignaciones oficiales de guardias titulares e imaginarias`;
+  cellSubEsp.value = `Días de Especial Consideración (Navidad: 3 pts, Familiar: 2 pts, Festivo: 1 pt) | Asignaciones de guardias titulares e imaginarias`;
   cellSubEsp.font = { name: 'Calibri', size: 9, italic: true, color: { argb: 'FFE2E8F0' } };
   cellSubEsp.alignment = { vertical: 'middle', horizontal: 'center' };
   cellSubEsp.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4C1D95' } };
@@ -1063,7 +1063,7 @@ export const generarWorkbookCuadranteExcel = async (
     c5.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3E8FF' } };
     c5.border = BORDER_THIN_GRAY;
 
-    // Efectivos Asignados
+    // Personal Asignado
     const tR1_1 = srv.titulares?.rol1?.[0]?.personaIdReal ? personasMap.get(srv.titulares.rol1[0].personaIdReal)?.nombre || srv.titulares.rol1[0].personaIdReal : '—';
     const tR1_2 = srv.titulares?.rol1?.[1]?.personaIdReal ? personasMap.get(srv.titulares.rol1[1].personaIdReal)?.nombre || srv.titulares.rol1[1].personaIdReal : '—';
     const tR2_1 = srv.titulares?.rol2?.[0]?.personaIdReal ? personasMap.get(srv.titulares.rol2[0].personaIdReal)?.nombre || srv.titulares.rol2[0].personaIdReal : '—';
@@ -1071,9 +1071,9 @@ export const generarWorkbookCuadranteExcel = async (
     const iR1 = srv.imaginarias?.rol1?.personaIdReal ? personasMap.get(srv.imaginarias.rol1.personaIdReal)?.nombre || srv.imaginarias.rol1.personaIdReal : '—';
     const iR2 = srv.imaginarias?.rol2?.personaIdReal ? personasMap.get(srv.imaginarias.rol2.personaIdReal)?.nombre || srv.imaginarias.rol2.personaIdReal : '—';
 
-    [tR1_1, tR1_2, tR2_1, tR2_2, iR1, iR2].forEach((efectivo, eIdx) => {
+    [tR1_1, tR1_2, tR2_1, tR2_2, iR1, iR2].forEach((personaAsignada, eIdx) => {
       const cellE = wsEspeciales.getCell(rowNum, 6 + eIdx);
-      cellE.value = efectivo;
+      cellE.value = personaAsignada;
       cellE.font = { name: 'Calibri', size: 9, color: { argb: 'FF0F172A' } };
       cellE.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
       cellE.border = BORDER_THIN_GRAY;
@@ -1117,7 +1117,7 @@ export const generarWorkbookCuadranteExcel = async (
   const headersResumen = [
     'Nº',
     'ROL',
-    'APELLIDOS / EFECTIVO',
+    'APELLIDOS / PERSONAL',
     'TOTAL GUARDIAS (S)',
     'TOTAL IMAGINARIAS (I)',
     'FINES DE SEMANA (FDS)',
@@ -1137,7 +1137,7 @@ export const generarWorkbookCuadranteExcel = async (
 
   wsResumen.mergeCells(2, 1, 2, headersResumen.length);
   const rSub = wsResumen.getCell(2, 1);
-  rSub.value = `Periodo: ${cuadrante.fechaInicio} al ${cuadrante.fechaFin} | Total Días: ${cuadrante.totalDias} | Reparto Equitativo Oficial`;
+  rSub.value = `Periodo: ${cuadrante.fechaInicio} al ${cuadrante.fechaFin} | Total Días: ${cuadrante.totalDias} | Reparto Equitativo`;
   rSub.font = { name: 'Calibri', size: 9, italic: true, color: { argb: 'FFE2E8F0' } };
   rSub.alignment = { vertical: 'middle', horizontal: 'center' };
   rSub.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
@@ -1252,7 +1252,7 @@ export const generarWorkbookCuadranteExcel = async (
 
   wsResumen.getColumn(1).width = 5;  // Nº
   wsResumen.getColumn(2).width = 10; // ROL
-  wsResumen.getColumn(3).width = 28; // APELLIDOS / EFECTIVO
+  wsResumen.getColumn(3).width = 28; // APELLIDOS / PERSONAL
   wsResumen.getColumn(4).width = 18; // TOTAL GUARDIAS (S)
   wsResumen.getColumn(5).width = 18; // TOTAL IMAGINARIAS (I)
   wsResumen.getColumn(6).width = 18; // FINES DE SEMANA (FDS)
@@ -1264,7 +1264,7 @@ export const generarWorkbookCuadranteExcel = async (
 };
 
 /**
- * Función oficial de exportación y descarga física de Excel para administradores (U.G.)
+ * Función de exportación y descarga física de Excel para administradores (U.G.)
  * Mantiene intacta la descarga previa del sistema.
  */
 export const descargarCuadranteExcel = async (
@@ -1446,7 +1446,7 @@ export const extraerDatosVisualesDesdeExcelJSWorkbook = (workbook: ExcelJS.Workb
         } else if (Math.abs(col.width - 8.5) < 0.3) {
           px = 62; // ROL
         } else if (Math.abs(col.width - 20.0) < 0.5) {
-          px = 150; // APELLIDOS / EFECTIVO
+          px = 150; // APELLIDOS / PERSONAL
         } else if (Math.abs(col.width - 7.5) < 0.3) {
           px = 56; // Totales
         } else if (Math.abs(col.width - 8.0) < 0.3) {

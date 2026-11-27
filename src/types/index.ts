@@ -18,7 +18,6 @@ export interface Persona {
   nombre: string;
   empleo: Empleo;
   grupo: Grupo;
-  dni: string; // Identificador oficial para vinculación de ciclos
   telefono: string; // Teléfono de contacto operativo para coberturas
   activo: boolean; // true = activo en el grupo actual, false = histórico/inactivo
   ordenRotacion?: number; // Posición asignada para el ciclo actual (1, 2, 3...)
@@ -46,7 +45,6 @@ export interface Cuenta {
   rol: RolUsuario;
   activo: boolean;
   telefono?: string;
-  dni?: string;
   firma?: string; // Firma electrónica (data URL / PNG base64)
   fechaFirma?: string;
   requiereCambioCredenciales?: boolean; // true en primer acceso (apellido+rol)
@@ -175,7 +173,7 @@ export interface ServicioDia {
     rol2: [ServicioAsignacion, ServicioAsignacion];
   };
 
-  // 2 Efectivos Diarios de Alerta / Cobertura (1 ROL 1 + 1 ROL 2)
+  // 2 Personas Diarias de Alerta / Cobertura (1 ROL 1 + 1 ROL 2)
   imaginarias: {
     rol1: ServicioAsignacion;
     rol2: ServicioAsignacion;
@@ -233,7 +231,7 @@ export interface MetricasIndividuales {
 }
 
 export interface MetricasResumenEmpleo {
-  totalEfectivos: number;
+  totalPersonal: number;
   serviciosMin: number;
   serviciosMax: number;
   diferenciaServicios: number;
@@ -339,7 +337,6 @@ export interface ExcelRowParsed {
   nombre: string;
   empleo: string;
   grupo: string;
-  dni: string;
   telefono: string;
   valid: boolean;
   errors: string[];
@@ -349,7 +346,6 @@ export interface ImportSimulationRow {
   nombre: string;
   empleo: Empleo;
   grupo: Grupo;
-  dni: string;
   telefono: string;
   tipoAccion: 'NUEVA' | 'MODIFICADA' | 'SIN_CAMBIOS' | 'CAMBIO_EMPLEO' | 'DESACTIVAR' | 'REVISION_MANUAL';
   personaExistenteId?: string;

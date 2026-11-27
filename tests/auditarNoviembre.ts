@@ -25,7 +25,7 @@ async function main() {
 
   // 2. Probar generación de Noviembre 2026 directamente (sin continuidad previa)
   const personas = generateInitialMockPersonas().filter(p => p.grupo === 'US_SEGURIDAD' || p.tipoServicio === 'US');
-  console.log(`\nPlantilla U.S.: ${personas.length} efectivos`);
+  console.log(`\nPlantilla U.S.: ${personas.length} personas`);
 
   const simNovSinContinuidad = generarSimulacionCuadranteUS({
     nombre: 'Cuadrante U.S. Noviembre 2026',

@@ -235,7 +235,7 @@ export const DetalleAprobacionCambioModal: React.FC<DetalleAprobacionCambioModal
     try {
       const doc = await getDocumentoFirmado(idToUse);
       if (!doc) {
-        throw new Error('No se pudo recuperar el documento oficial firmado.');
+        throw new Error('No se pudo recuperar el documento firmado.');
       }
       let srvs = serviciosCuadrante;
       if (doc.cuadranteId && (!srvs || srvs.length === 0)) {
@@ -375,7 +375,7 @@ export const DetalleAprobacionCambioModal: React.FC<DetalleAprobacionCambioModal
               </div>
               <div>
                 <span className={`text-[9px] sm:text-[10px] font-black uppercase tracking-wider block ${solicitud && getUnidadSolicitud(solicitud) === 'US' ? 'text-teal-400' : 'text-blue-400'}`}>
-                  {solicitud && getUnidadSolicitud(solicitud) === 'US' ? 'U.S. SEGURIDAD — Gestión y Autorización de Mando' : `${NOMBRE_GRUPO_UG} — Gestión y Autorización de Mando`}
+                  {solicitud && getUnidadSolicitud(solicitud) === 'US' ? 'U.S. SEGURIDAD — Gestión y Autorización de Administración' : `${NOMBRE_GRUPO_UG} — Gestión y Autorización de Administración`}
                 </span>
                 <h3 className="text-sm sm:text-base font-black truncate">
                   {solicitud && getUnidadSolicitud(solicitud) === 'US' ? 'Solicitud de Permuta / Cambio de Turno (U.S.)' : 'Solicitud de Cambio de Servicio (U.G.)'}
@@ -423,11 +423,11 @@ export const DetalleAprobacionCambioModal: React.FC<DetalleAprobacionCambioModal
                       </span>
                       <span className="text-xs font-black">
                         {solicitud.estado === 'PENDIENTE_ADMIN'
-                          ? '★ CONFORMIDAD MUTUA — PENDIENTE DE AUTORIZACIÓN DEL MANDO'
+                          ? '★ CONFORMIDAD MUTUA — PENDIENTE DE AUTORIZACIÓN DE ADMINISTRACIÓN'
                           : solicitud.estado === 'PENDIENTE_COMPAÑERO'
                           ? 'EN TRÁMITE — ESPERANDO RESPUESTA DEL COMPAÑERO'
                           : solicitud.estado === 'APROBADA_ADMIN'
-                          ? 'AUTORIZADA Y APLICADA OFICIALMENTE EN CUADRANTE'
+                          ? 'AUTORIZADA Y APLICADA EN CUADRANTE'
                           : solicitud.estado === 'RECHAZADA_ADMIN'
                           ? 'DENEGADA POR LA ADMINISTRACIÓN'
                           : `ESTADO: ${solicitud.estado}`}
@@ -447,7 +447,7 @@ export const DetalleAprobacionCambioModal: React.FC<DetalleAprobacionCambioModal
                       <span>{exitoMsg}</span>
                     </div>
                     <p className="text-emerald-800 dark:text-emerald-300 text-[11px] leading-relaxed">
-                      El cambio ya se refleja en los cuadrantes de ambos efectivos. Se ha generado la diligencia oficial firmada digitalmente por los 3 intervinientes (solicitante, compañero y mando).
+                      El cambio ya se refleja en los cuadrantes de ambas personas. Se ha generado la diligencia firmada digitalmente por los 3 intervinientes (solicitante, compañero y administración).
                     </p>
                     {(docGeneradoId || solicitud.documentoFirmadoId) && (
                       <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -457,7 +457,7 @@ export const DetalleAprobacionCambioModal: React.FC<DetalleAprobacionCambioModal
                           className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold text-xs flex items-center gap-2 transition cursor-pointer shadow-xs disabled:opacity-50"
                         >
                           <FileSpreadsheet className="w-4 h-4" />
-                          {descargandoExcel ? 'Generando Excel...' : 'Descargar Excel Oficial con Cuadrante (.xlsx)'}
+                          {descargandoExcel ? 'Generando Excel...' : 'Descargar Excel con Cuadrante (.xlsx)'}
                         </button>
                         <button
                           onClick={() => setVerDocModalOpen(true)}
@@ -484,7 +484,7 @@ export const DetalleAprobacionCambioModal: React.FC<DetalleAprobacionCambioModal
                   <div className="p-3.5 sm:p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
-                        1. Efectivo Solicitante ({getUnidadSolicitud(solicitud) === 'US' ? 'U.S.' : 'U.G.'})
+                        1. Persona Solicitante ({getUnidadSolicitud(solicitud) === 'US' ? 'U.S.' : 'U.G.'})
                       </span>
                       <span className="px-2 py-0.5 bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 rounded text-[10px] font-bold">
                         {getRolUG(solicitud.solicitanteEmpleo)}
@@ -632,10 +632,10 @@ export const DetalleAprobacionCambioModal: React.FC<DetalleAprobacionCambioModal
                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
                       <div>
                         <span className="text-xs font-bold text-emerald-900 dark:text-emerald-200 block">
-                          Documento Oficial Generado ({NOMBRE_GRUPO_UG})
+                          Documento Generado ({NOMBRE_GRUPO_UG})
                         </span>
                         <span className="text-[11px] text-emerald-700 dark:text-emerald-400">
-                          Autorizado por: {solicitud.adminResolucionNombre || 'Mando'} ({solicitud.fechaResolucionAdmin ? new Date(solicitud.fechaResolucionAdmin).toLocaleDateString('es-ES') : ''})
+                          Autorizado por: {solicitud.adminResolucionNombre || 'Administración'} ({solicitud.fechaResolucionAdmin ? new Date(solicitud.fechaResolucionAdmin).toLocaleDateString('es-ES') : ''})
                         </span>
                       </div>
                       {yaEnviadoEmail && (
@@ -683,7 +683,7 @@ export const DetalleAprobacionCambioModal: React.FC<DetalleAprobacionCambioModal
                         onClick={() => handleEnviarEmailPersonal()}
                         disabled={enviandoEmail}
                         className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs min-h-[44px] disabled:opacity-50"
-                        title="Enviar el Excel oficial a Personal vía Gmail (sarqsan2@gmail.com)"
+                        title="Enviar el Excel a Personal vía Gmail (sarqsan2@gmail.com)"
                       >
                         <Mail className="w-3.5 h-3.5" />
                         {enviandoEmail

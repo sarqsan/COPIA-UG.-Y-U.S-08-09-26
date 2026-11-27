@@ -87,7 +87,7 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
     return serviciosUS.filter((s) => s.fecha.startsWith(selectedMesKey));
   }, [serviciosUS, selectedMesKey]);
 
-  // Filtrar personas US estrictamente y ordenar según el orden de rotación oficial (orden del archivo Excel)
+  // Filtrar personas US estrictamente y ordenar según el orden de rotación (orden del archivo Excel)
   const personasFiltradas = useMemo(() => {
     return personasUS
       .filter((p) => (p.tipoServicio || (p.grupo === 'US_SEGURIDAD' ? 'US' : 'GUARDIA')) === 'US')
@@ -143,7 +143,7 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
           label: 'Permiso',
           horas: horasAusencia,
           badgeClass: 'bg-rose-500 text-white font-bold',
-          tooltip: `Permiso Oficial (${horasAusencia}h${servicio.esLaborable ? '' : ' no laborable'})`,
+          tooltip: `Permiso (${horasAusencia}h${servicio.esLaborable ? '' : ' no laborable'})`,
         };
       }
       if (aus.tipo === 'AP') {
@@ -386,7 +386,7 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
 
   const [isExportingExcel, setIsExportingExcel] = useState(false);
 
-  // Exportar a Excel oficial con formato enriquecido idéntico a la app
+  // Exportar a Excel con formato enriquecido idéntico a la app
   const handleExportExcel = async () => {
     if (isExportingExcel) return;
     try {
@@ -398,7 +398,7 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
         selectedMesKey
       );
     } catch (err) {
-      console.error('Error al exportar Excel oficial de U.S.:', err);
+      console.error('Error al exportar Excel de U.S.:', err);
     } finally {
       setIsExportingExcel(false);
     }
@@ -413,7 +413,7 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
             <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
             <input
               type="text"
-              placeholder="Buscar efectivo de U.S. por nombre..."
+              placeholder="Buscar personal de U.S. por nombre..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
@@ -441,16 +441,16 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
             ) : (
               <Download className="w-3.5 h-3.5" />
             )}
-            <span>{isExportingExcel ? 'Generando Excel...' : 'Descargar Excel Oficial'}</span>
+            <span>{isExportingExcel ? 'Generando Excel...' : 'Descargar Excel'}</span>
           </button>
         </div>
       </div>
 
-      {/* Leyenda Visual Oficial */}
+      {/* Leyenda Visual */}
       <div className="p-3.5 bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-200 dark:border-slate-800 text-xs">
         <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2 flex items-center gap-1.5">
           <Info className="w-3.5 h-3.5 text-blue-500" />
-          <span>Leyenda Oficial de Turnos y Códigos U.S. (12 Horas):</span>
+          <span>Leyenda de Turnos y Códigos U.S. (12 Horas):</span>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-1.5">
@@ -604,7 +604,7 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
             <thead>
               <tr className="bg-slate-900 text-white text-[10px] uppercase tracking-wider font-bold">
                 <th className="sticky left-0 z-20 bg-slate-900 p-3 min-w-[180px] shadow-sm border-r border-slate-800">
-                  Efectivo U.S.
+                  Personal U.S.
                 </th>
                 {serviciosFiltradosPorMes.map((s) => {
                   const numDia = s.fecha.split('-')[2];
@@ -625,7 +625,7 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
                       }}
                       title={
                         s.esFestivo
-                          ? `Día ${s.fecha}: FESTIVO OFICIAL${s.nombreFestivo ? ` (${s.nombreFestivo})` : ''}${isAdmin && onEditDia ? ' - Haz clic para editar' : ''}`
+                          ? `Día ${s.fecha}: FESTIVO${s.nombreFestivo ? ` (${s.nombreFestivo})` : ''}${isAdmin && onEditDia ? ' - Haz clic para editar' : ''}`
                           : isAdmin && onEditDia
                           ? `Día ${s.fecha} - Haz clic para editar asignaciones/presentes/permisos`
                           : undefined
@@ -634,7 +634,7 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
                       <div className="font-extrabold text-[11px] group-hover:scale-110 transition-transform flex flex-col items-center">
                         <span>{numDia}</span>
                         {s.esFestivo && (
-                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-0.5" title={s.nombreFestivo || 'Festivo Oficial'} />
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-0.5" title={s.nombreFestivo || 'Festivo'} />
                         )}
                       </div>
                       <div className={`text-[9px] ${s.esFestivo ? 'font-bold text-amber-300' : 'opacity-70'}`}>{nombreDia}</div>
@@ -674,7 +674,7 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
                         : 'bg-slate-50/50 dark:bg-slate-800/30'
                     } hover:bg-blue-50/40 dark:hover:bg-blue-950/20`}
                   >
-                    {/* Nombre y Empleo (Columna fija a la izquierda) */}
+                    {/* Nombre y Rol (Columna fija a la izquierda) */}
                     <td
                       onClick={() => setSelectedPersonaId(isSelected ? null : p.id)}
                       className="sticky left-0 z-10 bg-inherit p-2.5 text-xs font-semibold text-slate-800 dark:text-slate-100 border-r border-slate-200 dark:border-slate-800 flex items-center justify-between gap-1.5 cursor-pointer shadow-xs"

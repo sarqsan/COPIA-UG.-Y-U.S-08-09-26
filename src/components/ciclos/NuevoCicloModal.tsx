@@ -34,7 +34,7 @@ export const NuevoCicloModal: React.FC<NuevoCicloModalProps> = ({
   const [nombreCiclo, setNombreCiclo] = useState('Ciclo Sep 2026 - Feb 2027');
   const [fechaInicio, setFechaInicio] = useState('2026-09-01');
   const [fechaFin, setFechaFin] = useState('2027-02-28');
-  const [descripcion, setDescripcion] = useState('Ciclo semestral de 24h para personal militar');
+  const [descripcion, setDescripcion] = useState('Ciclo semestral de 24h');
 
   // Personal parsed for the new cycle
   const [parsedData, setParsedData] = useState<
@@ -42,7 +42,6 @@ export const NuevoCicloModal: React.FC<NuevoCicloModalProps> = ({
       nombre: string;
       empleo: Empleo;
       grupo: Grupo;
-      dni: string;
       telefono?: string;
       ordenRotacion?: number;
     }[]
@@ -73,7 +72,6 @@ export const NuevoCicloModal: React.FC<NuevoCicloModalProps> = ({
           nombre: r.nombre,
           empleo: r.empleo as any,
           grupo: r.grupo as any,
-          dni: r.dni,
           telefono: r.telefono,
           ordenRotacion: idx + 1,
         }));
@@ -93,7 +91,6 @@ export const NuevoCicloModal: React.FC<NuevoCicloModalProps> = ({
         nombre: p.nombre,
         empleo: p.empleo,
         grupo: p.grupo,
-        dni: p.dni,
         telefono: p.telefono,
         ordenRotacion: p.ordenRotacion || idx + 1,
       }));
@@ -139,7 +136,7 @@ export const NuevoCicloModal: React.FC<NuevoCicloModalProps> = ({
             <div>
               <h3 className="text-lg font-bold">Asistente de Creación de Nuevo Ciclo</h3>
               <p className="text-xs text-slate-300">
-                Apertura de nuevo periodo de guardias con continuidad histórica de efectivos
+                Apertura de nuevo periodo de guardias con continuidad histórica de personal
               </p>
             </div>
           </div>
@@ -176,7 +173,7 @@ export const NuevoCicloModal: React.FC<NuevoCicloModalProps> = ({
             >
               2
             </span>
-            <span className="font-semibold text-slate-800">Personal & Efectivos</span>
+            <span className="font-semibold text-slate-800">Personal y Roles</span>
           </div>
           <div className="w-12 h-0.5 bg-slate-300" />
           <div className="flex items-center gap-2">
@@ -265,7 +262,7 @@ export const NuevoCicloModal: React.FC<NuevoCicloModalProps> = ({
                     <Users className="w-8 h-8 text-blue-600 mb-1" />
                     <span className="text-xs font-bold text-slate-800">Clonar Plantilla Actual</span>
                     <span className="text-[10px] text-slate-500">
-                      {personasActuales.filter((p) => p.activo).length} efectivos activos actuales
+                      {personasActuales.filter((p) => p.activo).length} personas activas actuales
                     </span>
                   </button>
                 </div>
@@ -278,7 +275,7 @@ export const NuevoCicloModal: React.FC<NuevoCicloModalProps> = ({
               <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-blue-800 text-xs flex items-start gap-2">
                 <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
                 <div>
-                  <strong>Continuidad de Efectivos:</strong> El sistema cruzará automáticamente los efectivos y conservará su historial y rotación.
+                  <strong>Continuidad de Personal:</strong> El sistema cruzará automáticamente al personal y conservará su historial y rotación.
                 </div>
               </div>
 
@@ -340,9 +337,9 @@ export const NuevoCicloModal: React.FC<NuevoCicloModalProps> = ({
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
                 <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
                   <div className="text-xl font-black text-slate-900">
-                    {resultadoFinal.resumen.continuidadesDni}
+                    {resultadoFinal.resumen.continuidades}
                   </div>
-                  <div className="text-[10px] font-bold text-slate-500 uppercase">Efectivos Vinculados</div>
+                  <div className="text-[10px] font-bold text-slate-500 uppercase">Personal Vinculado</div>
                 </div>
                 <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
                   <div className="text-xl font-black text-emerald-600">

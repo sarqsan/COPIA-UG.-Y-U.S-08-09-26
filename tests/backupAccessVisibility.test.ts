@@ -88,7 +88,7 @@ async function runVisibilitySecurityTests() {
     'excel',
     'config',
   ];
-  assert(adminTabKeys.includes('backups'), 'La pestaña "backups" forma parte oficial de las pestañas de navegación (AdminTab)');
+  assert(adminTabKeys.includes('backups'), 'La pestaña "backups" forma parte de las pestañas de navegación (AdminTab)');
 
   // Simular Sidebar Desktop y Mobile Drawer
   const sidebarItems = [
@@ -102,8 +102,8 @@ async function runVisibilitySecurityTests() {
 
   // --- 2. Control de Permisos y Perfiles ---
   console.log('\n--- 2. Control de Permisos: Usuarios Normales Bloqueados ---');
-  const usuarioNormal = { uid: 'user-normal-01', nombre: 'Guardia Civil Pérez', rol: 'USUARIO' };
-  const adminValido = { uid: 'admin-01', nombre: 'Oficial Jefe de Mando', rol: 'ADMIN' };
+  const usuarioNormal = { uid: 'user-normal-01', nombre: 'Usuario Pérez', rol: 'USUARIO' };
+  const adminValido = { uid: 'admin-01', nombre: 'Administrador Principal', rol: 'ADMIN' };
 
   // Función que simula la guardia de seguridad del servicio
   const testRestaurarPermisos = (caller: { uid: string; nombre: string; rol?: string }) => {

@@ -101,7 +101,6 @@ async function runHermeticBackupTests() {
     empleo: 'ROL 1',
     grupo: 'U.G.',
     tipoServicio: 'GUARDIA',
-    dni: '12345678A',
     telefono: '600111222',
     activo: true,
     fechaCreacion: '2026-09-01T00:00:00Z',
@@ -114,7 +113,6 @@ async function runHermeticBackupTests() {
     empleo: 'ROL 2',
     grupo: 'U.G.',
     tipoServicio: 'GUARDIA',
-    dni: '87654321B',
     telefono: '600333444',
     activo: true,
     fechaCreacion: '2026-09-01T00:00:00Z',
@@ -127,7 +125,6 @@ async function runHermeticBackupTests() {
     empleo: 'ROL 1',
     grupo: 'US_SEGURIDAD',
     tipoServicio: 'US',
-    dni: '23456789C',
     telefono: '600555666',
     activo: true,
     fechaCreacion: '2026-09-01T00:00:00Z',
@@ -246,7 +243,7 @@ async function runHermeticBackupTests() {
     estado: 'REALIZADA',
     origenAsignacion: 'SISTEMA_AUTOMATICO',
     creadoPorUid: 'admin-1',
-    creadoPorNombre: 'Capitán Admin',
+    creadoPorNombre: 'Administrador',
     fechaCreacion: '2026-09-01T08:00:00Z',
   };
 
@@ -345,7 +342,7 @@ async function runHermeticBackupTests() {
     estadisticas: stats,
     datos: snapshotUG,
     creadoPorUid: 'admin-1',
-    creadoPorNombre: 'Capitán Admin',
+    creadoPorNombre: 'Administrador',
     origen: 'SISTEMA_AUTOMATICO',
   };
 
@@ -518,7 +515,7 @@ async function runHermeticBackupTests() {
     estadisticas: stats,
     datos: snapshotUG,
     creadoPorUid: 'admin-1',
-    creadoPorNombre: 'Capitán Admin',
+    creadoPorNombre: 'Administrador',
     origen: 'CLIENTE_ADMIN',
   };
 

@@ -58,7 +58,7 @@ export const ProximamentePage: React.FC = () => {
       iconColor: 'text-rose-600',
       specs: [
         'Comunicación de indisponibilidad para servicio.',
-        'Identificación automática del servicio, empleo y las imaginarias disponibles.',
+        'Identificación automática del servicio, rol y las imaginarias disponibles.',
         'Solicitud de cobertura dirigida exclusivamente a quienes correspondan.',
         'Operativo incluso con el servicio ya iniciado.',
       ],

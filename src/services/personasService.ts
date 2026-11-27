@@ -14,7 +14,7 @@ import {
 import { db } from '../firebase/config';
 import { Persona, Cuenta, StatsPersonal, Empleo, Grupo, TipoServicio } from '../types';
 import { registrarAuditLog } from './auditService';
-import { normalizeDni, normalizeEmpleo } from '../utils/validators';
+import { normalizeEmpleo } from '../utils/validators';
 import { getApellidoUG } from '../utils/ugNomenclatura';
 import { generateInitialMockPersonas } from './seedService';
 import { actualizarNombreCuentaPorPersonaId, eliminarCuentaPorPersonaId, asegurarCuentasParaPersonas } from './cuentasService';
@@ -85,13 +85,12 @@ export const sanitizePersonaForUser = (
     return { ...persona };
   }
 
-  // Sanitize strictly: remove PII (DNI, phone, notes) for other users
+  // Sanitize strictly: remove PII (phone, notes) for other users
   return {
     id: persona.id,
     nombre: persona.nombre,
     empleo: persona.empleo,
     grupo: persona.grupo,
-    dni: '',
     telefono: '',
     activo: persona.activo,
     cicloId: persona.cicloId,
@@ -199,7 +198,6 @@ export const crearPersona = async (
     nombre: string;
     empleo: Empleo;
     grupo: Grupo;
-    dni?: string;
     telefono?: string;
     activo?: boolean;
     cicloId?: string;
@@ -217,7 +215,6 @@ export const crearPersona = async (
     empleo: datos.empleo,
     grupo: datos.grupo || (esUS ? 'US_SEGURIDAD' : 'U.G.'),
     tipoServicio: esUS ? 'US' : 'GUARDIA',
-    dni: normalizeDni(datos.dni),
     telefono: (datos.telefono || '').trim(),
     activo: datos.activo !== undefined ? datos.activo : true,
     cicloId: datos.cicloId || (esUS ? 'Ciclo U.S. 2026' : 'Ciclo Actual 2026'),
@@ -269,7 +266,6 @@ export const actualizarPersona = async (
     ...datos,
     fechaActualizacion: now,
   };
-  if (datos.dni !== undefined) updates.dni = normalizeDni(datos.dni);
   if (datos.nombre !== undefined) updates.nombre = datos.nombre.trim();
 
   const personaActualizada: Persona = {

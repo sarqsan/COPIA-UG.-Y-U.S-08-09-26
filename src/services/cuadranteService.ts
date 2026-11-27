@@ -202,7 +202,7 @@ export const getCuadrantes = async (options?: { tipoServicio?: TipoServicio }): 
       return filtered;
     }
 
-    // Si Firestore no tiene cuadrantes para este tipo, inicializar el oficial si no existen
+    // Si Firestore no tiene cuadrantes para este tipo, inicializar el predeterminado si no existen
     const existingLocal = options?.tipoServicio
       ? memoryCuadrantesCache.filter((c) => (c.tipoServicio || 'GUARDIA') === options.tipoServicio)
       : memoryCuadrantesCache;
@@ -337,7 +337,7 @@ export const getServiciosByCuadranteId = async (
 };
 
 /**
- * Obtiene los IDs y nombres de los efectivos que se encuentran asignados
+ * Obtiene los IDs y nombres de las personas que se encuentran asignadas
  * DE SERVICIO (Titulares 24h) o DE IMAGINARIA incompatibles con patrullas.
  * Regla de compatibilidad de patrulla:
  * - Patrulla en D => No Servicio titular en D (24h), No Saliente de guardia (Titular en D-1),
@@ -346,7 +346,7 @@ export const getServiciosByCuadranteId = async (
  *   SÍ puede ser nombrado para una patrulla al día siguiente (D).
  * Esta lista se utiliza para excluirlos de la selección de patrullas.
  */
-export const obtenerEfectivosEnServicioOImaginaria = async (
+export const obtenerPersonalEnServicioOImaginaria = async (
   fecha: string,
   options?: { cuadranteId?: string }
 ): Promise<{
@@ -887,7 +887,7 @@ export const modificarServicioManual = async (params: {
       let erroresFiltrados = validacion.items.filter((v) => v.severidad === 'ERROR');
 
       if (esServicioPasado) {
-        // Para servicios del pasado, permitimos el registro fáctico del mando excluyendo
+        // Para servicios del pasado, permitimos el registro fáctico por administración excluyendo
         // bloqueos de descansos posteriores (RD-05/RD-06), pero manteniendo inviolables
         // la coherencia del día: RD-01, RD-02, RD-07, RD-08, RD-10.
         erroresFiltrados = erroresFiltrados.filter(
@@ -962,7 +962,7 @@ export const modificarServicioManual = async (params: {
     personaNombre: nuevaPersona.nombre,
     motivo,
     detalles: esAdmin
-      ? `REASIGNACIÓN ADMINISTRATIVA directa realizada por el Administrador ${adminInfo.nombre} (${adminInfo.uid}) en fecha ${srvActual.fecha}, puesto "${puestoNombre}". Titular anterior: ${personaAnteriorObj?.nombre || personaIdAnterior} -> Reasignado a: ${nuevaPersona.nombre}. Motivo: ${motivo || 'Reasignación operativa por orden del mando'}. Operación autorizada directamente sin restricciones de viabilidad de usuarios.`
+      ? `REASIGNACIÓN ADMINISTRATIVA directa realizada por el Administrador ${adminInfo.nombre} (${adminInfo.uid}) en fecha ${srvActual.fecha}, puesto "${puestoNombre}". Titular anterior: ${personaAnteriorObj?.nombre || personaIdAnterior} -> Reasignado a: ${nuevaPersona.nombre}. Motivo: ${motivo || 'Reasignación operativa por administración'}. Operación autorizada directamente sin restricciones de viabilidad de usuarios.`
       : `Modificación manual administrativa ${esServicioPasado ? '[SERVICIO HISTÓRICO/PASADO]' : '[SERVICIO PRESENTE/FUTURO]'} en fecha ${srvActual.fecha}, puesto "${puestoNombre}". Titular sustituido: ${personaAnteriorObj?.nombre || personaIdAnterior} -> ${nuevaPersona.nombre}. Motivo: ${motivo}. Registrado por: ${adminInfo.nombre}.`,
     cambios: [
       {
@@ -1090,7 +1090,7 @@ export const permutarServicioImaginariaAdmin = async (params: {
 
   const srvActual: ServicioDia = JSON.parse(JSON.stringify(servicios[srvIndex]));
 
-  // 4. Validar que en esa fecha están asignados respectivamente a SERVICIO e IMAGINARIA según el empleo
+  // 4. Validar que en esa fecha están asignados respectivamente a SERVICIO e IMAGINARIA según el rol
   let puestoServicioNombre = '';
   let slotTitularIndex = -1;
 
@@ -1101,7 +1101,7 @@ export const permutarServicioImaginariaAdmin = async (params: {
     if (slotTitularIndex === -1) {
       return {
         success: false,
-        message: `El efectivo ${personaServicio.nombre} no figura asignado de SERVICIO (ROL 1) en la fecha ${srvActual.fecha}.`,
+        message: `El usuario ${personaServicio.nombre} no figura asignado de SERVICIO (ROL 1) en la fecha ${srvActual.fecha}.`,
       };
     }
 
@@ -1109,7 +1109,7 @@ export const permutarServicioImaginariaAdmin = async (params: {
     if (!slotImaginariaRol1 || slotImaginariaRol1.personaIdReal !== usuarioImaginariaId) {
       return {
         success: false,
-        message: `El efectivo ${personaImaginaria.nombre} no figura asignado de IMAGINARIA (ROL 1) en la fecha ${srvActual.fecha}.`,
+        message: `El usuario ${personaImaginaria.nombre} no figura asignado de IMAGINARIA (ROL 1) en la fecha ${srvActual.fecha}.`,
       };
     }
 
@@ -1121,7 +1121,7 @@ export const permutarServicioImaginariaAdmin = async (params: {
     if (slotTitularIndex === -1) {
       return {
         success: false,
-        message: `El efectivo ${personaServicio.nombre} no figura asignado de SERVICIO (ROL 2) en la fecha ${srvActual.fecha}.`,
+        message: `El usuario ${personaServicio.nombre} no figura asignado de SERVICIO (ROL 2) en la fecha ${srvActual.fecha}.`,
       };
     }
 
@@ -1129,7 +1129,7 @@ export const permutarServicioImaginariaAdmin = async (params: {
     if (!slotImaginariaRol2 || slotImaginariaRol2.personaIdReal !== usuarioImaginariaId) {
       return {
         success: false,
-        message: `El efectivo ${personaImaginaria.nombre} no figura asignado de IMAGINARIA (ROL 2) en la fecha ${srvActual.fecha}.`,
+        message: `El usuario ${personaImaginaria.nombre} no figura asignado de IMAGINARIA (ROL 2) en la fecha ${srvActual.fecha}.`,
       };
     }
 
@@ -1406,7 +1406,7 @@ export const modificarServicioUSManual = async (params: {
     console.warn('Audit log diferido:', e);
   }
 
-  // Notificación oficial por correo a Personal con Excel del cambio (mismo flujo que UG)
+  // Notificación por correo a Personal con Excel del cambio (mismo flujo que UG)
   try {
     const codigoVerificacion = `US-MOD-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
     const documentoId = `doc-mod-us-${Date.now()}`;
@@ -1432,21 +1432,21 @@ export const modificarServicioUSManual = async (params: {
       },
       personaB: {
         id: 'US_PERSONAL',
-        nombre: 'Efectivos U.S. Afectados',
+        nombre: 'Personal U.S. Afectado',
         empleo: 'ROL 2' as any,
         grupo: 'US_SEGURIDAD',
-        firma: 'NOTIFICACION_OFICIAL_EMITIDA',
+        firma: 'NOTIFICACION_EMITIDA',
         fechaFirma: nowIso,
       },
       autorizacionAdmin: {
         adminUid: adminInfo.uid,
         adminNombre: adminInfo.nombre,
-        firma: 'FIRMA_OFICIAL_ADMINISTRADOR',
+        firma: 'FIRMA_ADMINISTRADOR',
         fechaAutorizacion: nowIso,
         resolucion: 'AUTORIZADO',
       },
-      detalles: `Modificación oficial del cuadrante U.S. en fecha ${servicioActualizado.fecha}. ${motivo || 'Ajuste operativo autorizado por administración.'}`,
-      motivo: motivo || 'Modificación oficial del servicio U.S.',
+      detalles: `Modificación del cuadrante U.S. en fecha ${servicioActualizado.fecha}. ${motivo || 'Ajuste operativo autorizado por administración.'}`,
+      motivo: motivo || 'Modificación del servicio U.S.',
     };
 
     await registrarDocumentoFirmadoDirecto(docModUS);
@@ -2058,9 +2058,9 @@ export const aplicarCoberturaBajaServicio = async (params: {
 };
 
 /**
- * Regenera un cuadrante maestro oficial 100% limpio para la U.G.
+ * Regenera un cuadrante maestro 100% limpio para la U.G.
  * - Elimina cualquier cambio residual, permuta o baja previa.
- * - Aplica la rotación oficial 09:00 a 09:00 (24h) entre los 11 ROL 1 y 11 ROL 2.
+ * - Aplica la rotación 09:00 a 09:00 (24h) entre los 11 ROL 1 y 11 ROL 2.
  * - Establece todos los slots como programados y asignados automáticamente.
  */
 export const regenerarCuadranteLimpioUG = async (
@@ -2141,12 +2141,12 @@ export const regenerarCuadranteLimpioUG = async (
   return {
     success: true,
     cuadranteId: cuadranteGuardia.id,
-    message: 'Cuadrante limpio generado y confirmado correctamente para los 22 efectivos.',
+    message: 'Cuadrante limpio generado y confirmado correctamente para los 22 usuarios.',
   };
 };
 
 /**
- * Propaga la modificación del nombre o datos de un efectivo a todos los cuadrantes y servicios en memoria y almacenamiento.
+ * Propaga la modificación del nombre o datos de un usuario a todos los cuadrantes y servicios en memoria y almacenamiento.
  */
 export const propagarCambioPersonaEnCuadrantes = (
   personaId: string,
@@ -2198,7 +2198,7 @@ export const propagarCambioPersonaEnCuadrantes = (
 };
 
 /**
- * Elimina o desvincula un efectivo de los cuadrantes y servicios en memoria y almacenamiento.
+ * Elimina o desvincula un usuario de los cuadrantes y servicios en memoria y almacenamiento.
  */
 export const eliminarPersonaDeCuadrantes = (personaId: string): void => {
   memoryCuadrantesCache.forEach((cuadrante) => {
@@ -2228,13 +2228,13 @@ export interface IncorporacionUsuarioUGResult {
 }
 
 /**
- * FASE 2: Incorporación adaptativa y quirúrgica de un nuevo efectivo (ROL 2) en el cuadrante U.G. existente.
+ * FASE 2: Incorporación adaptativa y quirúrgica de un nuevo usuario (ROL 2) en el cuadrante U.G. existente.
  *
  * Principios Fundamentales:
  * 1. CONSERVACIÓN ABSOLUTA DE ROL 1: R1_ANTES = R1_DESPUÉS (Día por día, puesto por puesto).
  * 2. AJUSTE MÍNIMO EN ROL 2: No se regenera el cuadrante. Se sustituyen de forma no destructiva
- *    únicamente los servicios necesarios para descargar a los efectivos de R2 con mayor exceso de guardias.
- * 3. DESCANSO REGLAMENTARIO: Se respeta estrictamente la separación de 1 servicio + 4 días libres.
+ *    únicamente los servicios necesarios para descargar a los usuarios de R2 con mayor exceso de guardias.
+ * 3. DESCANSO ESTABLECIDO: Se respeta estrictamente la separación de 1 servicio + 4 días libres.
  * 4. PERSISTENCIA QUIRÚRGICA: Solo se graban en Firestore los días de servicio que sufren cambios reales.
  */
 export const incorporarNuevoUsuarioEnCuadranteUG = async (
@@ -2242,9 +2242,9 @@ export const incorporarNuevoUsuarioEnCuadranteUG = async (
 ): Promise<IncorporacionUsuarioUGResult> => {
   const { cuadranteId, nuevoUsuario, adminInfo, fechaDesde } = params;
 
-  // 1. Verificación preliminar de empleo
+  // 1. Verificación preliminar de rol
   if (nuevoUsuario.empleo !== 'ROL 2') {
-    throw new Error('La incorporación adaptativa de esta fase está exclusivamente destinada a efectivos de ROL 2.');
+    throw new Error('La incorporación adaptativa de esta fase está exclusivamente destinada a usuarios de ROL 2.');
   }
 
   // 2. Obtener cuadrante actual y servicios
@@ -2310,11 +2310,11 @@ export const incorporarNuevoUsuarioEnCuadranteUG = async (
   const fechasAsignadasNuevoR2 = new Set<string>();
   let titularesAsignados = 0;
 
-  // Calculamos la cuota objetivo de servicios para el nuevo R2 (promedio con 12 efectivos)
+  // Calculamos la cuota objetivo de servicios para el nuevo R2 (promedio con 12 usuarios)
   const totalDias = serviciosPropuestos.length;
   const puestosTotalesR2 = totalDias * 2;
-  const totalEfectivosR2 = personasConNuevo.filter((p) => p.empleo === 'ROL 2' && p.activo).length;
-  const cuotaObjetivoServicios = Math.floor(puestosTotalesR2 / totalEfectivosR2);
+  const totalUsuariosR2 = personasConNuevo.filter((p) => p.empleo === 'ROL 2' && p.activo).length;
+  const cuotaObjetivoServicios = Math.floor(puestosTotalesR2 / totalUsuariosR2);
 
   const fechaLimiteDesde = fechaDesde || serviciosPropuestos[0].fecha;
 
@@ -2365,7 +2365,7 @@ export const incorporarNuevoUsuarioEnCuadranteUG = async (
       // Aplicar sustitución quirúrgica
       titR2[indexSustituir].personaIdReal = nuevoUsuario.id;
       titR2[indexSustituir].tipoOrigen = 'MODIFICADO_MANUAL';
-      titR2[indexSustituir].motivoCambio = `Incorporación adaptativa nuevo efectivo ROL 2 (${nuevoUsuario.nombre})`;
+      titR2[indexSustituir].motivoCambio = `Incorporación adaptativa nuevo usuario ROL 2 (${nuevoUsuario.nombre})`;
       titR2[indexSustituir].fechaModificacion = new Date().toISOString();
 
       srv.tieneModificacionesManuales = true;
@@ -2384,7 +2384,7 @@ export const incorporarNuevoUsuarioEnCuadranteUG = async (
   }
 
   // 7. Asignación quirúrgica de imaginarias para el nuevo R2
-  const cuotaObjetivoImaginarias = Math.floor(totalDias / totalEfectivosR2);
+  const cuotaObjetivoImaginarias = Math.floor(totalDias / totalUsuariosR2);
   const fechasImaginariaNuevoR2 = new Set<string>();
   let imaginariasAsignadas = 0;
 
@@ -2526,7 +2526,7 @@ export const incorporarNuevoUsuarioEnCuadranteUG = async (
 
   return {
     success: true,
-    message: `Efectivo ROL 2 (${nuevoUsuario.nombre}) incorporado con éxito. Se modificaron quirúrgicamente ${serviciosCambiados.length} días. ROL 1 preservado al 100% (R1_ANTES = R1_DESPUÉS).`,
+    message: `Usuario ROL 2 (${nuevoUsuario.nombre}) incorporado con éxito. Se modificaron quirúrgicamente ${serviciosCambiados.length} días. ROL 1 preservado al 100% (R1_ANTES = R1_DESPUÉS).`,
     cuadranteActualizado,
     serviciosModificadosTotal: serviciosCambiados.length,
     serviciosTitularesAsignadosNuevoR2: titularesAsignados,
@@ -2538,7 +2538,7 @@ export const incorporarNuevoUsuarioEnCuadranteUG = async (
 /**
  * Sincroniza la eliminación o modificación de una ausencia/permiso US en todos los cuadrantes US existentes.
  * - Limpia o actualiza srv.ausencias.
- * - NO altera ninguna asignación de Diurno, Nocturno o Imaginaria de otros efectivos.
+ * - NO altera ninguna asignación de Diurno, Nocturno o Imaginaria de otros usuarios.
  * - Persiste en Firestore y caché en memoria.
  * - Dispara evento para actualizar la UI en vivo.
  */

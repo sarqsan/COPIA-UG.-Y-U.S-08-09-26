@@ -71,7 +71,7 @@ export const clasificarDiaUS = (fechaStr: string, fechaMananaStr?: string): Info
 };
 
 /**
- * Calcula el descuento oficial de horas U.S. para un periodo:
+ * Calcula el descuento de horas U.S. para un periodo:
  * - Normativa vigente U.S.: No se restan horas mensuales (tasa = 0h).
  * - Mantiene compatibilidad con ajustes manuales si se especifican.
  */

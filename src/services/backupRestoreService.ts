@@ -337,7 +337,7 @@ export const crearBackupManual = async (
     id,
     tipoServicio,
     tipo: 'MANUAL',
-    motivo: motivo || 'Copia de respaldo manual solicitada desde el Centro de Mando.',
+    motivo: motivo || 'Copia de respaldo manual solicitada desde el Panel de Administración.',
     adminInfo,
     origen: 'CLIENTE_ADMIN',
   });

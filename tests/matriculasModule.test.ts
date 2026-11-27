@@ -295,7 +295,7 @@ const lotePrueba = [
   '1234BBB',      // Fila 1: VALIDA (Moderno)
   '1234 BBB',     // Fila 2: VALIDA (Moderno, duplicada con fila 1)
   'M-1234-AB',    // Fila 3: VALIDA (Provincial, ya en BD)
-  'PGC-9999-Z',   // Fila 4: VALIDA (Oficial)
+  'PGC-9999-Z',   // Fila 4: VALIDA (Institucional)
   'VALOR-ERRONEO-QUE-SUPERA-MAXIMO-DE-CARACTERES', // Fila 5: INVALIDA
   '***???***',    // Fila 6: INVALIDA
   '',             // Fila 7: INVALIDA
@@ -522,7 +522,7 @@ const catalogoExistenteMock: MatriculaAutorizada[] = [
     formato: 'MODERNO_ESP',
     estadoValidacion: 'VALIDA',
     incidencias: [],
-    titular: 'Vehículo Oficial Guardia',
+    titular: 'Vehículo Corporativo',
     tipoVehiculo: 'VEHICULO_OFICIAL',
     marcaModelo: 'Nissan Patrol',
     color: 'Verde',
@@ -541,7 +541,7 @@ const catalogoExistenteMock: MatriculaAutorizada[] = [
 // 4. "7777GGG" -> Nueva matrícula
 // 5. "C-1234-BBB" -> Nueva matrícula formato ciclomotor
 // 6. "7777 GGG" -> Duplicado interno (colisiona con fila 4)
-// 7. "FOREIGN-01" -> Dudosa (formato genérico no oficial)
+// 7. "FOREIGN-01" -> Dudosa (formato genérico no estándar)
 // 8. "INV@@@" -> Inválida
 // Además "3456FFF" está en el catálogo existente pero NO viene en este Excel -> AUSENTE
 const filasExcelPrueba: FilaExcelRaw[] = [
@@ -884,7 +884,7 @@ const docAutorizadoActivo = {
   id: '1234BBB',
   matriculaNormalizada: '1234BBB',
   activo: true,
-  titular: 'Coronel Gómez',
+  titular: 'Responsable Gómez',
 };
 const resAutorizada = evaluarEstadoAutorizacion(docAutorizadoActivo);
 assert(
@@ -1050,7 +1050,7 @@ for (const p of celdasPersonales) {
 // Fila con 15 columnas donde las columnas 3, 7 y 12 tienen matrículas, y las demás datos sensibles
 const tsvMasivo = [
   // Fila 1: Nombres, DNI, Matrícula 1, Depto, Teléfono, Cargo, Matrícula 2, Email, Dirección, Turno, Grupo, Matrícula 3, Notas, Estado, Código
-  'García Juan\t48765432W\t1234BBB\tSeguridad\t612345678\tOficial\t5678CCC\tguardia@sec.es\tC/ Sol 1\tMañana\tAlfa\tM-1234-AB\tSin incidencias\tActivo\tSEC-99',
+  'García Juan\t48765432W\t1234BBB\tSeguridad\t612345678\tCoordinación\t5678CCC\tcontrol@sec.es\tC/ Sol 1\tMañana\tAlfa\tM-1234-AB\tSin incidencias\tActivo\tSEC-99',
   'López María\t12345678Z\t9012DDD\tLogística\t698765432\tConductora\t\tmaria@sec.es\tC/ Luna 2\tTarde\tBeta\tPGC-9876-A\tVehículo asignado\tActivo\tLOG-01',
 ].join('\n');
 

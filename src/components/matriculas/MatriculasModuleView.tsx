@@ -743,7 +743,7 @@ export const MatriculasModuleView: React.FC = () => {
                 <option value="MODERNO_ESP">Moderno DGT (4D + 3C)</option>
                 <option value="PROVINCIAL_ALFA">Provincial Alfanumérico</option>
                 <option value="PROVINCIAL_NUM">Provincial Numérico</option>
-                <option value="OFICIAL_FUERZAS">Fuerzas / Oficial</option>
+                <option value="OFICIAL_FUERZAS">Flota / Institucional</option>
                 <option value="ESPECIAL_CICLOMOTOR">Especial / Ciclomotor</option>
                 <option value="FORMATO_GENERICO">Formato Genérico</option>
               </select>
@@ -889,7 +889,7 @@ export const MatriculasModuleView: React.FC = () => {
                 Actualización y Auditoría del Catálogo desde Excel
               </h2>
               <p className="text-xs text-slate-500 mt-1">
-                Suba el archivo Excel semanal con el catálogo actualizado. <strong>Sin límite de columnas ni de filas</strong>: puede subir el documento completo con todos sus campos (nombres, DNI, teléfonos, cargos...). La aplicación <strong>rastreará todas las columnas</strong>, extraerá exclusivamente las matrículas de vehículos y <strong>descartará por completo el resto de datos personales</strong> por privacidad y RGPD (cero almacenamiento de datos sensibles).
+                Suba el archivo Excel semanal con el catálogo actualizado. <strong>Sin límite de columnas ni de filas</strong>: puede subir el documento completo con todos sus campos (nombres, documentos identificativos, teléfonos, cargos...). La aplicación <strong>rastreará todas las columnas</strong>, extraerá exclusivamente las matrículas de vehículos y <strong>descartará por completo el resto de datos personales</strong> por privacidad y RGPD (cero almacenamiento de datos sensibles).
               </p>
             </div>
 
@@ -911,7 +911,7 @@ export const MatriculasModuleView: React.FC = () => {
                   <span>Privacidad Total (RGPD)</span>
                 </div>
                 <p className="text-[11px] text-slate-600 dark:text-slate-400">
-                  DNI, nombres, teléfonos y emails son ignorados y descartados en memoria. No se almacenan en ningún sitio.
+                  Documentos identificativos, nombres, teléfonos y emails son ignorados y descartados en memoria. No se almacenan en ningún sitio.
                 </p>
               </div>
 
@@ -1023,7 +1023,7 @@ export const MatriculasModuleView: React.FC = () => {
                       Privacidad y RGPD Garantizados
                     </div>
                     <div className="text-[10px] text-slate-500">
-                      DNI, nombres y teléfonos descartados sin guardar.
+                      Datos identificativos, nombres y teléfonos descartados sin guardar.
                     </div>
                   </div>
                 </div>
@@ -1489,7 +1489,7 @@ export const MatriculasModuleView: React.FC = () => {
                     className="mt-0.5"
                   />
                   <span className="text-xs text-amber-900 dark:text-amber-200 font-semibold">
-                    Aprobar expresamente matrícula no catalogada en estándares españoles oficiales (quedará registrada con trazabilidad en auditoría).
+                    Aprobar expresamente matrícula no catalogada en estándares españoles (quedará registrada con trazabilidad en auditoría).
                   </span>
                 </label>
                 {altaForm.permitirDudosa && (
@@ -1545,7 +1545,7 @@ export const MatriculasModuleView: React.FC = () => {
                   <option value="FURGONETA">Furgoneta</option>
                   <option value="MOTOCICLETA">Motocicleta</option>
                   <option value="CICLOMOTOR">Ciclomotor</option>
-                  <option value="VEHICULO_OFICIAL">Vehículo Oficial</option>
+                  <option value="VEHICULO_OFICIAL">Vehículo Corporativo</option>
                   <option value="OTRO">Otro</option>
                 </select>
               </div>
@@ -1854,7 +1854,7 @@ export const MatriculasModuleView: React.FC = () => {
                   <option value="FURGONETA">Furgoneta</option>
                   <option value="MOTOCICLETA">Motocicleta</option>
                   <option value="CICLOMOTOR">Ciclomotor</option>
-                  <option value="VEHICULO_OFICIAL">Vehículo Oficial</option>
+                  <option value="VEHICULO_OFICIAL">Vehículo Corporativo</option>
                   <option value="OTRO">Otro</option>
                 </select>
               </div>

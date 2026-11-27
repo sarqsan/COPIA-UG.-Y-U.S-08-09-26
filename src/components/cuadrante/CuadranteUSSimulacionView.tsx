@@ -47,7 +47,7 @@ export const CuadranteUSSimulacionView: React.FC<CuadranteUSSimulacionViewProps>
   const personasMap = new Map<string, string>();
   (personasUS || []).forEach((p) => personasMap.set(p.id, p.nombre));
 
-  // Conteo seguro de servicios realizados por cada efectivo en los días festivos especiales
+  // Conteo seguro de servicios realizados por cada persona en los días festivos especiales
   const conteoServiciosNavidad: Record<string, { id: string; nombre: string; count: number; servicios: string[] }> = {};
   diasNavidadServicios.forEach((s) => {
     (s.diurno?.titulares || []).forEach((t) => {
@@ -127,7 +127,7 @@ export const CuadranteUSSimulacionView: React.FC<CuadranteUSSimulacionViewProps>
               </span>
               <span>•</span>
               <span>
-                Plantilla U.S.: <strong className="text-slate-800 dark:text-slate-200">{cuadrante.totalPersonas} efectivos</strong>
+                Plantilla U.S.: <strong className="text-slate-800 dark:text-slate-200">{cuadrante.totalPersonas} personas</strong>
               </span>
               <span>•</span>
               <span>
@@ -195,7 +195,7 @@ export const CuadranteUSSimulacionView: React.FC<CuadranteUSSimulacionViewProps>
                 </span>
               </div>
               <p className="text-[11px] text-emerald-700 dark:text-emerald-300">
-                El sistema detectó efectivos que cubrieron servicios por activación de imaginaria en el ciclo anterior. Se les ha compensado automáticamente sustituyendo días de presente por días de <strong>Permiso adicional (P)</strong>, sin alterar la equidad del reparto de servicios.
+                El sistema detectó personas que cubrieron servicios por activación de imaginaria en el ciclo anterior. Se les ha compensado automáticamente sustituyendo días de presente por días de <strong>Permiso adicional (P)</strong>, sin alterar la equidad del reparto de servicios.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 pt-1">
                 {currentSimulacion.compensacionesImaginariaAplicadas.map((comp, i) => (
@@ -235,10 +235,10 @@ export const CuadranteUSSimulacionView: React.FC<CuadranteUSSimulacionViewProps>
 
             <p className="text-[11px] text-slate-700 dark:text-slate-300">
               {personasQueRepitenNavidad.length === 0
-                ? 'Con 16 efectivos disponibles, cada miembro de la unidad realiza exactamente 1 servicio en todos los días clave.'
+                ? 'Con 16 personas disponibles, cada miembro de la unidad realiza exactamente 1 servicio en todos los días clave.'
                 : personasQueRepitenNavidad.length === 1
-                ? `Al haber 15 efectivos disponibles (1 efectivo de permiso oficial de larga duración), 14 efectivos realizan 1 único servicio festivo y únicamente 1 efectivo (${personasQueRepitenNavidad[0]?.nombre}) asume 2 servicios, asignando el segundo en la noche del 1 de enero conforme a la regla de menor impacto.`
-                : `Se han distribuido los servicios festivos con el menor impacto posible: ${personasQueRepitenNavidad.length} efectivos realizan 2 servicios y el resto 1 servicio.`}
+                ? `Al haber 15 personas disponibles (1 persona de permiso de larga duración), 14 personas realizan 1 único servicio festivo y únicamente 1 persona (${personasQueRepitenNavidad[0]?.nombre}) asume 2 servicios, asignando el segundo en la noche del 1 de enero conforme a la regla de menor impacto.`
+                : `Se han distribuido los servicios festivos con el menor impacto posible: ${personasQueRepitenNavidad.length} personas realizan 2 servicios y el resto 1 servicio.`}
             </p>
 
             {/* Cuadrícula de los Días Clave */}

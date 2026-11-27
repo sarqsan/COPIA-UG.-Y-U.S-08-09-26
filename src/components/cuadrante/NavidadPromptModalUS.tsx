@@ -60,7 +60,7 @@ export const NavidadPromptModalUS: React.FC<NavidadPromptModalUSProps> = ({
               </span>
             </h3>
             <p className="text-xs text-slate-600 dark:text-slate-400">
-              Al haber varios efectivos de permiso durante las fechas navideñas, el sistema requiere tu
+              Al haber varias personas de permiso durante las fechas navideñas, el sistema requiere tu
               confirmación para distribuir los servicios haciendo el menor daño posible.
             </p>
           </div>
@@ -71,12 +71,12 @@ export const NavidadPromptModalUS: React.FC<NavidadPromptModalUSProps> = ({
           <div className="flex items-center gap-2 font-bold text-amber-900 dark:text-amber-200">
             <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
             <span>
-              Efectivos en permiso: {analisis.personalEnPermiso.map((p) => p.nombre).join(', ') || 'Varios'} (
-              {analisis.personalEnPermiso.length} efectivos)
+              Personal en permiso: {analisis.personalEnPermiso.map((p) => p.nombre).join(', ') || 'Varios'} (
+              {analisis.personalEnPermiso.length} personas)
             </span>
           </div>
           <p className="text-[11px] text-amber-800/90 dark:text-amber-300/90">
-            Quedan <strong>{analisis.efectivosDisponiblesCount} efectivos</strong> disponibles para cubrir los{' '}
+            Quedan <strong>{analisis.personalDisponibleCount} personas</strong> disponibles para cubrir los{' '}
             <strong>16 servicios</strong> (4 servicios por día). Se requiere que{' '}
             <strong>{analisis.repeticionesNecesarias} compañeros</strong> realicen un segundo servicio.
           </p>
@@ -87,7 +87,7 @@ export const NavidadPromptModalUS: React.FC<NavidadPromptModalUSProps> = ({
           </p>
         </div>
 
-        {/* Selección de Efectivos para Repetir */}
+        {/* Selección de Personal para Repetir */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <label className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">

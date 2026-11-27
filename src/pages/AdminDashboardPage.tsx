@@ -336,7 +336,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
             </span>
           </div>
           <h2 className="text-2xl font-black tracking-tight sm:text-3xl">
-            {stats.personalActivo} Efectivos Activos ({NOMBRE_GRUPO_UG})
+            {stats.personalActivo} Personas Activas ({NOMBRE_GRUPO_UG})
           </h2>
           <div className="flex flex-wrap items-center gap-3 text-xs text-slate-300">
             <span className="inline-flex items-center gap-1.5 rounded-lg bg-white/10 px-2.5 py-1 font-bold text-blue-300">
@@ -398,7 +398,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
             className="flex items-center gap-1.5 rounded-xl bg-emerald-500/20 px-3.5 py-2 text-xs font-bold text-emerald-200 border border-emerald-500/30 hover:bg-emerald-500/30 transition cursor-pointer"
           >
             <FileText className="h-4 w-4" />
-            <span>Diligencias Oficiales</span>
+            <span>Registro de Cambios</span>
           </button>
 
           <button
@@ -509,7 +509,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                         {tipoLabel} — {aus.personaNombre}
                       </h4>
                       <span className="text-[11px] font-black px-2.5 py-0.5 rounded-full bg-amber-200 text-amber-900 dark:bg-amber-900/80 dark:text-amber-200">
-                        ★ SOLICITUD DE EFECTIVO — PENDIENTE RESOLUCIÓN ADMINISTRATIVA
+                        ★ SOLICITUD DE USUARIO — PENDIENTE RESOLUCIÓN ADMINISTRATIVA
                       </span>
                     </div>
                     <span className="text-[10px] text-slate-500 font-mono">
@@ -524,7 +524,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
                     <div className="p-2.5 rounded-xl bg-white/70 dark:bg-slate-900/70 border border-teal-200/50 dark:border-slate-800 space-y-1">
                       <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">
-                        Efectivo Solicitante (U.S.)
+                        Usuario Solicitante (U.S.)
                       </p>
                       <p className="text-slate-900 dark:text-white font-bold text-sm">
                         {aus.personaNombre}
@@ -606,7 +606,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                         {esUS ? `Turno U.S. del ${sol.fechaServicio}` : `Guardia del ${sol.fechaServicio}`}
                       </h4>
                       <span className="text-[11px] font-black px-2.5 py-0.5 rounded-full bg-amber-200 text-amber-900 dark:bg-amber-900/80 dark:text-amber-200">
-                        ★ ACEPTADA POR COMPAÑERO — PENDIENTE AUTORIZACIÓN MANDO
+                        ★ ACEPTADA POR COMPAÑERO — PENDIENTE AUTORIZACIÓN ADMIN
                       </span>
                     </div>
                     <span className="text-[10px] text-slate-500 font-mono">
@@ -620,7 +620,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                       esUS ? 'border-teal-200/50 dark:border-slate-800' : 'border-amber-200/50 dark:border-slate-800'
                     }`}>
                       <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">
-                        1. Efectivo Solicitante ({esUS ? 'U.S.' : getRolUG(sol.solicitanteEmpleo)})
+                        1. Usuario Solicitante ({esUS ? 'U.S.' : getRolUG(sol.solicitanteEmpleo)})
                       </p>
                       <p className="text-slate-900 dark:text-white font-bold">
                         {esUS ? sol.solicitanteNombre : formatUsuarioUG(sol.solicitanteNombre, sol.solicitanteEmpleo)}
@@ -746,7 +746,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                     className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center gap-1 self-end sm:self-auto cursor-pointer"
                   >
                     <CheckCircle className="w-3.5 h-3.5" />
-                    Ratificar Cobertura Oficial
+                    Ratificar Cobertura
                   </button>
                 )}
               </div>
@@ -879,7 +879,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
 
         <StatCard
           id="stat-rol1-activos"
-          title="Efectivos ROL 1"
+          title="Usuarios de Rol 1"
           value={stats.rol1Activos}
           subtitle="Titulares e imaginarias"
           icon={<Shield className="h-5 w-5 text-amber-600" />}
@@ -888,7 +888,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
 
         <StatCard
           id="stat-rol2-activos"
-          title="Efectivos ROL 2"
+          title="Usuarios de Rol 2"
           value={stats.rol2Activos}
           subtitle="Titulares e imaginarias"
           icon={<Shield className="h-5 w-5 text-emerald-600" />}

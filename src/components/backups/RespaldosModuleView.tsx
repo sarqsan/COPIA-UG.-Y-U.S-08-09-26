@@ -113,7 +113,7 @@ export const RespaldosModuleView: React.FC<RespaldosModuleViewProps> = ({
       const nuevo = await crearBackupManual(
         tipo,
         adminInfo,
-        `Respaldo manual solicitado por ${adminInfo.nombre} desde el Centro de Mando.`
+        `Respaldo manual solicitado por ${adminInfo.nombre} desde el Panel de Administración.`
       );
       setSuccessMsg(
         `✓ Respaldo creado exitosamente: "${nuevo.id}" (${nuevo.tipoServicio === 'US' ? 'U.S.' : 'U.G.'}) con ${nuevo.estadisticas.totalRegistros} registros operativos guardados.`

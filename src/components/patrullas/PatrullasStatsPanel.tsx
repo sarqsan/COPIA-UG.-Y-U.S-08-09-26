@@ -279,7 +279,7 @@ export const PatrullasStatsPanel: React.FC<PatrullasStatsPanelProps> = ({
             }`}
           >
             <Users className="h-3.5 w-3.5" />
-            <span>Desglose por Efectivo</span>
+            <span>Desglose por Persona</span>
           </button>
 
           <button
@@ -318,13 +318,13 @@ export const PatrullasStatsPanel: React.FC<PatrullasStatsPanelProps> = ({
       </div>
 
       {tabActiva === 'desglose' ? (
-        /* Tabla Desglosada por Efectivo */
+        /* Tabla Desglosada por Persona */
         <div className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900 overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-4 dark:border-slate-800">
             <div className="flex items-center gap-2">
               <Shield className="h-4 w-4 text-slate-500" />
               <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">
-                Desglose Individual por Efectivo de U.G.
+                Desglose Individual por Persona de U.G.
               </h4>
             </div>
 
@@ -344,7 +344,7 @@ export const PatrullasStatsPanel: React.FC<PatrullasStatsPanelProps> = ({
             <table className="w-full text-left text-xs">
               <thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-950">
                 <tr>
-                  <th className="px-4 py-3">Efectivo</th>
+                  <th className="px-4 py-3">Persona</th>
                   <th className="px-3 py-3">Rol</th>
                   <th className="px-3 py-3 text-center">Total Patrullas</th>
                   <th className="px-3 py-3 text-center">Realizadas</th>
@@ -358,7 +358,7 @@ export const PatrullasStatsPanel: React.FC<PatrullasStatsPanelProps> = ({
                 {personasFiltradas.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="py-8 text-center text-slate-400">
-                      No se encontraron efectivos con los filtros aplicados.
+                      No se encontraron personas con los filtros aplicados.
                     </td>
                   </tr>
                 ) : (
@@ -430,7 +430,7 @@ export const PatrullasStatsPanel: React.FC<PatrullasStatsPanelProps> = ({
               <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
               <input
                 type="text"
-                placeholder="Buscar por #, fecha o efectivo..."
+                placeholder="Buscar por #, fecha o persona..."
                 value={busqueda}
                 onChange={(e) => setBusqueda(e.target.value)}
                 className="w-full rounded-xl border border-slate-300 bg-white pl-8 pr-3 py-1.5 text-xs text-slate-800 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
@@ -444,7 +444,7 @@ export const PatrullasStatsPanel: React.FC<PatrullasStatsPanelProps> = ({
                 <tr>
                   <th className="px-4 py-3">Número</th>
                   <th className="px-3 py-3">Fecha & Turno</th>
-                  <th className="px-3 py-3">Efectivo Asignado</th>
+                  <th className="px-3 py-3">Persona Asignada</th>
                   <th className="px-3 py-3">Rol</th>
                   <th className="px-3 py-3 text-center">Estado</th>
                   <th className="px-3 py-3">Trazabilidad / Notas</th>
@@ -458,9 +458,9 @@ export const PatrullasStatsPanel: React.FC<PatrullasStatsPanelProps> = ({
                     if (busqueda.trim()) {
                       const b = busqueda.toLowerCase();
                       const matchNum = p.numeroSecuencial.toString().includes(b);
-                      const matchEfectivo = p.personaNombre.toLowerCase().includes(b);
+                      const matchPersona = p.personaNombre.toLowerCase().includes(b);
                       const matchFecha = p.fecha.includes(b);
-                      if (!matchNum && !matchEfectivo && !matchFecha) return false;
+                      if (!matchNum && !matchPersona && !matchFecha) return false;
                     }
                     return true;
                   })
@@ -571,7 +571,7 @@ export const PatrullasStatsPanel: React.FC<PatrullasStatsPanelProps> = ({
                   ¿Seguro que quieres eliminar esta patrulla? Esta acción eliminará definitivamente el registro.
                 </h3>
                 <p className="mt-1 text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-                  Se eliminará el documento de la <strong>Patrulla #{patrullaAEliminar.numeroSecuencial}</strong> (Fecha: {patrullaAEliminar.fecha}, Efectivo: {patrullaAEliminar.personaNombre}, Estado: {patrullaAEliminar.estado}) directamente en Firestore.
+                  Se eliminará el documento de la <strong>Patrulla #{patrullaAEliminar.numeroSecuencial}</strong> (Fecha: {patrullaAEliminar.fecha}, Persona: {patrullaAEliminar.personaNombre}, Estado: {patrullaAEliminar.estado}) directamente en Firestore.
                 </p>
                 <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-400 font-semibold">
                   El contador secuencial no se alterará para preservar la numeración hacia delante sin reutilizar números.

@@ -141,7 +141,7 @@ export const CuentasPage: React.FC<CuentasPageProps> = ({
             onClick={handleSincronizarCuentas}
             disabled={isSyncing}
             className="flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50 transition-all dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 shrink-0 cursor-pointer disabled:opacity-50"
-            title="Asegura que todos los efectivos registrados tengan su cuenta y elimina usuarios ficticios sobrantes"
+            title="Asegura que todo el personal registrado tenga su cuenta y elimina usuarios ficticios sobrantes"
           >
             <RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin text-blue-600' : 'text-slate-500'}`} />
             <span>{isSyncing ? 'Sincronizando...' : 'Sincronizar con Personal'}</span>
@@ -178,9 +178,9 @@ export const CuentasPage: React.FC<CuentasPageProps> = ({
       <div className="flex items-start gap-3 rounded-2xl border border-purple-200 bg-purple-50/50 p-4 text-xs text-purple-950 dark:border-purple-900 dark:bg-purple-950/30 dark:text-purple-200">
         <Shield className="h-5 w-5 shrink-0 text-purple-600 mt-0.5" />
         <div className="space-y-1">
-          <p className="font-bold">Desacoplamiento Efectivo / Cuenta de Acceso</p>
+          <p className="font-bold">Desacoplamiento Personal / Cuenta de Acceso</p>
           <p className="text-[11px] leading-relaxed opacity-90">
-            Un efectivo puede existir en el grupo sin tener cuenta creada. Puedes modificar o eliminar cualquier cuenta en cualquier momento desde esta tabla sin alterar la ficha histórica del efectivo.
+            Una persona puede existir en el grupo sin tener cuenta creada. Puedes modificar o eliminar cualquier cuenta en cualquier momento desde esta tabla sin alterar la ficha histórica de la persona.
           </p>
         </div>
       </div>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { CuadranteMaestro, ServicioDia, Persona, SlotServicioTipo } from '../../types';
 import {
-  MESES_OFICIALES,
+  MESES_CICLO,
   getEstadoPersonaEnServicio,
   descargarCuadranteExcel,
   EstadoVisualCelda,
@@ -78,8 +78,8 @@ export const CuadranteMensualView: React.FC<CuadranteMensualViewProps> = ({
 
   const mesActualInfo = useMemo(() => {
     return (
-      MESES_OFICIALES.find((m) => m.key === selectedMesKey) ||
-      MESES_OFICIALES[0]
+      MESES_CICLO.find((m) => m.key === selectedMesKey) ||
+      MESES_CICLO[0]
     );
   }, [selectedMesKey]);
 
@@ -238,7 +238,7 @@ export const CuadranteMensualView: React.FC<CuadranteMensualViewProps> = ({
       diasTotales: mesActualInfo.dias,
       guardias: guardiasEnMes,
       finesDeSemana: finesDeSemanaEnMes,
-      efectivos: personasFiltradas.length,
+      personal: personasFiltradas.length,
     };
   }, [diasDelMes, mesActualInfo, personasFiltradas]);
 
@@ -256,16 +256,16 @@ export const CuadranteMensualView: React.FC<CuadranteMensualViewProps> = ({
   };
 
   const handleMesAnterior = () => {
-    const currentIndex = MESES_OFICIALES.findIndex((m) => m.key === selectedMesKey);
+    const currentIndex = MESES_CICLO.findIndex((m) => m.key === selectedMesKey);
     if (currentIndex > 0) {
-      setSelectedMesKey(MESES_OFICIALES[currentIndex - 1].key);
+      setSelectedMesKey(MESES_CICLO[currentIndex - 1].key);
     }
   };
 
   const handleMesSiguiente = () => {
-    const currentIndex = MESES_OFICIALES.findIndex((m) => m.key === selectedMesKey);
-    if (currentIndex < MESES_OFICIALES.length - 1) {
-      setSelectedMesKey(MESES_OFICIALES[currentIndex + 1].key);
+    const currentIndex = MESES_CICLO.findIndex((m) => m.key === selectedMesKey);
+    if (currentIndex < MESES_CICLO.length - 1) {
+      setSelectedMesKey(MESES_CICLO[currentIndex + 1].key);
     }
   };
 
@@ -279,7 +279,7 @@ export const CuadranteMensualView: React.FC<CuadranteMensualViewProps> = ({
             <div className="flex items-center gap-1">
               <button
                 onClick={handleMesAnterior}
-                disabled={selectedMesKey === MESES_OFICIALES[0].key}
+                disabled={selectedMesKey === MESES_CICLO[0].key}
                 className="rounded-xl border border-slate-200 p-2 hover:bg-slate-100 disabled:opacity-30 dark:border-slate-700 dark:hover:bg-slate-800 transition"
                 title="Mes anterior"
               >
@@ -291,7 +291,7 @@ export const CuadranteMensualView: React.FC<CuadranteMensualViewProps> = ({
                 onChange={(e) => setSelectedMesKey(e.target.value)}
                 className="rounded-xl border border-slate-300 bg-slate-50 px-3.5 py-2 text-xs font-black text-slate-900 focus:border-blue-600 focus:bg-white focus:outline-hidden dark:border-slate-700 dark:bg-slate-800 dark:text-white"
               >
-                {MESES_OFICIALES.map((m) => (
+                {MESES_CICLO.map((m) => (
                   <option key={m.key} value={m.key}>
                     {m.nombre} ({m.dias} días)
                   </option>
@@ -301,7 +301,7 @@ export const CuadranteMensualView: React.FC<CuadranteMensualViewProps> = ({
               <button
                 onClick={handleMesSiguiente}
                 disabled={
-                  selectedMesKey === MESES_OFICIALES[MESES_OFICIALES.length - 1].key
+                  selectedMesKey === MESES_CICLO[MESES_CICLO.length - 1].key
                 }
                 className="rounded-xl border border-slate-200 p-2 hover:bg-slate-100 disabled:opacity-30 dark:border-slate-700 dark:hover:bg-slate-800 transition"
                 title="Mes siguiente"
@@ -312,7 +312,7 @@ export const CuadranteMensualView: React.FC<CuadranteMensualViewProps> = ({
 
             {/* Píldoras de Meses para Acceso Rápido */}
             <div className="hidden xl:flex items-center gap-1">
-              {MESES_OFICIALES.map((m) => (
+              {MESES_CICLO.map((m) => (
                 <button
                   key={m.key}
                   onClick={() => setSelectedMesKey(m.key)}
@@ -372,7 +372,7 @@ export const CuadranteMensualView: React.FC<CuadranteMensualViewProps> = ({
               </div>
             )}
 
-            {/* Filtro Empleo (solo en modo general) */}
+            {/* Filtro por Rol (solo en modo general) */}
             {modoVista === 'GENERAL' && (
               <div className="flex items-center rounded-xl border border-slate-200 bg-slate-100 p-0.5 dark:border-slate-800 dark:bg-slate-800">
                 <button
@@ -408,7 +408,7 @@ export const CuadranteMensualView: React.FC<CuadranteMensualViewProps> = ({
               </div>
             )}
 
-            {/* BOTÓN IMPRESIÓN A4 OFICIAL */}
+            {/* BOTÓN IMPRESIÓN A4 */}
             <button
               onClick={() => setIsPrintModalOpen(true)}
               className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-bold text-white shadow-xs hover:bg-blue-700 transition active:scale-95"
@@ -418,7 +418,7 @@ export const CuadranteMensualView: React.FC<CuadranteMensualViewProps> = ({
               <span>Imprimir Cuadrante (A4)</span>
             </button>
 
-            {/* BOTÓN EXCEL OFICIAL */}
+            {/* BOTÓN EXCEL DE CUADRANTE */}
             <button
               onClick={handleDescargarExcel}
               disabled={descargandoExcel}
@@ -465,7 +465,7 @@ export const CuadranteMensualView: React.FC<CuadranteMensualViewProps> = ({
                 I
               </span>
               <span className="font-semibold text-slate-800 dark:text-slate-200">
-                Imaginaria Retén
+                Imaginaria Localizable
               </span>
             </div>
 
@@ -753,7 +753,7 @@ export const CuadranteMensualView: React.FC<CuadranteMensualViewProps> = ({
                           IMAGINARIA 24H
                         </span>
                         <p className="text-[10px] text-amber-800 dark:text-amber-300">
-                          Retén localizable
+                          Imaginaria localizable
                         </p>
                       </div>
                     ) : esImaginariaCedida ? (
@@ -904,7 +904,7 @@ export const CuadranteMensualView: React.FC<CuadranteMensualViewProps> = ({
                           : 'bg-slate-50/40 dark:bg-slate-850/40'
                       } hover:bg-blue-50/50 dark:hover:bg-slate-800/60`}
                     >
-                      {/* COLUMNA FIJA: EFECTIVO (APELLIDO + ROL) */}
+                      {/* COLUMNA FIJA: PERSONAL (APELLIDO + ROL) */}
                       <td
                         className={`sticky left-0 z-10 px-3.5 py-2 text-left border-r border-slate-200 dark:border-slate-800 ${
                           esUsuarioActual
@@ -1022,7 +1022,7 @@ export const CuadranteMensualView: React.FC<CuadranteMensualViewProps> = ({
                                 type="button"
                                 onClick={() => esEditableAdmin && onEditSlot!(d.servicio!, slotEdicion!)}
                                 disabled={!esEditableAdmin}
-                                title={`${d.diaSemanaNombre} ${d.diaNumero} ${mesActualInfo.nombre}: IMAGINARIA DE RETÉN (09:00 a 09:00)${
+                                title={`${d.diaSemanaNombre} ${d.diaNumero} ${mesActualInfo.nombre}: IMAGINARIA DE GUARDIA (09:00 a 09:00)${
                                   esEditableAdmin ? ' • [Clic para editar asignación - Administrador]' : ''
                                 }`}
                                 className={`inline-flex h-6 w-6 items-center justify-center rounded-sm bg-amber-400 font-mono text-[11px] font-black text-amber-950 shadow-xs border border-amber-500 transition-transform ${
@@ -1112,12 +1112,12 @@ export const CuadranteMensualView: React.FC<CuadranteMensualViewProps> = ({
         </div>
       )}
 
-      {/* 4. Panel Explicativo: Leyenda y Criterios Oficiales de Reparto */}
+      {/* 4. Panel Explicativo: Leyenda y Criterios de Reparto */}
       <div className="rounded-2xl border border-slate-200 bg-white p-4.5 shadow-xs dark:border-slate-800 dark:bg-slate-900 space-y-3">
         <div className="flex items-center gap-2">
           <Info className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
           <h4 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200">
-            Leyenda y Lógica Oficial de Generación del Cuadrante (U.G. 24H)
+            Leyenda y Lógica de Generación del Cuadrante (U.G. 24H)
           </h4>
         </div>
 
@@ -1130,7 +1130,7 @@ export const CuadranteMensualView: React.FC<CuadranteMensualViewProps> = ({
               <span>Rotación Escalonada Ordinaria</span>
             </div>
             <p className="text-[11px] leading-relaxed text-blue-900/80 dark:text-blue-300/80">
-              Los servicios titulares (<strong>S</strong>) y las imaginarias (<strong>I</strong>) avanzan de forma continua y escalonada en diagonal según la plantilla oficial, garantizando turnos regulares y descansos completos.
+              Los servicios titulares (<strong>S</strong>) y las imaginarias (<strong>I</strong>) avanzan de forma continua y escalonada en diagonal según la plantilla activa, garantizando turnos regulares y descansos completos.
             </p>
           </div>
 
@@ -1142,7 +1142,7 @@ export const CuadranteMensualView: React.FC<CuadranteMensualViewProps> = ({
               <span>Días de Especial Consideración (★)</span>
             </div>
             <p className="text-[11px] leading-relaxed text-purple-900/80 dark:text-purple-300/80">
-              La lógica escalonada se rompe <strong>exclusivamente en las fechas festivas y navideñas</strong> (24/25/31 Dic, 1/5/6 Ene, festivos) para repartir equitativamente los puntos acumulados (~4 puntos por efectivo).
+              La lógica escalonada se rompe <strong>exclusivamente en las fechas festivas y navideñas</strong> (24/25/31 Dic, 1/5/6 Ene, festivos) para repartir equitativamente los puntos acumulados (~4 puntos por usuario).
             </p>
           </div>
 
@@ -1165,7 +1165,7 @@ export const CuadranteMensualView: React.FC<CuadranteMensualViewProps> = ({
         <div className="flex items-center gap-2">
           <Shield className="h-4 w-4 text-emerald-600 shrink-0" />
           <span>
-            <strong>Privacidad operativa garantizada:</strong> Esta vista no expone DNI, teléfonos, partes médicos ni notas personales.
+            <strong>Privacidad operativa garantizada:</strong> Esta vista no expone identificadores personales, teléfonos, partes médicos ni notas personales.
           </span>
         </div>
 
@@ -1174,7 +1174,7 @@ export const CuadranteMensualView: React.FC<CuadranteMensualViewProps> = ({
         </div>
       </div>
 
-      {/* Modal de Impresión Oficial A4 */}
+      {/* Modal de Impresión A4 */}
       <CuadranteImpresionA4Modal
         isOpen={isPrintModalOpen}
         onClose={() => setIsPrintModalOpen(false)}

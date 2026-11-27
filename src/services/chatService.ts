@@ -26,7 +26,7 @@ import { sanitizeForFirestore } from '../utils/firestoreSanitizer';
 
 const CHAT_COLLECTION = 'mensajes_chat';
 const CHAT_STORAGE_KEY = 'chat_mensajes_cache_v2';
-export const ADMIN_OFICIAL_ID = 'ADMIN_OFICIAL';
+export const ADMIN_CANAL_ID = 'ADMIN_SISTEMA';
 
 // Generar ID de conversación privada consistente (orden alfabético de IDs)
 export const getConversacionPrivadaId = (p1Id: string, p2Id: string): string => {
@@ -39,7 +39,7 @@ const INITIAL_MESSAGES: MensajeChat[] = [
     tipo: 'GRUPO',
     tipoServicio: 'GUARDIA',
     autorUid: 'admin-1-uid',
-    autorNombre: 'Oficina de Cuadrantes (Mando)',
+    autorNombre: 'Oficina de Cuadrantes (Administración)',
     autorRol: 'ADMIN',
     contenido: 'Canal general operativo abierto. Utilizar para coordinación de relevos, incidencias de material y novedades del servicio de 24h.',
     fechaHora: new Date(Date.now() - 3600000 * 24).toISOString(),
@@ -50,10 +50,10 @@ const INITIAL_MESSAGES: MensajeChat[] = [
     tipo: 'ADMINISTRATIVO',
     tipoServicio: 'GUARDIA',
     autorUid: 'admin-1-uid',
-    autorNombre: 'Mando / Administración',
+    autorNombre: 'Administración',
     autorRol: 'ADMIN',
     destinoAdmin: 'TODOS',
-    contenido: 'RECORDATORIO OFICIAL: El horario de las guardias de 24 horas es estrictamente de 09:00 a 09:00. El personal de imaginaria debe permanecer localizable y disponible durante todo el turno.',
+    contenido: 'RECORDATORIO: El horario de las guardias de 24 horas es estrictamente de 09:00 a 09:00. El personal de imaginaria debe permanecer localizable y disponible durante todo el turno.',
     fechaHora: new Date(Date.now() - 3600000 * 12).toISOString(),
     leidoPor: ['admin-1-uid'],
   },
@@ -64,7 +64,7 @@ const INITIAL_MESSAGES: MensajeChat[] = [
     autorUid: 'admin-1-uid',
     autorNombre: 'Oficina de Seguridad U.S.',
     autorRol: 'ADMIN',
-    contenido: 'Canal operativo de la Grupo de Seguridad (U.S.). Relevos de 12 horas en turnos diurno (09:00-21:00) y nocturno (21:00-09:00).',
+    contenido: 'Canal operativo de la Unidad de Gestión de Seguridad (U.S.). Relevos de 12 horas en turnos diurno (09:00-21:00) y nocturno (21:00-09:00).',
     fechaHora: new Date(Date.now() - 3600000 * 10).toISOString(),
     leidoPor: ['admin-1-uid'],
   },
@@ -173,7 +173,7 @@ export const enviarMensajePrivado = async (params: {
     tipoServicio = 'GUARDIA',
   } = params;
 
-  const remitenteId = autorPersonaId || ADMIN_OFICIAL_ID;
+  const remitenteId = autorPersonaId || ADMIN_CANAL_ID;
   const conversacionId = getConversacionPrivadaId(remitenteId, destinatarioPersonaId);
   const msgId = `chat-priv-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
 
@@ -212,7 +212,7 @@ export const enviarMensajePrivado = async (params: {
   }
 
   // Notificar al destinatario si es una persona física
-  if (destinatarioPersonaId !== ADMIN_OFICIAL_ID) {
+  if (destinatarioPersonaId !== ADMIN_CANAL_ID) {
     await crearNotificacion({
       tipo: 'AVISO_IMPORTANTE',
       tipoServicio,
@@ -240,7 +240,7 @@ export const enviarMensajePrivado = async (params: {
 };
 
 /**
- * Envía un comunicado administrativo / directiva de mando
+ * Envía un comunicado administrativo del sistema
  */
 export const enviarMensajeAdministrativo = async (params: {
   adminUid: string;
@@ -298,19 +298,19 @@ export const enviarMensajeAdministrativo = async (params: {
     console.warn('Persistencia de aviso admin en Firestore diferida:', err.message || err);
   }
 
-  // Registrar auditoría de directiva de mando
+  // Registrar auditoría de comunicado administrativo
   await registrarAuditLog({
     adminUid,
     adminNombre,
     accion: 'ENVIAR_MENSAJE_ADMIN',
-    detalles: `Directiva oficial emitida a ${destino}${grupoDestino ? ` (${grupoDestino})` : ''}${destinatarioPersona ? ` (${destinatarioPersona.nombre})` : ''}: "${contenido.substring(0, 100)}..."`,
+    detalles: `Comunicado administrativo emitido a ${destino}${grupoDestino ? ` (${grupoDestino})` : ''}${destinatarioPersona ? ` (${destinatarioPersona.nombre})` : ''}: "${contenido.substring(0, 100)}..."`,
   });
 
   // Notificar a los destinatarios
   await crearNotificacion({
     tipo: 'MENSAJE_ADMINISTRATIVO',
     tipoServicio,
-    titulo: `Directiva de Mando (${destino})`,
+    titulo: `Comunicado de Administración (${destino})`,
     mensaje: contenido.length > 90 ? `${contenido.substring(0, 90)}...` : contenido,
     esParaTodos: destino === 'TODOS',
     destinatarioPersonaId: destinatarioPersona?.id,
@@ -521,7 +521,7 @@ export const getMensajesNoLeidosCount = async (params: {
 };
 
 /**
- * Propaga la actualización del nombre de un efectivo en los mensajes del chat
+ * Propaga la actualización del nombre de un usuario en los mensajes del chat
  */
 export const actualizarNombreAutorEnChat = (personaId: string, nuevoNombre: string): void => {
   memoryChatCache.forEach((msg) => {

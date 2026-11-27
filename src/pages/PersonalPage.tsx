@@ -17,7 +17,6 @@ interface PersonalPageProps {
     nombre: string;
     empleo: Empleo;
     grupo: Grupo;
-    dni: string;
     telefono: string;
     activo: boolean;
     notas?: string;
@@ -75,7 +74,7 @@ export const PersonalPage: React.FC<PersonalPageProps> = ({
       await onDeletePersona(deletingPersona);
       setDeletingPersona(null);
     } catch (err: any) {
-      alert(err.message || 'Error al eliminar al efectivo');
+      alert(err.message || 'Error al eliminar la persona');
     } finally {
       setIsDeleting(false);
     }
@@ -146,7 +145,7 @@ export const PersonalPage: React.FC<PersonalPageProps> = ({
             Gestión de Personal
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Mostrando {personasFiltradas.length} de {personas.length} efectivos ({activeCount} activos: {rol1Count} ROL 1, {rol2Count} ROL 2)
+            Mostrando {personasFiltradas.length} de {personas.length} personas ({activeCount} activas: {rol1Count} ROL 1, {rol2Count} ROL 2)
           </p>
         </div>
 
@@ -157,7 +156,7 @@ export const PersonalPage: React.FC<PersonalPageProps> = ({
           className="flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-bold text-white shadow-md hover:bg-slate-800 transition-all dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white shrink-0"
         >
           <Plus className="h-4 w-4" />
-          <span>Nuevo Efectivo</span>
+          <span>Nueva Persona</span>
         </button>
       </div>
 
@@ -204,7 +203,7 @@ export const PersonalPage: React.FC<PersonalPageProps> = ({
           id="modal-confirmar-eliminar-persona"
           isOpen={!!deletingPersona}
           onClose={() => setDeletingPersona(null)}
-          title={`Eliminar Efectivo: ${deletingPersona.nombre}`}
+          title={`Eliminar Persona: ${deletingPersona.nombre}`}
           subtitle="Acción destructiva permanente."
         >
           <div className="space-y-4">
@@ -216,7 +215,7 @@ export const PersonalPage: React.FC<PersonalPageProps> = ({
                     ¿Estás seguro de que deseas eliminar permanentemente a {deletingPersona.nombre}?
                   </p>
                   <p>
-                    Esta acción dará de baja su ficha de efectivo, eliminará de forma automática su cuenta de usuario vinculada y desvinculará sus registros del sistema.
+                    Esta acción dará de baja su ficha de personal, eliminará de forma automática su cuenta de usuario vinculada y desvinculará sus registros del sistema.
                   </p>
                 </div>
               </div>

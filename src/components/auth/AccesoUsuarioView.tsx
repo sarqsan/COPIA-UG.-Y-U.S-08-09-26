@@ -18,14 +18,14 @@ import {
   Calendar,
 } from 'lucide-react';
 
-interface AccesoEfectivoViewProps {
+interface AccesoUsuarioViewProps {
   personas: Persona[];
   cuentas: Cuenta[];
   onLoginSuccess: (persona: Persona, cuenta: Cuenta) => void;
   onGoToAdminLogin: () => void;
 }
 
-export const AccesoEfectivoView: React.FC<AccesoEfectivoViewProps> = ({
+export const AccesoUsuarioView: React.FC<AccesoUsuarioViewProps> = ({
   personas,
   cuentas,
   onLoginSuccess,
@@ -179,7 +179,7 @@ export const AccesoEfectivoView: React.FC<AccesoEfectivoViewProps> = ({
             UG
           </div>
           <h1 className="text-2xl font-black tracking-tight text-white">
-            Portal de Efectivos (U.G.)
+            Portal de Personal (U.G.)
           </h1>
           <p className="text-xs text-slate-400">
             Acceso a Cuadrantes, Servicios de Guardia (24h) e Imaginarias
@@ -204,7 +204,7 @@ export const AccesoEfectivoView: React.FC<AccesoEfectivoViewProps> = ({
               {personaAutenticada && (
                 <div className="p-3 bg-slate-900/60 rounded-xl border border-slate-700/60 flex items-center justify-between">
                   <div>
-                    <span className="text-[10px] uppercase font-bold text-slate-400">Efectivo:</span>
+                    <span className="text-[10px] uppercase font-bold text-slate-400">Usuario:</span>
                     <p className="text-sm font-bold text-white">{personaAutenticada.nombre}</p>
                   </div>
                   <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-blue-500/20 text-blue-300">
@@ -297,7 +297,7 @@ export const AccesoEfectivoView: React.FC<AccesoEfectivoViewProps> = ({
               </button>
             </form>
           ) : (
-            /* PASO 1: LOGIN DE EFECTIVO */
+            /* PASO 1: LOGIN DE USUARIO */
             <form onSubmit={handleLogin} className="space-y-4">
               {personaUrl && (
                 <div className="p-3 bg-blue-500/15 border border-blue-500/30 rounded-2xl flex items-center justify-between">
@@ -392,7 +392,7 @@ export const AccesoEfectivoView: React.FC<AccesoEfectivoViewProps> = ({
 
           {/* Switch to Admin Mode */}
           <div className="pt-2 border-t border-slate-700/60 flex items-center justify-between text-xs text-slate-400">
-            <span>¿Eres administrador de la grupo?</span>
+            <span>¿Eres administrador del sistema?</span>
             <button
               type="button"
               onClick={onGoToAdminLogin}

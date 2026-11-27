@@ -79,7 +79,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'personal',
-      label: 'Personal & Efectivos',
+      label: 'Personal y Usuarios',
       icon: Users,
       badge: personasCount !== undefined ? `${personasCount}` : undefined,
       desc: 'Gestión y fichas individuales',
@@ -130,7 +130,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="space-y-6">
         <div>
           <div className="px-3 pb-2.5 text-[11px] font-bold tracking-wider text-slate-400 uppercase">
-            Centro de Mando
+            Panel de Administración
           </div>
           <nav className="space-y-1">
             {mainNavItems.map((item) => {

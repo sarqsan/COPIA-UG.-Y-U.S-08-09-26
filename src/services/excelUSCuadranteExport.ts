@@ -30,7 +30,7 @@ export interface EstadoVisualUS {
 }
 
 /**
- * Obtiene el código de estado de un efectivo en un día de servicio de la U.S.
+ * Obtiene el código de estado de un usuario en un día de servicio de la U.S.
  * Con los colores, fuentes y horas exactas mostradas en la app.
  */
 export const getEstadoEnDiaUS = (
@@ -155,7 +155,7 @@ export const getEstadoEnDiaUS = (
     };
   }
 
-  // 4. Imaginaria Activa (24h de guardia no presencial / retén)
+  // 4. Imaginaria Activa (24h de guardia no presencial)
   if (
     servicio.imaginaria &&
     (servicio.imaginaria.personaIdReal === personaId ||
@@ -168,7 +168,7 @@ export const getEstadoEnDiaUS = (
       bgColor: 'FFD97706', // Ámbar 500
       textColor: 'FFFFFFFF',
       isBold: true,
-      tooltip: 'Imaginaria Retén Activa (24h)',
+      tooltip: 'Imaginaria Activa (24h)',
     };
   }
 
@@ -188,7 +188,7 @@ export const getEstadoEnDiaUS = (
     };
   }
 
-  // 5. Presente (7.5h ÚNICAMENTE en días laborables oficiales)
+  // 5. Presente (7.0h ÚNICAMENTE en días laborables)
   const esPresente = servicio.presentes?.some(
     (pr) => pr.personaIdReal === personaId || (pr as any).personaId === personaId || (pNombreNorm && (pr as any).nombre?.trim().toUpperCase() === pNombreNorm)
   );
@@ -279,8 +279,8 @@ export const agruparServiciosUSPorMes = (servicios: ServicioDiaUS[]): Record<str
 };
 
 /**
- * Genera el Workbook oficial de ExcelJS para la U.S.
- * Diseñado con total fidelidad visual a la app: colores, recuadros, cabeceras, totales y leyenda oficial.
+ * Genera el Workbook de ExcelJS para la U.S.
+ * Diseñado con total fidelidad visual a la app: colores, recuadros, cabeceras, totales y leyenda.
  */
 export const generarWorkbookCuadranteUS = (
   cuadrante: CuadranteMaestro,
@@ -292,7 +292,7 @@ export const generarWorkbookCuadranteUS = (
   workbook.creator = 'Unidad de Seguridad (U.S.) - AI Studio';
   workbook.created = new Date();
 
-  // Ordenar efectivos por orden de rotación y luego por nombre
+  // Ordenar personal por orden de rotación y luego por nombre
   const personalOrdenado = [...personasUS].sort(
     (a, b) => (a.ordenRotacion ?? 999) - (b.ordenRotacion ?? 999) || a.nombre.localeCompare(b.nombre)
   );
@@ -332,8 +332,8 @@ export const generarWorkbookCuadranteUS = (
 
     // Ancho de columnas fijas
     ws.getColumn(1).width = 5;  // Nº
-    ws.getColumn(2).width = 28; // Efectivo
-    ws.getColumn(3).width = 14; // Empleo
+    ws.getColumn(2).width = 28; // Personal
+    ws.getColumn(3).width = 14; // Rol
 
     // Ancho de días
     for (let d = 0; d < numDias; d++) {
@@ -388,11 +388,11 @@ export const generarWorkbookCuadranteUS = (
     ws.getRow(4).height = 18;
     ws.getRow(5).height = 18;
 
-    // Columnas fijas combinadas (sin columna DNI)
+    // Columnas fijas combinadas
     const headersFijos = [
       { col: 1, label: 'Nº' },
-      { col: 2, label: 'EFECTIVO / APELLIDOS Y NOMBRE' },
-      { col: 3, label: 'EMPLEO' },
+      { col: 2, label: 'PERSONAL / APELLIDOS Y NOMBRE' },
+      { col: 3, label: 'ROL' },
     ];
 
     headersFijos.forEach((h) => {
@@ -449,7 +449,7 @@ export const generarWorkbookCuadranteUS = (
       if (esFestivo) {
         const festInfo = getFestivoInfoUS(s.fecha);
         if (festInfo.nombre) {
-          c5.note = `Festivo Oficial: ${festInfo.nombre}`;
+          c5.note = `Festivo: ${festInfo.nombre}`;
         }
       }
     });
@@ -483,7 +483,7 @@ export const generarWorkbookCuadranteUS = (
     });
 
     // =========================================================================
-    // FILAS DE DATOS DE CADA EFECTIVO
+    // FILAS DE DATOS DE CADA PERSONA
     // =========================================================================
     let filaActual = 6;
 
@@ -505,14 +505,14 @@ export const generarWorkbookCuadranteUS = (
       cNom.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
       cNom.border = BORDER_THIN_GRAY;
 
-      // 3. Empleo
+      // 3. Rol
       const cEmp = ws.getCell(filaActual, 3);
       cEmp.value = p.empleo;
       cEmp.font = { name: 'Calibri', size: 9, color: { argb: 'FF334155' } };
       cEmp.alignment = { vertical: 'middle', horizontal: 'center' };
       cEmp.border = BORDER_THIN_GRAY;
 
-      // Celdas diarias de servicio para este efectivo
+      // Celdas diarias de servicio para esta persona
       serviciosMes.forEach((s, dIdx) => {
         const colIdx = 4 + dIdx;
         const est = getEstadoEnDiaUS(s, p.id, p.nombre);
@@ -602,8 +602,8 @@ export const generarWorkbookCuadranteUS = (
     const filasDotacion = [
       { label: 'DOTACIÓN DIURNO (Obj: 2)', key: 'diurno', target: 2, bg: 'FFEFF6FF', fg: 'FF1E40AF' },
       { label: 'DOTACIÓN NOCTURNO (Obj: 2)', key: 'nocturno', target: 2, bg: 'FFEEF2FF', fg: 'FF312E81' },
-      { label: 'IMAGINARIA RETÉN (Obj: 1)', key: 'imaginaria', target: 1, bg: 'FFFEF3C7', fg: 'FF92400E' },
-      { label: 'EFECTIVOS PRESENTES', key: 'presentes', target: null, bg: 'FFECFDF5', fg: 'FF065F46' },
+      { label: 'IMAGINARIA (Obj: 1)', key: 'imaginaria', target: 1, bg: 'FFFEF3C7', fg: 'FF92400E' },
+      { label: 'PERSONAL PRESENTE', key: 'presentes', target: null, bg: 'FFECFDF5', fg: 'FF065F46' },
     ];
 
     filasDotacion.forEach((fd) => {
@@ -651,12 +651,12 @@ export const generarWorkbookCuadranteUS = (
     });
 
     // =========================================================================
-    // LEYENDA OFICIAL DE TURNOS Y CÓDIGOS U.S. (Abajo)
+    // LEYENDA DE TURNOS Y CÓDIGOS U.S. (Abajo)
     // =========================================================================
     filaActual += 2;
     ws.mergeCells(filaActual, 2, filaActual, 14);
     const cLeyendaH = ws.getCell(filaActual, 2);
-    cLeyendaH.value = 'LEYENDA OFICIAL DE TURNOS Y CÓDIGOS — UNIDAD DE SEGURIDAD (U.S.)';
+    cLeyendaH.value = 'LEYENDA DE TURNOS Y CÓDIGOS — UNIDAD DE SEGURIDAD (U.S.)';
     cLeyendaH.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
     cLeyendaH.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F172A' } };
     cLeyendaH.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
@@ -667,12 +667,12 @@ export const generarWorkbookCuadranteUS = (
     const itemsLeyenda = [
       { codigo: 'D', nombre: 'Diurno', desc: '12 horas presenciales (07:00 a 19:00)', bg: 'FF2563EB', fg: 'FFFFFFFF' },
       { codigo: 'N', nombre: 'Nocturno', desc: '12h o 12.75h si prolonga (19:00 a 07:00 / 07:45)', bg: 'FF1E1B4B', fg: 'FFE0E7FF' },
-      { codigo: 'I', nombre: 'Imaginaria Retén', desc: '24 horas de disponibilidad no presencial', bg: 'FFD97706', fg: 'FFFFFFFF' },
-      { codigo: 'PR', nombre: 'Presente', desc: '7.0 horas ordinarias (Únicamente en días laborables oficiales)', bg: 'FF059669', fg: 'FFFFFFFF' },
+      { codigo: 'I', nombre: 'Imaginaria', desc: '24 horas de disponibilidad no presencial', bg: 'FFD97706', fg: 'FFFFFFFF' },
+      { codigo: 'PR', nombre: 'Presente', desc: '7.0 horas ordinarias (Únicamente en días laborables)', bg: 'FF059669', fg: 'FFFFFFFF' },
       { codigo: 'V', nombre: 'Vacaciones', desc: '7.0h computables en días laborables (0h sábados, domingos y festivos)', bg: 'FF06B6D4', fg: 'FFFFFFFF' },
       { codigo: 'PER', nombre: 'Permiso', desc: '7.0h computables en días laborables (0h sábados, domingos y festivos)', bg: 'FFF43F5E', fg: 'FFFFFFFF' },
       { codigo: 'AP', nombre: 'Asuntos Propios', desc: '7.0h computables en días laborables (0h sábados, domingos y festivos)', bg: 'FF0D9488', fg: 'FFFFFFFF' },
-      { codigo: 'B', nombre: 'Baja Médica', desc: '0h computables (cubierto por retén / reserva)', bg: 'FFDC2626', fg: 'FFFFFFFF' },
+      { codigo: 'B', nombre: 'Baja Médica', desc: '0h computables (cubierto por imaginaria / reserva)', bg: 'FFDC2626', fg: 'FFFFFFFF' },
       { codigo: 'L', nombre: 'Libre / Descanso', desc: '0h computables (descanso reglamentario)', bg: 'FFFFFFFF', fg: 'FF64748B' },
     ];
 
@@ -710,7 +710,7 @@ export const generarWorkbookCuadranteUS = (
 };
 
 /**
- * Descarga oficial del Excel de la U.S. en el navegador con formato visual enriquecido.
+ * Descarga del Excel de la U.S. en el navegador con formato visual enriquecido.
  */
 export const descargarCuadranteUSExcel = async (
   cuadrante: CuadranteMaestro,
@@ -729,7 +729,7 @@ export const descargarCuadranteUSExcel = async (
   a.href = url;
 
   const safeNombre = (cuadrante.nombre || 'Cuadrante').replace(/\s+/g, '_');
-  const sufijoMes = mesFiltro && mesFiltro !== 'TODOS' ? `_${mesFiltro}` : '_Oficial';
+  const sufijoMes = mesFiltro && mesFiltro !== 'TODOS' ? `_${mesFiltro}` : '_Completo';
   a.download = `${safeNombre}_US${sufijoMes}.xlsx`;
 
   document.body.appendChild(a);

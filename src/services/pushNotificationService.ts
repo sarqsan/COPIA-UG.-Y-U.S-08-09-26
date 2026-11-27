@@ -280,8 +280,8 @@ export const formatearPayloadPushSeguro = (notif: Notificacion): PushNotificatio
       break;
 
     case 'SOLICITUD_APROBADA_ADMIN':
-      titulo = 'Cambio Autorizado Oficialmente';
-      mensaje = 'La permuta de servicio solicitada ha sido ratificada por el mando.';
+      titulo = 'Cambio Autorizado';
+      mensaje = 'La permuta de servicio solicitada ha sido autorizada por administración.';
       linkTab = 'solicitudes';
       break;
 
@@ -299,12 +299,12 @@ export const formatearPayloadPushSeguro = (notif: Notificacion): PushNotificatio
 
     case 'COBERTURA_ACEPTADA':
       titulo = 'Cobertura Aceptada';
-      mensaje = 'Un efectivo de imaginaria ha aceptado cubrir el servicio comunicado.';
+      mensaje = 'Un usuario de imaginaria ha aceptado cubrir el servicio comunicado.';
       linkTab = 'solicitudes';
       break;
 
     case 'COBERTURA_APROBADA':
-      titulo = 'Cobertura Oficializada';
+      titulo = 'Cobertura Confirmada';
       mensaje = 'La sustitución por imaginaria ha sido confirmada en el cuadrante.';
       linkTab = 'cuadrantes';
       break;

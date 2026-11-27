@@ -199,7 +199,7 @@ export const ComunicarAusenciaModal: React.FC<ComunicarAusenciaModalProps> = ({
                 const imagTarget = currentPersona.empleo === 'ROL 1' ? imagRol1 : imagRol2;
                 const imagTargetNombre = imagTarget
                   ? getApellidoUG(imagTarget)
-                  : `Efectivo de Imaginaria (${getRolUG(currentPersona.empleo)})`;
+                  : `Imaginaria (${getRolUG(currentPersona.empleo)})`;
 
                 return (
                   <div className="bg-white p-3 rounded-xl border border-amber-300 space-y-2">
@@ -276,7 +276,7 @@ export const ComunicarAusenciaModal: React.FC<ComunicarAusenciaModalProps> = ({
               <span>Aviso reglamentario sobre partes médicos:</span>
             </div>
             <p className="text-[11px] leading-relaxed text-blue-800">
-              La aplicación <strong>no almacena ni procesa partes médicos</strong> por motivos de confidencialidad de datos. Recuerda remitir el parte médico oficial a través del <strong>WhatsApp oficial de la Grupo o canal habitual con el Mando</strong>.
+              La aplicación <strong>no almacena ni procesa partes médicos</strong> por motivos de confidencialidad de datos. Recuerda remitir el parte médico a través del <strong>WhatsApp del grupo o canal habitual con Administración</strong>.
             </p>
           </div>
 
@@ -296,7 +296,7 @@ export const ComunicarAusenciaModal: React.FC<ComunicarAusenciaModalProps> = ({
 
           <div className="flex items-center gap-1.5 text-[11px] text-slate-500 font-medium">
             <Clock className="w-3.5 h-3.5 text-slate-400" />
-            <span>Se registrará la hora exacta de la comunicación para la auditoría oficial del sistema.</span>
+            <span>Se registrará la hora exacta de la comunicación para la auditoría del sistema.</span>
           </div>
 
           {/* Acciones */}

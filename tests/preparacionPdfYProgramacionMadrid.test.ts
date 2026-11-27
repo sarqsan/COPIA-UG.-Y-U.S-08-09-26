@@ -39,7 +39,7 @@ import { Patrulla } from '../src/types/patrullaTypes';
 const crearMetricasMock = (): MetricasCuadrante => ({
   scoreEquilibrio: 100,
   rol1: {
-    totalEfectivos: 2,
+    totalPersonal: 2,
     serviciosMin: 0,
     serviciosMax: 0,
     diferenciaServicios: 0,
@@ -52,7 +52,7 @@ const crearMetricasMock = (): MetricasCuadrante => ({
     promedioImaginarias: 0,
   },
   rol2: {
-    totalEfectivos: 2,
+    totalPersonal: 2,
     serviciosMin: 0,
     serviciosMax: 0,
     diferenciaServicios: 0,
@@ -152,7 +152,7 @@ async function runTests() {
 
   console.log('✓ Evaluación programada verificada.');
 
-  console.log('=== 3. Pruebas reales de generación Excel oficial (.xlsx) UG y US + equivalencia manual ===');
+  console.log('=== 3. Pruebas reales de generación Excel (.xlsx) UG y US + equivalencia manual ===');
 
   const personasUG: Persona[] = [
     {
@@ -160,7 +160,6 @@ async function runTests() {
       nombre: 'PEREZ R1',
       empleo: 'ROL 1',
       grupo: 'U.G.',
-      dni: '11111111A',
       telefono: '600000001',
       tipoServicio: 'GUARDIA',
       activo: true,
@@ -173,7 +172,6 @@ async function runTests() {
       nombre: 'GARCIA R1',
       empleo: 'ROL 1',
       grupo: 'U.G.',
-      dni: '11111112A',
       telefono: '600000011',
       tipoServicio: 'GUARDIA',
       activo: true,
@@ -186,7 +184,6 @@ async function runTests() {
       nombre: 'LOPEZ R2',
       empleo: 'ROL 2',
       grupo: 'U.G.',
-      dni: '22222222B',
       telefono: '600000002',
       tipoServicio: 'GUARDIA',
       activo: true,
@@ -199,7 +196,6 @@ async function runTests() {
       nombre: 'MARTINEZ R2',
       empleo: 'ROL 2',
       grupo: 'U.G.',
-      dni: '22222223B',
       telefono: '600000012',
       tipoServicio: 'GUARDIA',
       activo: true,
@@ -215,7 +211,6 @@ async function runTests() {
       nombre: 'ARACIL US',
       empleo: 'ROL 1',
       grupo: 'US_SEGURIDAD',
-      dni: '33333333C',
       telefono: '600000003',
       tipoServicio: 'US',
       activo: true,
@@ -228,7 +223,6 @@ async function runTests() {
       nombre: 'CARREÑO US',
       empleo: 'ROL 2',
       grupo: 'US_SEGURIDAD',
-      dni: '44444444D',
       telefono: '600000004',
       tipoServicio: 'US',
       activo: true,
@@ -484,7 +478,7 @@ async function runTests() {
   setMemoryServiciosTest(cuadUSNov.id, serviciosUSNov as unknown as ServicioDia[]);
   setMemoryServiciosTest(cuadUSDicEne.id, serviciosUSDicEne as unknown as ServicioDia[]);
 
-  // Generar los dos Excel desde el flujo oficial del aviso programado
+  // Generar los dos Excel desde el flujo del aviso programado
   const excels = await generarDosExcelsActualizados();
 
   assert.ok(excels.fileNameUG.endsWith('.xlsx'));
@@ -523,7 +517,7 @@ async function runTests() {
       );
     }
   }
-  // Confirmar que ningún efectivo quedó en blanco y que aparece la patrulla 'P' de GARCIA R1 el 2026-12-04
+  // Confirmar que ninguna persona quedó en blanco y que aparece la patrulla 'P' de GARCIA R1 el 2026-12-04
   assert.equal(wsDicUG.getCell(6, 3).value, 'PEREZ R1');
   assert.equal(wsDicUG.getCell(7, 3).value, 'GARCIA R1');
   assert.equal(wsDicUG.getCell(7, 3 + 4).value, 'P');
@@ -594,7 +588,7 @@ async function runTests() {
   const eml = construirBorradorEmlConExcels({
     destinatario: cfg.destinatario,
     asunto,
-    cuerpo: 'Adjunto los dos cuadrantes oficiales en Excel.',
+    cuerpo: 'Adjunto los dos cuadrantes en Excel.',
     excels,
   });
 
@@ -790,7 +784,7 @@ async function runTests() {
     construirBorradorEmlConExcels({
       destinatario: cfg.destinatario,
       asunto,
-      cuerpo: 'Envío oficial con ñ y tildes.',
+      cuerpo: 'Envío de cuadrantes con ñ y tildes.',
       excels,
       incluirXUnsent: false,
     })

@@ -14,7 +14,7 @@ export interface SolicitudAusenciaUS {
   fechasAfectadas: string[]; // Lista de días YYYY-MM-DD
   diasConsumibles?: number; // Días computables que descuentan saldo (excluyendo festivos y fines de semana según aplique)
   diasTotales?: number; // Total de días naturales del rango solicitado
-  diasNoConsumibles?: number; // Total de días no computables (fines de semana, festivos oficiales)
+  diasNoConsumibles?: number; // Total de días no computables (fines de semana, festivos del calendario)
   festivosExcluidos?: Array<{ fecha: string; nombre: string }>; // Días festivos incluidos en el rango que no descuentan saldo
   finesSemanaExcluidos?: string[]; // Fechas de fines de semana excluidas
   motivo?: string;
@@ -23,7 +23,7 @@ export interface SolicitudAusenciaUS {
   fechaResolucion?: string; // ISO
   adminResolucionNombre?: string;
   motivoRechazo?: string;
-  documentoOficialEntregado?: boolean;
+  documentoJustificativoEntregado?: boolean;
 }
 
 export interface AusenciaDiaUS {
@@ -51,11 +51,11 @@ export interface ServicioDiaUS {
   diaSemana: number; // 0=Domingo, 1=Lunes, ..., 6=Sábado
   esFinDeSemana: boolean;
   esLaborable: boolean; // Lunes a Viernes no festivo
-  esFestivo?: boolean; // Festivo oficial nacional o autonómico
-  nombreFestivo?: string; // Nombre del festivo oficial si aplica
+  esFestivo?: boolean; // Festivo nacional o autonómico
+  nombreFestivo?: string; // Nombre del festivo si aplica
   esNocturnoProlongado: boolean; // true si el día siguiente es laborable (19:00 a 07:45 = 12.75h)
   
-  // Turnos de 12 horas (2 efectivos cada uno)
+  // Turnos de 12 horas (2 personas cada uno)
   diurno: {
     horaInicio: '07:00';
     horaFin: '19:00';
@@ -70,7 +70,7 @@ export interface ServicioDiaUS {
     titulares: [SlotAsignacionUS, SlotAsignacionUS];
   };
 
-  // Imaginaria (1 efectivo, 24 horas: 00:00 a 24:00)
+  // Imaginaria (1 persona, 24 horas: 00:00 a 24:00)
   imaginaria: SlotAsignacionUS;
 
   // Presentes (Jornada de 7h en días laborables)

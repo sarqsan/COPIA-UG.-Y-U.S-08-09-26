@@ -15,7 +15,7 @@ const MESES_NOMBRES = [
 ];
 
 /**
- * Obtiene los componentes de fecha y hora en zona horaria oficial peninsular (Europe/Madrid).
+ * Obtiene los componentes de fecha y hora en zona horaria peninsular (Europe/Madrid).
  */
 export const getFechaHoraMadrid = (fechaRef: Date = new Date()) => {
   const formatter = new Intl.DateTimeFormat('es-ES', {
@@ -103,7 +103,7 @@ export const obtenerEstadoPlanificadorDia10 = async (
   if (yaGenerado) {
     motivoEstado = `El cuadrante de la U.S. para el mes siguiente (${nombreMesSiguiente}) ya se encuentra generado (ID: ${cuadranteExistente?.id}).`;
   } else if (!esDia10oPosterior) {
-    motivoEstado = `Hoy es día ${madrid.day}. La generación automática oficial de la U.S. para el mes siguiente (${nombreMesSiguiente}) se activará el día 10.`;
+    motivoEstado = `Hoy es día ${madrid.day}. La generación automática de la U.S. para el mes siguiente (${nombreMesSiguiente}) se activará el día 10.`;
   } else {
     motivoEstado = `Día ${madrid.day} superado: El cuadrante U.S. de ${nombreMesSiguiente} está pendiente de generación automática.`;
   }
@@ -188,7 +188,7 @@ export const ejecutarPlanificadorAutomaticoUS = async (options?: {
 
     if (personalUS.length < 10) {
       throw new Error(
-        `Plantilla insuficiente en la Unidad de Seguridad: se requieren al menos 10 efectivos para cubrir Diurno (2), Nocturno (2), Imaginaria (1) y descansos reglamentarios (saliente y 24h libres). Disponibles: ${personalUS.length}.`
+        `Plantilla insuficiente en la Unidad de Seguridad: se requieren al menos 10 personas para cubrir Diurno (2), Nocturno (2), Imaginaria (1) y descansos (saliente y 24h libres). Disponibles: ${personalUS.length}.`
       );
     }
 
@@ -224,7 +224,7 @@ export const ejecutarPlanificadorAutomaticoUS = async (options?: {
     );
     const imaginariasPendientes = await getImaginariasPendientesCompensacionUS();
 
-    // 6. Generar el nuevo cuadrante U.S. con el motor oficial
+    // 6. Generar el nuevo cuadrante U.S. con el motor del sistema
     const simUS: CuadranteSimulacionUSResult = generarSimulacionCuadranteUS({
       nombre: `Cuadrante Unidad de Seguridad (U.S.) — ${estado.nombreMesSiguiente}`,
       cicloId: `ciclo-us-${estado.mesSiguiente}`,
@@ -245,7 +245,7 @@ export const ejecutarPlanificadorAutomaticoUS = async (options?: {
       throw new Error(resConfirmar.message || 'Error al persistir el cuadrante U.S. generado.');
     }
 
-    // 8. Registro de auditoría oficial
+    // 8. Registro de auditoría del sistema
     const madridActual = getFechaHoraMadrid(fechaReferencia);
     await registrarAuditLog({
       accion: 'GENERACION_AUTOMATICA_DIA_10_US' as any,

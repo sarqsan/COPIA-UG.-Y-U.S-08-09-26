@@ -37,7 +37,7 @@ export const CuadranteUSMetricasPanel: FC<CuadranteUSMetricasPanelProps> = ({
   const diferenciaFinesSemana = metricas?.diferenciaFinesSemana ?? 0;
   const diferenciaHoras = metricas?.diferenciaHoras ?? 0;
 
-  const listaEfectivos = Object.values(detallePorPersona).sort((a, b) =>
+  const listaPersonal = Object.values(detallePorPersona).sort((a, b) =>
     a.nombre.localeCompare(b.nombre)
   );
 
@@ -137,18 +137,18 @@ export const CuadranteUSMetricasPanel: FC<CuadranteUSMetricasPanelProps> = ({
       <div className="p-3.5 bg-blue-50/60 dark:bg-blue-950/30 rounded-2xl border border-blue-200/60 dark:border-blue-900/40 text-xs flex items-start gap-2.5">
         <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
         <div className="text-slate-700 dark:text-slate-300 leading-relaxed">
-          <strong>Cómputo Horario Oficial U.S.:</strong> Horas Máximas = ({totalDiasLaborables} días laborables × 7h){ajusteHorasAplicado > 0 ? ` − ${ajusteHorasAplicado}h ajuste` : ''} = <strong>{horasMaximasReferencia} horas</strong>. Los días 24 y 31 Dic son festivos oficiales (0h). Cada Turno Diurno computa <strong>12h</strong>, cada Turno Nocturno computa <strong>12h</strong> (o <strong>12.75h</strong> si el día posterior es laborable), los Presentes computan <strong>7h</strong>, y los días laborables de Vacaciones (V), Permiso (PER) o Asuntos Propios (AP) computan <strong>7h</strong> (0h en fin de semana o festivo).
+          <strong>Cómputo Horario U.S.:</strong> Horas Máximas = ({totalDiasLaborables} días laborables × 7h){ajusteHorasAplicado > 0 ? ` − ${ajusteHorasAplicado}h ajuste` : ''} = <strong>{horasMaximasReferencia} horas</strong>. Los días 24 y 31 Dic son festivos (0h). Cada Turno Diurno computa <strong>12h</strong>, cada Turno Nocturno computa <strong>12h</strong> (o <strong>12.75h</strong> si el día posterior es laborable), los Presentes computan <strong>7h</strong>, y los días laborables de Vacaciones (V), Permiso (PER) o Asuntos Propios (AP) computan <strong>7h</strong> (0h en fin de semana o festivo).
         </div>
       </div>
 
-      {/* Tabla Detallada por Efectivo */}
+      {/* Tabla Detallada por Persona */}
       <div className="rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 shadow-xs overflow-hidden">
         <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
           <h3 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-            Detalle Individual de Efectivos U.S.
+            Detalle Individual de Personal U.S.
           </h3>
           <span className="text-xs text-slate-500 font-mono">
-            {listaEfectivos.length} efectivos en plantilla
+            {listaPersonal.length} personas en plantilla
           </span>
         </div>
 
@@ -156,7 +156,7 @@ export const CuadranteUSMetricasPanel: FC<CuadranteUSMetricasPanelProps> = ({
           <table className="w-full text-left text-xs border-collapse">
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-800/80 text-[10px] uppercase font-bold text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800">
-                <th className="p-3">Efectivo</th>
+                <th className="p-3">Persona</th>
                 <th className="p-3 text-center">Diurnos (12h)</th>
                 <th className="p-3 text-center">Nocturnos</th>
                 <th className="p-3 text-center">Fines Sem.</th>
@@ -172,7 +172,7 @@ export const CuadranteUSMetricasPanel: FC<CuadranteUSMetricasPanelProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
-              {listaEfectivos.map((met, idx) => {
+              {listaPersonal.map((met, idx) => {
                 const totalAusenciasDias = met.diasVacaciones + met.diasPermiso + met.diasAsuntosPropios;
                 const dif = met.diferenciaHorasRespectoMaximo;
 

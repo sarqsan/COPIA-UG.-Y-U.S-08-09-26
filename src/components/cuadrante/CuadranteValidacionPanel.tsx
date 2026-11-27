@@ -71,7 +71,7 @@ export const CuadranteValidacionPanel: React.FC<CuadranteValidacionPanelProps> =
           </div>
           <div className="flex items-center gap-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
             <span className="font-mono font-bold text-blue-600 dark:text-blue-400">RD-07 / RD-08:</span>
-            <span>Sin duplicidad diaria y correspondencia de empleo</span>
+            <span>Sin duplicidad diaria y correspondencia de rol operativo</span>
           </div>
           <div className="flex items-center gap-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
             <span className="font-mono font-bold text-blue-600 dark:text-blue-400">RD-09 / RD-10:</span>

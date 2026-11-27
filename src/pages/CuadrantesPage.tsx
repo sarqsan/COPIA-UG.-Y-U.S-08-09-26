@@ -138,7 +138,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
   );
   const [cicloId, setCicloId] = useState(isUS ? 'Ciclo US 2026 - 2027' : 'Ciclo 2026 - 2027');
   const [fechaInicio, setFechaInicio] = useState('2026-09-01');
-  const [fechaFin, setFechaFin] = useState('2027-02-28'); // Periodo oficial 6 meses
+  const [fechaFin, setFechaFin] = useState('2027-02-28'); // Periodo estándar 6 meses
 
   // Parámetros específicos U.S. (Normativa vigente: no se restan horas mensuales, base 0h)
   const [ajusteHorasUS, setAjusteHorasUS] = useState<number>(() =>
@@ -296,7 +296,6 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
               nombre: row.nombre,
               empleo: empleoFinal,
               grupo: 'US_SEGURIDAD',
-              dni: row.dni || '',
               telefono: row.telefono || '',
               tipoServicio: 'US',
               activo: true,
@@ -327,7 +326,6 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
               nombre: row.nombre,
               empleo: empleoFinal,
               grupo: 'U.G.',
-              dni: row.dni || '',
               telefono: row.telefono || '',
               tipoServicio: 'GUARDIA',
               activo: true,
@@ -357,7 +355,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
     }
   };
 
-  // Cargar plantilla por defecto (si la unidad no tiene efectivos registrados)
+  // Cargar plantilla por defecto (si la unidad no tiene personal registrado)
   const handleCargarPlantillaDefecto = async () => {
     try {
       setLoading(true);
@@ -385,7 +383,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
       }
       setCreationMode('plantilla');
       alert(
-        `Se han cargado ${mockForUnit.length} efectivos oficiales por defecto para ${
+        `Se han cargado ${mockForUnit.length} personas por defecto para ${
           isUS ? 'la Unidad de Seguridad (U.S.)' : 'la Unidad de Guardia (U.G.)'
         }.`
       );
@@ -414,7 +412,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
 
         if (personalUS.length < 10) {
           alert(
-            `Se requieren al menos 10 efectivos activos en la Unidad de Seguridad para cubrir turnos diurno (2), nocturno (2), imaginaria (1) y descansos obligatorios.\nEfectivos actuales disponibles: ${personalUS.length}.\nPuedes subir un archivo Excel con las 2 columnas (ROL y APELLIDO) o usar el botón "Cargar Plantilla Oficial".`
+            `Se requieren al menos 10 personas activas en la Unidad de Seguridad para cubrir turnos diurno (2), nocturno (2), imaginaria (1) y descansos obligatorios.\nPersonal actual disponible: ${personalUS.length}.\nPuedes subir un archivo Excel con las 2 columnas (ROL y APELLIDO) o usar el botón "Cargar Plantilla Base".`
           );
           return;
         }
@@ -425,7 +423,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
           grupo: 'US_SEGURIDAD' as const,
         }));
 
-        // Cargar ausencias oficiales aprobadas y compensaciones de imaginarias pendientes
+        // Cargar ausencias aprobadas y compensaciones de imaginarias pendientes
         const mapaAusencias = await getMapaAusenciasAprobadasUS(fechaInicio, fechaFin);
         const imaginariasPendientes = await getImaginariasPendientesCompensacionUS();
 
@@ -523,7 +521,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
     }
   };
 
-  // Confirmar simulación U.S. desde modal interactivo de Navidad (cuando repiten 2 o más efectivos)
+  // Confirmar simulación U.S. desde modal interactivo de Navidad (cuando repiten 2 o más personas)
   const handleConfirmarNavidadPrompt = (personasRepiten: string[]) => {
     if (!navidadModalData) return;
     try {
@@ -659,7 +657,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
 
     const res = await confirmarCuadrante(simUS as any, adminInfo);
     if (res.success) {
-      // Marcar imaginarias compensadas en el registro oficial
+      // Marcar imaginarias compensadas en el registro del sistema
       if (
         simUS.compensacionesImaginariaAplicadas &&
         simUS.compensacionesImaginariaAplicadas.length > 0
@@ -739,7 +737,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
     }
   };
 
-  // Eliminar todos los cuadrantes de la grupo activa
+  // Eliminar todos los cuadrantes del grupo activo
   const handleEliminarTodosCuadrantes = async () => {
     setDeleting(true);
     try {
@@ -886,14 +884,14 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
     }
   };
 
-  // Efectivos para el creador
-  const efectivosEnCreacion =
+  // Personal para el creador
+  const personalEnCreacion =
     creationMode === 'excel' && excelPersonasGeneradas.length > 0
       ? excelPersonasGeneradas
       : personasActivas;
 
-  const rol1EnCreacion = efectivosEnCreacion.filter((p) => p.empleo === 'ROL 1');
-  const rol2EnCreacion = efectivosEnCreacion.filter((p) => p.empleo === 'ROL 2');
+  const rol1EnCreacion = personalEnCreacion.filter((p) => p.empleo === 'ROL 1');
+  const rol2EnCreacion = personalEnCreacion.filter((p) => p.empleo === 'ROL 2');
 
   const esCuadranteSeleccionadoUS =
     selectedCuadrante?.tipoServicio === 'US' || !!(selectedCuadrante as any)?.configuracionUS;
@@ -904,7 +902,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
       {activeView === 'simulacion' && isUS && simulacionActivaUS && (
         <CuadranteUSSimulacionView
           simulacion={simulacionActivaUS}
-          personasUS={efectivosEnCreacion}
+          personasUS={personalEnCreacion}
           onBack={() => setActiveView('crear')}
           onConfirmar={handleConfirmarSimulacionUS}
         />
@@ -914,7 +912,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
       {activeView === 'simulacion' && !isUS && simulacionActivaUG && (
         <CuadranteSimulacionView
           simulacion={simulacionActivaUG}
-          personas={efectivosEnCreacion}
+          personas={personalEnCreacion}
           onBack={() => setActiveView('crear')}
           onConfirmar={handleConfirmarSimulacionUG}
         />
@@ -949,7 +947,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
                 <p className="text-xs text-slate-500">
                   {isUS
                     ? 'Motor autónomo de 12 horas con turnos Diurno (07-19h), Nocturno (19-07/07:45h), 1 Imaginaria (24h) y control estricto de cupo de permisos (máx. 4).'
-                    : 'Motor oficial de guardias de 24 horas (2 ROL 1 + 2 ROL 2) con imaginarias por empleo.'}
+                    : 'Motor de guardias de 24 horas (2 ROL 1 + 2 ROL 2) con imaginarias por rol.'}
                 </p>
               </div>
             </div>
@@ -994,7 +992,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
                 <div className="p-2.5 bg-white dark:bg-slate-900 rounded-2xl border border-blue-100 dark:border-blue-900/50">
                   <span className="font-bold block text-blue-700 dark:text-blue-300">Turnos Diurno & Nocturno:</span>
                   <span className="text-[11px] text-slate-600 dark:text-slate-400">
-                    2 efectivos por turno. Nocturno laborable computa 12.75h (19:00 a 07:45).
+                    2 personas por turno. Nocturno laborable computa 12.75h (19:00 a 07:45).
                   </span>
                 </div>
                 <div className="p-2.5 bg-white dark:bg-slate-900 rounded-2xl border border-blue-100 dark:border-blue-900/50">
@@ -1025,8 +1023,8 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
                     </h3>
                     <p className="text-[11px] text-slate-500">
                       {isUS
-                        ? 'Formato oficial de 2 columnas: ROL y APELLIDO. Dotación flexible sin datos personales requeridos.'
-                        : 'Formato oficial de 2 columnas: ROL 1 y ROL 2 con 11 efectivos por columna.'}
+                        ? 'Formato de 2 columnas: ROL y APELLIDO. Dotación flexible sin datos personales requeridos.'
+                        : 'Formato de 2 columnas: ROL 1 y ROL 2 con 11 personas por columna.'}
                     </p>
                   </div>
                 </div>
@@ -1094,8 +1092,8 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
                   </h4>
                   <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
                     {isUS
-                      ? 'Admite 2 columnas (ROL y APELLIDO). El motor adaptará automáticamente la rotación a cualquier número de efectivos.'
-                      : 'Admite 2 columnas (ROL 1 y ROL 2) con 11 efectivos por columna (22 en total).'}
+                      ? 'Admite 2 columnas (ROL y APELLIDO). El motor adaptará automáticamente la rotación a cualquier número de personas.'
+                      : 'Admite 2 columnas (ROL 1 y ROL 2) con 11 personas por columna (22 en total).'}
                   </p>
                 </div>
               ) : excelParsing ? (
@@ -1109,7 +1107,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
                     <div className="flex items-center gap-2">
                       <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                       <span className="text-xs font-bold text-emerald-900 dark:text-emerald-200">
-                        {excelFile.name} — {excelPersonasGeneradas.length} efectivos validados correctamente
+                        {excelFile.name} — {excelPersonasGeneradas.length} personas validadas correctamente
                         {isUS ? ` (${rol1EnCreacion.length} ROL 1 + ${rol2EnCreacion.length} ROL 2)` : ` (${rol1EnCreacion.length} ROL 1 + ${rol2EnCreacion.length} ROL 2)`}
                       </span>
                     </div>
@@ -1151,7 +1149,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
                           </div>
                         ))}
                         {rol1EnCreacion.length === 0 && (
-                          <p className="text-[11px] text-slate-400 italic py-1">Sin efectivos ROL 1</p>
+                          <p className="text-[11px] text-slate-400 italic py-1">Sin personal ROL 1</p>
                         )}
                       </div>
                     </div>
@@ -1169,7 +1167,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
                           </div>
                         ))}
                         {rol2EnCreacion.length === 0 && (
-                          <p className="text-[11px] text-slate-400 italic py-1">Sin efectivos ROL 2</p>
+                          <p className="text-[11px] text-slate-400 italic py-1">Sin personal ROL 2</p>
                         )}
                       </div>
                     </div>
@@ -1179,7 +1177,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
             </div>
           )}
 
-          {/* MODO PLANTILLA REGISTRADA: Verificación de efectivos existentes */}
+          {/* MODO PLANTILLA REGISTRADA: Verificación de personal existente */}
           {creationMode === 'plantilla' && (
             <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 space-y-3">
               <div className="flex items-center justify-between">
@@ -1187,7 +1185,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
                   <Users className="h-5 w-5 text-blue-600 dark:text-blue-400" />
                   <div>
                     <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-slate-100">
-                      Personal Registrado en Sistema ({personasActivas.length} Efectivos Activos)
+                      Personal Registrado en Sistema ({personasActivas.length} Personas Activas)
                     </h3>
                     <p className="text-[11px] text-slate-500">
                       Se utilizará la plantilla actual de la {isUS ? 'Unidad de Seguridad' : 'Unidad de Guardia'} para la generación.
@@ -1202,7 +1200,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
                     className="flex items-center gap-1.5 rounded-xl bg-blue-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-blue-700 shadow-xs transition cursor-pointer"
                   >
                     <Sparkles className="h-3.5 w-3.5" />
-                    <span>Cargar Plantilla Oficial ({isUS ? '16 Efectivos U.S.' : '22 Efectivos U.G.'})</span>
+                    <span>Cargar Plantilla Base ({isUS ? '16 Personas U.S.' : '22 Personas U.G.'})</span>
                   </button>
                 )}
               </div>
@@ -1212,7 +1210,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
                   <div className="flex items-center gap-2">
                     <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
                     <span>
-                      La {isUS ? 'Unidad de Seguridad' : 'Unidad de Guardia'} cuenta con solo {personasActivas.length} efectivos activos. Se requieren al menos {isUS ? 5 : 4} para rotar los turnos. Puedes cargar la plantilla oficial por defecto o subir un Excel.
+                      La {isUS ? 'Unidad de Seguridad' : 'Unidad de Guardia'} cuenta con solo {personasActivas.length} personas activas. Se requieren al menos {isUS ? 5 : 4} para rotar los turnos. Puedes cargar la plantilla por defecto o subir un Excel.
                     </span>
                   </div>
                 </div>
@@ -1316,7 +1314,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
                       </div>
                       <div className="text-[10px] text-slate-500 flex justify-between">
                         <span>Normativa U.S.: 7.0h/día laborable</span>
-                        <span>24 y 31 Dic: Festivos Oficiales (0h)</span>
+                        <span>24 y 31 Dic: Festivos Especiales (0h)</span>
                         <span>Descuento fijado en {ajusteHorasUS}h</span>
                       </div>
                     </div>
@@ -1328,7 +1326,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
                     <Sparkles className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0" />
                     <div>
                       <span className="font-bold">Regla de Equidad Navideña Activa (24, 25, 31 Dic y 1 Ene):</span>{' '}
-                      Los 16 servicios se distribuyen de forma equitativa al máximo entre los efectivos disponibles. Si 1 efectivo repite turno, su segundo servicio se programa preferentemente en la noche del 1 de enero conforme a la regla de menor impacto.
+                      Los 16 servicios se distribuyen de forma equitativa al máximo entre el personal disponible. Si 1 persona repite turno, su segundo servicio se programa preferentemente en la noche del 1 de enero conforme a la regla de menor impacto.
                     </div>
                   </div>
                 )}
@@ -1346,7 +1344,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
                   <div>
                     <div className="text-[10px] uppercase font-bold text-slate-500">Personal en Cuadrante</div>
                     <div className="text-lg font-black text-slate-900 dark:text-slate-100">
-                      {efectivosEnCreacion.length} <span className="text-xs font-normal">efectivos</span>
+                      {personalEnCreacion.length} <span className="text-xs font-normal">personas</span>
                     </div>
                   </div>
                   {isUS ? (
@@ -1396,7 +1394,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
                   onClick={handleGenerarSimulacion}
                   disabled={
                     isUS
-                      ? efectivosEnCreacion.length < 5
+                      ? personalEnCreacion.length < 5
                       : (rol1EnCreacion.length < 2 || rol2EnCreacion.length < 2)
                   }
                   className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-blue-700 transition-all disabled:opacity-50 cursor-pointer"
@@ -1411,16 +1409,16 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
             <div className="space-y-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <Layers className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                {isUS ? 'Plantilla U.S. (Unificada)' : 'Orden de Rotación U.G.'} ({efectivosEnCreacion.length})
+                {isUS ? 'Plantilla U.S. (Unificada)' : 'Orden de Rotación U.G.'} ({personalEnCreacion.length})
               </h3>
               <p className="text-[11px] text-slate-500">
                 {isUS
-                  ? 'La U.S. no distingue entre ROL 1 y ROL 2. Todos los efectivos pueden realizar turno diurno y nocturno.'
+                  ? 'La U.S. no distingue entre ROL 1 y ROL 2. Todo el personal puede realizar turno diurno y nocturno.'
                   : 'La asignación 24h rota equitativamente 2 ROL 1 y 2 ROL 2 por guardia.'}
               </p>
 
               <div className="space-y-1.5 max-h-[340px] overflow-y-auto pr-1 text-xs">
-                {efectivosEnCreacion.map((p, idx) => (
+                {personalEnCreacion.map((p, idx) => (
                   <div
                     key={p.id || idx}
                     className="flex items-center justify-between rounded-xl bg-slate-50 dark:bg-slate-800/60 p-2 text-xs"
@@ -1432,7 +1430,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
                       <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">{p.nombre}</span>
                     </div>
                     <span className="font-mono text-[10px] font-bold text-slate-500">
-                      {p.empleo || 'AGENTE'}
+                      {p.empleo || 'USUARIO'}
                     </span>
                   </div>
                 ))}
@@ -1472,7 +1470,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
                   </span>
                   <span>•</span>
                   <span>
-                    Efectivos: <strong className="text-slate-800 dark:text-slate-200">{selectedCuadrante.totalPersonas} personas</strong>
+                    Personal: <strong className="text-slate-800 dark:text-slate-200">{selectedCuadrante.totalPersonas} personas</strong>
                   </span>
                   {esCuadranteSeleccionadoUS && selectedCuadrante.horasMaximasPeriodo && (
                     <>
@@ -1560,7 +1558,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
               }`}
             >
               <Calendar className="h-4 w-4" />
-              <span>Matriz Mensual {esCuadranteSeleccionadoUS ? '(D / N / I / P / L)' : '& Excel Oficial'}</span>
+              <span>Matriz Mensual {esCuadranteSeleccionadoUS ? '(D / N / I / P / L)' : '& Excel Completo'}</span>
             </button>
 
             <button
@@ -1770,7 +1768,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
               <p className="mt-1 max-w-sm text-xs text-slate-500">
                 {isUS
                   ? 'Genera el cuadrante autónomo de U.S. con turnos de 12 horas respetando la regla de 3 días de imaginaria.'
-                  : 'Sube tu archivo Excel con las 2 columnas (ROL 1 y ROL 2) para generar el cuadrante oficial de 6 meses.'}
+                  : 'Sube tu archivo Excel con las 2 columnas (ROL 1 y ROL 2) para generar el cuadrante de 6 meses.'}
               </p>
               {isAdmin && (
                 <button
@@ -1841,7 +1839,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
                         <Users className="h-3.5 w-3.5" />
                         <span>
                           {c.tipoServicio === 'US'
-                            ? `${c.totalPersonas} Efectivos U.S. (12h)`
+                            ? `${c.totalPersonas} Personas U.S. (12h)`
                             : `${c.totalRol1} ROL 1 + ${c.totalRol2} ROL 2 (${c.totalPersonas} total)`}
                         </span>
                       </div>
@@ -1896,7 +1894,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
                 <strong className="text-slate-700 dark:text-slate-300">Periodo:</strong> {cuadranteToDelete.fechaInicio} al {cuadranteToDelete.fechaFin}
               </div>
               <div>
-                <strong className="text-slate-700 dark:text-slate-300">Efectivos:</strong> {cuadranteToDelete.totalPersonas} personas
+                <strong className="text-slate-700 dark:text-slate-300">Personal:</strong> {cuadranteToDelete.totalPersonas} personas
               </div>
             </div>
 

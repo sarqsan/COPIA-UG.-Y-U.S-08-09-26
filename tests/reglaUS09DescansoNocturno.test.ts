@@ -50,18 +50,18 @@ console.log('===================================================================
 
 // 1. Plantilla de prueba U.S.
 const personas: Persona[] = [
-  { id: 'us-p1', nombre: 'Agente Sánchez', empleo: 'ROL 2', activo: true, grupo: 'US_SEGURIDAD', tipoServicio: 'US', dni: '111', telefono: '111', fechaCreacion: '2026-01-01', fechaActualizacion: '2026-01-01', ordenRotacion: 1 },
-  { id: 'us-p2', nombre: 'Agente Romero', empleo: 'ROL 2', activo: true, grupo: 'US_SEGURIDAD', tipoServicio: 'US', dni: '222', telefono: '222', fechaCreacion: '2026-01-01', fechaActualizacion: '2026-01-01', ordenRotacion: 2 },
-  { id: 'us-p3', nombre: 'Agente Navarro', empleo: 'ROL 2', activo: true, grupo: 'US_SEGURIDAD', tipoServicio: 'US', dni: '333', telefono: '333', fechaCreacion: '2026-01-01', fechaActualizacion: '2026-01-01', ordenRotacion: 3 },
-  { id: 'us-p4', nombre: 'Agente Martínez', empleo: 'ROL 2', activo: true, grupo: 'US_SEGURIDAD', tipoServicio: 'US', dni: '444', telefono: '444', fechaCreacion: '2026-01-01', fechaActualizacion: '2026-01-01', ordenRotacion: 4 },
-  { id: 'us-p5', nombre: 'Agente López', empleo: 'ROL 2', activo: true, grupo: 'US_SEGURIDAD', tipoServicio: 'US', dni: '555', telefono: '555', fechaCreacion: '2026-01-01', fechaActualizacion: '2026-01-01', ordenRotacion: 5 },
-  { id: 'us-p6', nombre: 'Agente García', empleo: 'ROL 2', activo: true, grupo: 'US_SEGURIDAD', tipoServicio: 'US', dni: '666', telefono: '666', fechaCreacion: '2026-01-01', fechaActualizacion: '2026-01-01', ordenRotacion: 6 },
-  { id: 'us-p7', nombre: 'Agente Gómez', empleo: 'ROL 2', activo: true, grupo: 'US_SEGURIDAD', tipoServicio: 'US', dni: '777', telefono: '777', fechaCreacion: '2026-01-01', fechaActualizacion: '2026-01-01', ordenRotacion: 7 },
-  { id: 'us-p8', nombre: 'Agente Díaz', empleo: 'ROL 2', activo: true, grupo: 'US_SEGURIDAD', tipoServicio: 'US', dni: '888', telefono: '888', fechaCreacion: '2026-01-01', fechaActualizacion: '2026-01-01', ordenRotacion: 8 },
-  { id: 'us-p9', nombre: 'Agente Ruiz', empleo: 'ROL 2', activo: true, grupo: 'US_SEGURIDAD', tipoServicio: 'US', dni: '999', telefono: '999', fechaCreacion: '2026-01-01', fechaActualizacion: '2026-01-01', ordenRotacion: 9 },
-  { id: 'us-p10', nombre: 'Agente Castro', empleo: 'ROL 2', activo: true, grupo: 'US_SEGURIDAD', tipoServicio: 'US', dni: '101', telefono: '101', fechaCreacion: '2026-01-01', fechaActualizacion: '2026-01-01', ordenRotacion: 10 },
-  { id: 'us-p11', nombre: 'Agente Morales', empleo: 'ROL 2', activo: true, grupo: 'US_SEGURIDAD', tipoServicio: 'US', dni: '102', telefono: '102', fechaCreacion: '2026-01-01', fechaActualizacion: '2026-01-01', ordenRotacion: 11 },
-  { id: 'us-p12', nombre: 'Agente Ortega', empleo: 'ROL 2', activo: true, grupo: 'US_SEGURIDAD', tipoServicio: 'US', dni: '103', telefono: '103', fechaCreacion: '2026-01-01', fechaActualizacion: '2026-01-01', ordenRotacion: 12 },
+  { id: 'us-p1', nombre: 'Usuario Sánchez', empleo: 'ROL 2', activo: true, grupo: 'US_SEGURIDAD', tipoServicio: 'US', telefono: '111', fechaCreacion: '2026-01-01', fechaActualizacion: '2026-01-01', ordenRotacion: 1 },
+  { id: 'us-p2', nombre: 'Usuario Romero', empleo: 'ROL 2', activo: true, grupo: 'US_SEGURIDAD', tipoServicio: 'US', telefono: '222', fechaCreacion: '2026-01-01', fechaActualizacion: '2026-01-01', ordenRotacion: 2 },
+  { id: 'us-p3', nombre: 'Usuario Navarro', empleo: 'ROL 2', activo: true, grupo: 'US_SEGURIDAD', tipoServicio: 'US', telefono: '333', fechaCreacion: '2026-01-01', fechaActualizacion: '2026-01-01', ordenRotacion: 3 },
+  { id: 'us-p4', nombre: 'Usuario Martínez', empleo: 'ROL 2', activo: true, grupo: 'US_SEGURIDAD', tipoServicio: 'US', telefono: '444', fechaCreacion: '2026-01-01', fechaActualizacion: '2026-01-01', ordenRotacion: 4 },
+  { id: 'us-p5', nombre: 'Usuario López', empleo: 'ROL 2', activo: true, grupo: 'US_SEGURIDAD', tipoServicio: 'US', telefono: '555', fechaCreacion: '2026-01-01', fechaActualizacion: '2026-01-01', ordenRotacion: 5 },
+  { id: 'us-p6', nombre: 'Usuario García', empleo: 'ROL 2', activo: true, grupo: 'US_SEGURIDAD', tipoServicio: 'US', telefono: '666', fechaCreacion: '2026-01-01', fechaActualizacion: '2026-01-01', ordenRotacion: 6 },
+  { id: 'us-p7', nombre: 'Usuario Gómez', empleo: 'ROL 2', activo: true, grupo: 'US_SEGURIDAD', tipoServicio: 'US', telefono: '777', fechaCreacion: '2026-01-01', fechaActualizacion: '2026-01-01', ordenRotacion: 7 },
+  { id: 'us-p8', nombre: 'Usuario Díaz', empleo: 'ROL 2', activo: true, grupo: 'US_SEGURIDAD', tipoServicio: 'US', telefono: '888', fechaCreacion: '2026-01-01', fechaActualizacion: '2026-01-01', ordenRotacion: 8 },
+  { id: 'us-p9', nombre: 'Usuario Ruiz', empleo: 'ROL 2', activo: true, grupo: 'US_SEGURIDAD', tipoServicio: 'US', telefono: '999', fechaCreacion: '2026-01-01', fechaActualizacion: '2026-01-01', ordenRotacion: 9 },
+  { id: 'us-p10', nombre: 'Usuario Castro', empleo: 'ROL 2', activo: true, grupo: 'US_SEGURIDAD', tipoServicio: 'US', telefono: '101', fechaCreacion: '2026-01-01', fechaActualizacion: '2026-01-01', ordenRotacion: 10 },
+  { id: 'us-p11', nombre: 'Usuario Morales', empleo: 'ROL 2', activo: true, grupo: 'US_SEGURIDAD', tipoServicio: 'US', telefono: '102', fechaCreacion: '2026-01-01', fechaActualizacion: '2026-01-01', ordenRotacion: 11 },
+  { id: 'us-p12', nombre: 'Usuario Ortega', empleo: 'ROL 2', activo: true, grupo: 'US_SEGURIDAD', tipoServicio: 'US', telefono: '103', fechaCreacion: '2026-01-01', fechaActualizacion: '2026-01-01', ordenRotacion: 12 },
 ];
 
 function crearSlot(personaId: string): SlotAsignacionUS {
@@ -275,8 +275,8 @@ console.log('\n--- CASO 7: Generador automático de cuadrante U.S. ---');
   // Simulamos cuadrante para noviembre 2026 (30 días)
   // Ausencia en un titular nocturno donde un saliente esté disponible
   const ausenciasPorDia = {
-    '2026-11-05': [{ personaId: 'us-p1', personaNombre: 'Agente Sánchez', tipo: 'AP' as const }],
-    '2026-11-06': [{ personaId: 'us-p3', personaNombre: 'Agente Navarro', tipo: 'AP' as const }],
+    '2026-11-05': [{ personaId: 'us-p1', personaNombre: 'Usuario Sánchez', tipo: 'AP' as const }],
+    '2026-11-06': [{ personaId: 'us-p3', personaNombre: 'Usuario Navarro', tipo: 'AP' as const }],
   };
 
   const simResult = generarSimulacionCuadranteUS({
@@ -299,7 +299,7 @@ console.log('\n--- CASO 7: Generador automático de cuadrante U.S. ---');
 
   assert(erroresUS09.length === 0, 'El generador automático NO produce ningún error US-09 (0 empalmes)');
 
-  // Verificamos que ningún efectivo saliente de noche reciba turno diurno en su día de saliente
+  // Verificamos que ningún usuario saliente de noche reciba turno diurno en su día de saliente
   let empalmesEncontrados = 0;
   for (let i = 1; i < cuadrante.length; i++) {
     const diaAnt = cuadrante[i - 1];

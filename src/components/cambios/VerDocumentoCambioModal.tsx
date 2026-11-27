@@ -124,37 +124,37 @@ export const VerDocumentoCambioModal: React.FC<VerDocumentoCambioModalProps> = (
   const handleDescargarTxt = () => {
     if (!doc) return;
     const content = `================================================================================
-PORTAL OFICIAL • GRUPO DE GUARDIA Y SEGURIDAD (U.G.)
+PORTAL DE PERSONAL • UNIDAD DE GESTIÓN (U.G.)
 DILIGENCIA DE AUTORIZACIÓN DE CAMBIO DE SERVICIO / IMAGINARIA
 ================================================================================
 CÓDIGO CSV: ${doc.codigoVerificacion}
 FECHA EMISIÓN: ${new Date(doc.fechaEmision).toLocaleString('es-ES')}
 REF DOCUMENTO: ${doc.id}
 
-1. DATOS DEL SERVICIO Y EFECTIVOS INTERVINIENTES:
+1. DATOS DEL SERVICIO Y PERSONAL INTERVINIENTE:
 --------------------------------------------------------------------------------
 SOLICITANTE (Cede el servicio):
 - Nombre: ${doc.personaA.nombre}
-- Empleo: ${doc.personaA.empleo} | Grupo: ${doc.personaA.grupo}
+- Rol: ${doc.personaA.empleo} | Grupo: ${doc.personaA.grupo}
 - Fecha cedida: ${doc.fechaServicioA} (09:00 a 09:00)
 
 DESTINATARIO (Realiza el servicio):
 - Nombre: ${doc.personaB.nombre}
-- Empleo: ${doc.personaB.empleo} | Grupo: ${doc.personaB.grupo}
+- Rol: ${doc.personaB.empleo} | Grupo: ${doc.personaB.grupo}
 - Devolución acordada: ${doc.fechaServicioB ? `${doc.fechaServicioB} (09:00 a 09:00)` : 'Sin devolución fijada'}
 
 MOTIVO DECLARADO:
 ${doc.motivo}
 
-2. REGISTRO DE FIRMAS ELECTRÓNICAS Y RESOLUCIÓN DEL MANDO:
+2. REGISTRO DE FIRMAS ELECTRÓNICAS Y RESOLUCIÓN DE ADMINISTRACIÓN:
 --------------------------------------------------------------------------------
 [x] FIRMA SOLICITANTE: ${doc.personaA.nombre} (Fecha: ${new Date(doc.personaA.fechaFirma).toLocaleString('es-ES')})
 [x] CONFORMIDAD COMPAÑERO: ${doc.personaB.nombre} (Fecha: ${new Date(doc.personaB.fechaFirma).toLocaleString('es-ES')})
-[x] AUTORIZACIÓN MANDO: ${doc.autorizacionAdmin.adminNombre} (Fecha: ${new Date(doc.autorizacionAdmin.fechaAutorizacion).toLocaleString('es-ES')})
-    ESTADO: AUTORIZADO Y RATIFICADO OFICIALMENTE EN CUADRANTE
+[x] AUTORIZACIÓN ADMINISTRACIÓN: ${doc.autorizacionAdmin.adminNombre} (Fecha: ${new Date(doc.autorizacionAdmin.fechaAutorizacion).toLocaleString('es-ES')})
+    ESTADO: AUTORIZADO Y RATIFICADO EN CUADRANTE
 
 ================================================================================
-Documento firmado electrónicamente según el protocolo de la Grupo.
+Documento firmado electrónicamente según el protocolo de la Unidad.
 ================================================================================`;
 
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
@@ -184,10 +184,10 @@ Documento firmado electrónicamente según el protocolo de la Grupo.
             </div>
             <div>
               <h3 className="text-sm sm:text-base font-black tracking-tight">
-                Documento Oficial de Autorización
+                Documento de Autorización
               </h3>
               <p className="text-[11px] text-slate-300">
-                Certificación oficial de cambio con firmas electrónicas inmutables
+                Certificación de cambio con firmas electrónicas inmutables
               </p>
             </div>
           </div>
@@ -203,7 +203,7 @@ Documento firmado electrónicamente según el protocolo de la Grupo.
             </button>
             <button
               onClick={handleDescargarTxt}
-              title="Descargar Justificante Oficial en Texto"
+              title="Descargar Justificante en Texto"
               className="hidden sm:inline-flex px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold items-center gap-1.5 transition cursor-pointer"
             >
               <Download className="w-3.5 h-3.5" />
@@ -227,12 +227,12 @@ Documento firmado electrónicamente según el protocolo de la Grupo.
           </div>
         </div>
 
-        {/* Cuerpo del Documento Oficial con Scroll */}
+        {/* Cuerpo del Documento con Scroll */}
         <div className="p-4 sm:p-8 space-y-6 text-slate-900 bg-white overflow-y-auto flex-1">
           {loading ? (
             <div className="py-20 text-center text-xs font-semibold text-slate-500 flex flex-col items-center justify-center gap-2">
               <div className="w-6 h-6 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin"></div>
-              Cargando documento oficial de verificación...
+              Cargando documento de verificación...
             </div>
           ) : !doc ? (
             <div className="py-20 text-center text-xs text-slate-500">
@@ -243,7 +243,7 @@ Documento firmado electrónicamente según el protocolo de la Grupo.
               {/* Encabezado Institucional */}
               <div className="border-b-2 border-slate-900 pb-4 text-center space-y-1">
                 <div className="text-[11px] font-black uppercase tracking-widest text-slate-600">
-                  PORTAL OFICIAL • GRUPO DE GUARDIA Y SEGURIDAD (U.G.)
+                  PORTAL DE PERSONAL • UNIDAD DE GESTIÓN (U.G.)
                 </div>
                 <h1 className="text-base sm:text-lg font-black uppercase tracking-tight text-slate-900">
                   DILIGENCIA DE AUTORIZACIÓN DE CAMBIO DE SERVICIO / IMAGINARIA
@@ -270,15 +270,15 @@ Documento firmado electrónicamente según el protocolo de la Grupo.
               <div className="text-xs leading-relaxed space-y-4 text-slate-800">
                 <p>
                   Por medio del presente documento, queda debidamente registrada y autorizada en el
-                  sistema de gestión de cuadrantes la permuta/cambio voluntario de servicio entre los
-                  efectivos que se detallan a continuación, habiéndose verificado el cumplimiento de
-                  las directivas de descanso obligatorio y operatividad de la Grupo.
+                  sistema de gestión de cuadrantes la permuta/cambio voluntario de servicio entre las
+                  personas que se detallan a continuación, habiéndose verificado el cumplimiento de
+                  las directivas de descanso obligatorio y operatividad de la Unidad.
                 </p>
 
-                {/* Tabla de efectivos */}
+                {/* Tabla de personal */}
                 <div className="border border-slate-300 rounded-xl overflow-hidden text-xs">
                   <div className="bg-slate-100 p-2.5 font-black text-slate-800 border-b border-slate-300 uppercase tracking-wider text-[11px]">
-                    1. DATOS DEL SERVICIO Y EFECTIVOS INTERVINIENTES
+                    1. DATOS DEL SERVICIO Y PERSONAL INTERVINIENTE
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-slate-300">
                     <div className="p-3.5 space-y-1.5 bg-slate-50/50">
@@ -287,7 +287,7 @@ Documento firmado electrónicamente según el protocolo de la Grupo.
                       </span>
                       <div className="font-black text-slate-900 text-sm">{doc.personaA.nombre}</div>
                       <div className="text-[11px] text-slate-700">
-                        Empleo: <strong>{doc.personaA.empleo}</strong> | Grupo:{' '}
+                        Rol: <strong>{doc.personaA.empleo}</strong> | Grupo:{' '}
                         <strong>{doc.personaA.grupo}</strong>
                       </div>
                       <div className="text-[11px] text-slate-700">
@@ -301,7 +301,7 @@ Documento firmado electrónicamente según el protocolo de la Grupo.
                       </span>
                       <div className="font-black text-slate-900 text-sm">{doc.personaB.nombre}</div>
                       <div className="text-[11px] text-slate-700">
-                        Empleo: <strong>{doc.personaB.empleo}</strong> | Grupo:{' '}
+                        Rol: <strong>{doc.personaB.empleo}</strong> | Grupo:{' '}
                         <strong>{doc.personaB.grupo}</strong>
                       </div>
                       <div className="text-[11px] text-slate-700">
@@ -328,7 +328,7 @@ Documento firmado electrónicamente según el protocolo de la Grupo.
                 {/* Cuadro de Firmas Digitales */}
                 <div className="pt-2">
                   <div className="text-[11px] font-black uppercase tracking-wider text-slate-700 mb-2">
-                    2. REGISTRO DE FIRMAS ELECTRÓNICAS Y RESOLUCIÓN DEL MANDO
+                    2. REGISTRO DE FIRMAS ELECTRÓNICAS Y RESOLUCIÓN DE ADMINISTRACIÓN
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-center text-[10px]">
                     {/* Firma Solicitante */}
@@ -364,7 +364,7 @@ Documento firmado electrónicamente según el protocolo de la Grupo.
                     {/* Firma Administrador */}
                     <div className="p-3 border border-slate-300 rounded-xl bg-emerald-50/60 border-emerald-300 space-y-1">
                       <Lock className="w-4 h-4 text-emerald-700 mx-auto" />
-                      <span className="font-black text-emerald-950 block">Mando / Administración</span>
+                      <span className="font-black text-emerald-950 block">Administración</span>
                       <span className="text-emerald-900 font-medium block truncate">
                         {doc.autorizacionAdmin.adminNombre}
                       </span>
@@ -380,7 +380,7 @@ Documento firmado electrónicamente según el protocolo de la Grupo.
 
                 {/* Pie de página con validez */}
                 <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-2 text-[9px] text-slate-500 font-mono">
-                  <span>Documento firmado electrónicamente según el protocolo de la Grupo.</span>
+                  <span>Documento firmado electrónicamente según el protocolo de la Unidad.</span>
                   <span>Ref: {doc.id}</span>
                 </div>
               </div>
@@ -437,7 +437,7 @@ Documento firmado electrónicamente según el protocolo de la Grupo.
               onClick={handleEnviarPersonal}
               disabled={enviandoEmail || !doc}
               className="w-full sm:w-auto px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md min-h-[44px] disabled:opacity-50"
-              title="Remitir el Excel oficial de este cambio al correo de Personal vía Gmail (sarqsan2@gmail.com)"
+              title="Remitir el Excel de este cambio al correo de Personal vía Gmail (sarqsan2@gmail.com)"
             >
               <Mail className="w-4 h-4" />
               {enviandoEmail

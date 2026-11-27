@@ -52,10 +52,10 @@ export const PersonaTable: React.FC<PersonaTableProps> = ({
           <UserX className="h-8 w-8" />
         </div>
         <h3 className="mt-4 text-sm font-bold text-slate-900 dark:text-white">
-          No se encontraron efectivos
+          No se encontró personal
         </h3>
         <p className="mt-1 max-w-sm text-xs text-slate-500 dark:text-slate-400">
-          Prueba a cambiar los criterios de búsqueda o añade nuevos efectivos en la {NOMBRE_GRUPO_UG}.
+          Prueba a cambiar los criterios de búsqueda o añade nuevo personal en la {NOMBRE_GRUPO_UG}.
         </p>
       </div>
     );
@@ -68,7 +68,7 @@ export const PersonaTable: React.FC<PersonaTableProps> = ({
         <table className="w-full text-left text-xs">
           <thead className="border-b border-slate-100 bg-slate-50/75 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-400">
             <tr>
-              <th className="px-5 py-3.5">Efectivo (Apellido)</th>
+              <th className="px-5 py-3.5">Personal (Apellido)</th>
               <th className="px-4 py-3.5">Rol Operativo</th>
               <th className="px-4 py-3.5">Grupo</th>
               <th className="px-4 py-3.5">Estado en el Grupo</th>
@@ -170,7 +170,7 @@ export const PersonaTable: React.FC<PersonaTableProps> = ({
                       <button
                         id={`btn-edit-${persona.id}`}
                         onClick={() => onEdit(persona)}
-                        title="Editar efectivo"
+                        title="Editar usuario"
                         className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200 cursor-pointer"
                       >
                         <Edit2 className="h-4 w-4" />
@@ -202,7 +202,7 @@ export const PersonaTable: React.FC<PersonaTableProps> = ({
                         <button
                           id={`btn-delete-${persona.id}`}
                           onClick={() => onDelete(persona)}
-                          title="Eliminar efectivo y su cuenta vinculada"
+                          title="Eliminar persona y su cuenta vinculada"
                           className="rounded-lg p-1.5 text-rose-500 hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-950/50 cursor-pointer"
                         >
                           <Trash2 className="h-4 w-4" />

@@ -29,7 +29,7 @@ import {
 } from './cuadranteUSNavidadHelper';
 
 /**
- * Comprueba si una fecha concreta (YYYY-MM-DD) es laborable oficial de la U.S.
+ * Comprueba si una fecha concreta (YYYY-MM-DD) es laborable en el calendario de la U.S.
  * (Lunes a Viernes no festivo ni día especial).
  */
 export const esFechaLaborable = (fechaStr: string): boolean => {
@@ -43,13 +43,13 @@ export const esFechaLaborable = (fechaStr: string): boolean => {
  * 1. Aislamiento total respecto a U.G.
  * 2. Turnos de 12h: Diurno (07:00 a 19:00) y Nocturno (19:00 a 07:00 / 07:45).
  * 3. Prolongación nocturna: Si el día siguiente es laborable, el nocturno finaliza a las 07:45 (12.75h).
- * 4. Dotación: 2 efectivos Diurno + 2 efectivos Nocturno por día (4 asignaciones/día).
+ * 4. Dotación: 2 personas Diurno + 2 personas Nocturno por día (4 asignaciones/día).
  * 5. Sin distinción de ROL 1 / ROL 2 para asignación de servicios de seguridad.
- * 6. Imaginaria: 1 efectivo por día (24h). Restricción estricta de 3 días: no puede ser imaginaria ni el mismo día, ni el día antes, ni el día después de un servicio.
+ * 6. Imaginaria: 1 persona por día (24h). Restricción estricta de 3 días: no puede ser imaginaria ni el mismo día, ni el día antes, ni el día después de un servicio.
  * 7. Descanso post-nocturno: Saliente de noche + mínimo 1 día completo libre antes de otro servicio (D -> N -> L -> L...).
  * 8. Patrón preferente: D -> N -> L -> L.
  * 9. Bloqueo de ausencias: V, P, AP con cupo máximo de 4 personas simultáneas por día.
- * 10. Presentes: 7.5h ÚNICAMENTE en días laborables oficiales (nunca sábados, domingos, festivos ni días especiales) para equilibrar horas.
+ * 10. Presentes: 7.5h ÚNICAMENTE en días laborables (nunca sábados, domingos, festivos ni días especiales) para equilibrar horas.
  * 11. Cómputo de Horas Máximas: (días laborables × 7.5) - ajuste (ajuste 10-15h, por defecto 14h).
  * 12. Equidad real: Reparto equitativo de fines de semana (sábados y domingos separados y combinados), festivos, días especiales y laborables.
  * 13. Continuidad no modular: Los estados acumulados del mes anterior nutren la equidad del mes en curso sin reiniciar contadores arbitrariamente.
@@ -98,11 +98,11 @@ export const generarSimulacionCuadranteUS = (params: {
 
   if (usPersonas.length < 10) {
     throw new Error(
-      `Dotación insuficiente para generar un cuadrante U.S. válido con las restricciones actuales. Se requieren al menos 10 efectivos activos para garantizar la cobertura simultánea de Diurno (2), Nocturno (2), Imaginaria (1) y los descansos reglamentarios mínimos (Saliente y 24h libres post-nocturno). Efectivos disponibles: ${usPersonas.length}.`
+      `Dotación insuficiente para generar un cuadrante U.S. válido con las restricciones actuales. Se requieren al menos 10 personas activas para garantizar la cobertura simultánea de Diurno (2), Nocturno (2), Imaginaria (1) y los descansos mínimos (Saliente y 24h libres post-nocturno). Personal disponible: ${usPersonas.length}.`
     );
   }
 
-  // Ordenar plantilla U.S. según orden de rotación oficial
+  // Ordenar plantilla U.S. según orden de rotación establecido
   const plantillaUS = [...usPersonas].sort(
     (a, b) => (a.ordenRotacion ?? 999) - (b.ordenRotacion ?? 999) || a.nombre.localeCompare(b.nombre)
   );
@@ -202,7 +202,7 @@ export const generarSimulacionCuadranteUS = (params: {
   const horasMaximasReferencia = Math.max(0, totalDiasLaborables * 7.0 - ajusteHorasEfectivo);
 
   // Pre-computar horas por ausencias concedidas en días laborables del mes
-  // (7.0h por cada día laborable; 0h en fines de semana y festivos oficiales)
+  // (7.0h por cada día laborable; 0h en fines de semana y festivos)
   const horasAusenciasPorPersona: Record<string, number> = {};
   plantillaUS.forEach((p) => {
     horasAusenciasPorPersona[p.id] = 0;
@@ -624,10 +624,10 @@ export const generarSimulacionCuadranteUS = (params: {
     // Preparar salientes y nocturnos para el día siguiente
     salientesHoy = [...nocturnosReales];
     if (fecha === f24 && planNavidad?.asignacionesPorDia.has(f25)) {
-      // DESVINCULACIÓN NAVIDEÑA 24 -> 25: Evitar que los efectivos de 24 Dic repitan en 25 Dic
+      // DESVINCULACIÓN NAVIDEÑA 24 -> 25: Evitar que las personas del 24 Dic repitan en 25 Dic
       nocturnosHoy = [...planNavidad.asignacionesPorDia.get(f25)!.nocturnos];
     } else if (fecha === f31Dic && planNavidad?.asignacionesPorDia.has(f01Ene)) {
-      // DESVINCULACIÓN NAVIDEÑA 31 -> 01: Evitar que los efectivos de 31 Dic repitan en 1 Ene
+      // DESVINCULACIÓN NAVIDEÑA 31 -> 01: Evitar que las personas del 31 Dic repitan en 1 Ene
       nocturnosHoy = [...planNavidad.asignacionesPorDia.get(f01Ene)!.nocturnos];
     } else {
       nocturnosHoy = [...diurnosReales];
@@ -745,7 +745,7 @@ export const generarSimulacionCuadranteUS = (params: {
         if (fallback2.length > 0) {
           imagElegida = fallback2[0].id;
         } else {
-          // Último recurso: cualquier efectivo excepto quien fue imaginaria ayer
+          // Último recurso: cualquier usuario excepto quien fue imaginaria ayer
           const fallbackSinRepetir = plantillaUS.filter(
             (p) => !imaginariaAyer || p.id !== imaginariaAyer
           );
@@ -767,10 +767,10 @@ export const generarSimulacionCuadranteUS = (params: {
     }
   }
 
-  // FASE 4: ASIGNACIÓN DE PRESENTES (7.0H ÚNICAMENTE EN DÍAS LABORABLES OFICIALES)
+  // FASE 4: ASIGNACIÓN DE PRESENTES (7.0H ÚNICAMENTE EN DÍAS LABORABLES)
   // Nota: Las ausencias concedidas en días laborables (7.0h cada una) ya fueron pre-computadas
   // al inicio en tracks[p.id].horasComputablesMesActual.
-  // Se asignan presentes iterativamente a todos los efectivos disponibles hasta alcanzar el tope de horas del periodo.
+  // Se asignan presentes iterativamente a todo el personal disponible hasta alcanzar el tope de horas del periodo.
   let huboAsignacion = true;
   let iteracionesMaximas = 1000;
 
@@ -1000,7 +1000,7 @@ export const generarSimulacionCuadranteUS = (params: {
     metricasEquilibrio: {
       scoreEquilibrio: metricasUS.scoreEquilibrio,
       rol1: {
-        totalEfectivos: plantillaUS.length,
+        totalPersonal: plantillaUS.length,
         serviciosMin: metricasUS.serviciosMin,
         serviciosMax: metricasUS.serviciosMax,
         diferenciaServicios: metricasUS.diferenciaServicios,
@@ -1013,7 +1013,7 @@ export const generarSimulacionCuadranteUS = (params: {
         promedioImaginarias: 0,
       },
       rol2: {
-        totalEfectivos: plantillaUS.length,
+        totalPersonal: plantillaUS.length,
         serviciosMin: metricasUS.serviciosMin,
         serviciosMax: metricasUS.serviciosMax,
         diferenciaServicios: metricasUS.diferenciaServicios,
@@ -1231,9 +1231,9 @@ export const extraerEstadoContinuidadDesdeServiciosUS = (
 /**
  * AJUSTE NORMATIVO DE CUADRANTE U.S.:
  * - Regla normativa: Días laborables computan a 7.0 horas (no se descuentan horas a las horas mensuales, ajuste = 0h).
- * - Días 24 y 31 de diciembre son FESTIVOS OFICIALES: computan 0 horas y no son laborables.
+ * - Días 24 y 31 de diciembre son FESTIVOS: computan 0 horas y no son laborables.
  * - SIN MODIFICAR SERVICIOS NOMBRADOS: Diurnos (12h), Nocturnos (12h/12.75h) e Imaginarias (24h) quedan 100% INTACTOS.
- * - Se eliminan únicamente los días de presente (PR) estrictamente necesarios para que ningún efectivo exceda el tope de horas computables del periodo.
+ * - Se eliminan únicamente los días de presente (PR) estrictamente necesarios para que ningún usuario exceda el tope de horas computables del periodo.
  */
 export const ajustarCuadranteUSHorasYPresentes = (
   serviciosOriginales: ServicioDiaUS[],
@@ -1258,7 +1258,7 @@ export const ajustarCuadranteUSHorasYPresentes = (
   let huboModificaciones = false;
   let totalPresentesEliminados = 0;
 
-  // 1. Sincronizar clasificación oficial de días
+  // 1. Sincronizar clasificación del calendario de días
   serviciosClonados.forEach((s) => {
     const info = clasificarDiaUS(s.fecha);
     if (s.esFestivo !== info.esFestivo || s.esLaborable !== info.esLaborable) {
@@ -1383,7 +1383,7 @@ export const ajustarCuadranteUSHorasYPresentes = (
     }
   });
 
-  const resumenAjuste = `Ajuste completado: Cómputo a 7.0h/día laborable, 24 y 31 Dic clasificados como festivos oficiales (0h), y ${totalPresentesEliminados} presente(s) excedentes eliminados para respetar el tope de ${horasMaximasPeriodo}h sin alterar turnos diurnos, nocturnos ni imaginarias.`;
+  const resumenAjuste = `Ajuste completado: Cómputo a 7.0h/día laborable, 24 y 31 Dic clasificados como festivos (0h), y ${totalPresentesEliminados} presente(s) excedentes eliminados para respetar el tope de ${horasMaximasPeriodo}h sin alterar turnos diurnos, nocturnos ni imaginarias.`;
 
   return {
     serviciosAjustados: serviciosClonados,

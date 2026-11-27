@@ -59,12 +59,12 @@ export const IncorporarUsuarioUGModal: React.FC<IncorporarUsuarioUGModalProps> =
       if (modo === 'existente') {
         const p = personas.find((item) => item.id === personaSeleccionadaId);
         if (!p) {
-          throw new Error('Debe seleccionar un efectivo ROL 2 de la lista.');
+          throw new Error('Debe seleccionar una persona de ROL 2 de la lista.');
         }
         personaObjetivo = p;
       } else {
         if (!nuevoNombre.trim()) {
-          throw new Error('Debe indicar el apellido o nombre del nuevo efectivo ROL 2.');
+          throw new Error('Debe indicar el apellido o nombre de la nueva persona de ROL 2.');
         }
         // Crear persona ROL 2
         personaObjetivo = {
@@ -73,7 +73,6 @@ export const IncorporarUsuarioUGModal: React.FC<IncorporarUsuarioUGModalProps> =
           empleo: 'ROL 2',
           grupo: 'U.G.',
           tipoServicio: 'GUARDIA',
-          dni: '',
           telefono: '',
           activo: true,
           ordenRotacion: candidatosRol2.length + 1,
@@ -101,8 +100,8 @@ export const IncorporarUsuarioUGModal: React.FC<IncorporarUsuarioUGModalProps> =
         onSuccess(res.cuadranteActualizado);
       }
     } catch (err: any) {
-      console.error('Error al incorporar nuevo efectivo R2:', err);
-      setErrorMsg(err.message || 'Error desconocido al incorporar el efectivo.');
+      console.error('Error al incorporar nueva persona R2:', err);
+      setErrorMsg(err.message || 'Error desconocido al incorporar a la persona.');
     } finally {
       setIsLoading(false);
     }
@@ -148,7 +147,7 @@ export const IncorporarUsuarioUGModal: React.FC<IncorporarUsuarioUGModalProps> =
           <form onSubmit={handleSubmit} className="mt-5 space-y-4 text-xs">
             <div className="space-y-2">
               <label className="block font-bold text-slate-700 dark:text-slate-300">
-                Origen del Efectivo ROL 2
+                Origen del Usuario ROL 2
               </label>
               <div className="grid grid-cols-2 gap-3">
                 <button
@@ -161,7 +160,7 @@ export const IncorporarUsuarioUGModal: React.FC<IncorporarUsuarioUGModalProps> =
                   }`}
                 >
                   <Users className="w-4 h-4 text-blue-600" />
-                  <span>Efectivo Existente en Plantilla</span>
+                  <span>Usuario Existente en Plantilla</span>
                 </button>
                 <button
                   type="button"
@@ -181,7 +180,7 @@ export const IncorporarUsuarioUGModal: React.FC<IncorporarUsuarioUGModalProps> =
             {modo === 'existente' ? (
               <div className="space-y-1.5">
                 <label className="block font-semibold text-slate-700 dark:text-slate-300">
-                  Seleccionar Efectivo ROL 2
+                  Seleccionar Usuario ROL 2
                 </label>
                 <select
                   value={personaSeleccionadaId}
@@ -189,7 +188,7 @@ export const IncorporarUsuarioUGModal: React.FC<IncorporarUsuarioUGModalProps> =
                   required
                   className="w-full rounded-xl border border-slate-300 bg-white p-2.5 dark:border-slate-700 dark:bg-slate-800 text-slate-800 dark:text-slate-200"
                 >
-                  <option value="">-- Seleccione un efectivo ROL 2 --</option>
+                  <option value="">-- Seleccione un usuario ROL 2 --</option>
                   {candidatosRol2.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.nombre} ({p.empleo})

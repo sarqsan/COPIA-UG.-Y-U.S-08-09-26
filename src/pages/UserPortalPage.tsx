@@ -24,6 +24,7 @@ import {
   getPartesMedicos,
 } from '../services/ausenciasService';
 import { getNotificaciones, subscribeNotificaciones } from '../services/notificacionesService';
+import { ADMIN_CANAL_ID } from '../services/chatService';
 import { registrarAccionAudit } from '../services/auditService';
 import { SolicitarCambioModal } from '../components/cambios/SolicitarCambioModal';
 import { ResponderContraofertaModal } from '../components/cambios/ResponderContraofertaModal';
@@ -222,7 +223,7 @@ export const UserPortalPage: React.FC = () => {
       setServicios(todosServicios);
       setIncidencias(todasIncidencias);
 
-      // Solicitudes de cambio de la grupo activa del usuario
+      // Solicitudes de cambio del grupo activo del usuario
       const sols = await getSolicitudesCambio(undefined, userTipoServicio);
       setSolicitudes(sols);
 
@@ -754,7 +755,7 @@ export const UserPortalPage: React.FC = () => {
     if (!currentPersona) return;
     const res = await aceptarContraofertaSolicitante({
       solicitudId: solId,
-      firmaSolicitante: `FIRMA_DIGITAL_${currentPersona.dni || currentPersona.id}_${Date.now()}`,
+      firmaSolicitante: `FIRMA_DIGITAL_${currentPersona.id}_${Date.now()}`,
       personaInfo: { id: currentPersona.id, nombre: currentPersona.nombre },
     });
     alert(res.message);
@@ -811,7 +812,7 @@ export const UserPortalPage: React.FC = () => {
                   </span>
                 </div>
                 <p className="text-[11px] text-amber-100/90 mt-0.5">
-                  Estás viendo el portal desde la perspectiva de <strong>{formatUsuarioUG(currentPersona)}</strong>. Sesión Mando: {impersonatorNombre}.
+                  Estás viendo el portal desde la perspectiva de <strong>{formatUsuarioUG(currentPersona)}</strong>. Sesión Administración: {impersonatorNombre}.
                 </p>
               </div>
             </div>
@@ -864,7 +865,7 @@ export const UserPortalPage: React.FC = () => {
                 {userTipoServicio === 'US' ? (
                   <>Unidad: <strong>Unidad de Seguridad (U.S.)</strong> • Turnos 12h (D/N)</>
                 ) : (
-                  <>Grupo: <strong>{NOMBRE_GRUPO_UG}</strong> • Turnos Oficiales 24h</>
+                  <>Grupo: <strong>{NOMBRE_GRUPO_UG}</strong> • Turnos de Guardia 24h</>
                 )}
               </p>
             </div>
@@ -885,18 +886,18 @@ export const UserPortalPage: React.FC = () => {
               )}
             </button>
 
-            {/* Botón de Chat con Oficina de Mando */}
+            {/* Botón de Chat con Administración */}
             <button
               onClick={() => {
                 setChatInitialTab('PRIVADO');
-                setChatInitialDestinatarioId('ADMIN_OFICIAL');
+                setChatInitialDestinatarioId(ADMIN_CANAL_ID);
                 setIsChatOpen(true);
               }}
               className="flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50/80 px-3.5 py-2.5 text-xs font-bold text-indigo-900 hover:bg-indigo-100 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-300 transition cursor-pointer"
-              title="Chat Privado con Administración / Mando"
+              title="Chat Privado con Administración"
             >
               <MessageSquare className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
-              <span className="hidden md:inline">Contactar Mando</span>
+              <span className="hidden md:inline">Contactar Administración</span>
             </button>
 
             {/* Botón de Cambiar Contraseña */}
@@ -1152,7 +1153,7 @@ export const UserPortalPage: React.FC = () => {
               <ArrowRightLeft className="w-5 h-5" />
             </div>
             <span className="text-xs font-bold text-slate-900 dark:text-white">Solicitar Permuta</span>
-            <span className="text-[10px] text-slate-400">Cambio entre efectivos</span>
+            <span className="text-[10px] text-slate-400">Cambio entre personal</span>
           </button>
 
           <button
@@ -1193,7 +1194,7 @@ export const UserPortalPage: React.FC = () => {
               <FileSpreadsheet className="w-5 h-5" />
             </div>
             <span className="text-xs font-bold text-slate-900 dark:text-white">Ver cuadrante general</span>
-            <span className="text-[10px] text-slate-400">Excel oficial ({userTipoServicio === 'US' ? 'U.S.' : 'U.G.'})</span>
+            <span className="text-[10px] text-slate-400">Excel completo ({userTipoServicio === 'US' ? 'U.S.' : 'U.G.'})</span>
           </button>
 
           {userTipoServicio === 'US' && (
@@ -1655,7 +1656,7 @@ export const UserPortalPage: React.FC = () => {
                               className="px-3 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-300 hover:bg-emerald-100 text-xs font-bold rounded-xl transition flex items-center gap-1.5 cursor-pointer"
                             >
                               <FileCheck className="w-3.5 h-3.5" />
-                              Ver Documento Oficial Firmado
+                              Ver Documento Firmado
                             </button>
                           )}
                         </div>
@@ -1740,7 +1741,7 @@ export const UserPortalPage: React.FC = () => {
                               className="px-3 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-300 hover:bg-emerald-100 text-xs font-bold rounded-xl transition flex items-center gap-1.5 cursor-pointer"
                             >
                               <FileCheck className="w-3.5 h-3.5" />
-                              Ver Documento Oficial Firmado
+                              Ver Documento Firmado
                             </button>
                           </div>
                         )}
@@ -1962,7 +1963,7 @@ export const UserPortalPage: React.FC = () => {
               <MatriculasModuleView />
             )}
 
-            {/* TAB DOCUMENTOS: DILIGENCIAS OFICIALES FIRMADAS */}
+            {/* TAB DOCUMENTOS: DILIGENCIAS FIRMADAS */}
             {activeTab === 'documentos' && (
               <DocumentosCambioSection currentPersona={currentPersona} isAdmin={false} />
             )}
@@ -2265,7 +2266,7 @@ export const UserPortalPage: React.FC = () => {
               )
             )}
 
-            {/* TAB: VER CUADRANTE GENERAL (REUTILIZACIÓN DEL EXCEL OFICIAL, SOLO LECTURA) */}
+            {/* TAB: VER CUADRANTE GENERAL (REUTILIZACIÓN DEL EXCEL COMPLETO, SOLO LECTURA) */}
             {activeTab === 'cuadranteGeneral' && (
               (cuadranteSeleccionadoVista || cuadranteActivo) ? (
                 <div className="space-y-4">
@@ -2342,7 +2343,7 @@ export const UserPortalPage: React.FC = () => {
                   </div>
                   <h3 className="text-base font-bold text-slate-900 dark:text-white">Cargando Cuadrante General...</h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-                    El sistema está preparando la matriz completa de turnos en formato Excel oficial para tu unidad.
+                    El sistema está preparando la matriz completa de turnos en formato Excel para tu unidad.
                   </p>
                   <button
                     onClick={cargarDatos}
@@ -2382,7 +2383,7 @@ export const UserPortalPage: React.FC = () => {
                       No tienes patrullas asignadas actualmente.
                     </p>
                     <p className="text-[11px] text-slate-400">
-                      Las patrullas se planifican de manera independiente por la Oficina de Mando según la equidad de la plantilla.
+                      Las patrullas se planifican de manera independiente por Administración según la equidad de la plantilla.
                     </p>
                   </div>
                 ) : (
@@ -2563,7 +2564,7 @@ export const UserPortalPage: React.FC = () => {
             else if (tab === 'cuadranteGeneral' || tab === 'cuadrante') setActiveTab('cuadranteGeneral');
             else if (tab === 'chat') {
               setChatInitialTab('PRIVADO');
-              setChatInitialDestinatarioId(refId || 'ADMIN_OFICIAL');
+              setChatInitialDestinatarioId(refId || ADMIN_CANAL_ID);
               setIsChatOpen(true);
             }
           }}

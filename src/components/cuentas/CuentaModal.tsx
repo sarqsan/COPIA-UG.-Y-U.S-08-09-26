@@ -129,7 +129,7 @@ export const CuentaModal: React.FC<CuentaModalProps> = ({
         {/* Vincular a Persona existente */}
         <div>
           <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-            Vincular a Efectivo del Grupo <span className="text-slate-400 font-normal">(Opcional para Administradores)</span>
+            Vincular a Personal del Grupo <span className="text-slate-400 font-normal">(Opcional para Administradores)</span>
           </label>
           <select
             id="select-vincular-persona"

@@ -26,7 +26,7 @@ import {
 import { crearNotificacion } from './notificacionesService';
 import { getDiaSemanaUTC, generarRangoFechasPuras } from '../utils/dateUtils';
 import { esDiaEspecial } from './diasEspecialesService';
-import { obtenerEfectivosEnServicioOImaginaria } from './cuadranteService';
+import { obtenerPersonalEnServicioOImaginaria } from './cuadranteService';
 
 const PATRULLAS_COLLECTION = 'patrullas';
 const PATRULLAS_AUDIT_COLLECTION = 'patrullas_audit';
@@ -340,7 +340,7 @@ export const determinarRolCandidato = (
   const totalR1 = r1Operativos.length;
   const totalR2 = r2Operativos.length;
 
-  // REGLA OBLIGATORIA: Las patrullas se asignan exclusivamente a efectivos de ROL 2.
+  // REGLA OBLIGATORIA: Las patrullas se asignan exclusivamente a usuarios de ROL 2.
   return {
     rolCandidato: 'ROL 2',
     totalR1Operativos: totalR1,
@@ -555,7 +555,7 @@ export const crearPatrulla = async (params: {
   // En D: NO puede ser saliente de guardia de 24h del día anterior (D-1).
   // NO puede tener imaginaria U.G. en D o D+1 (EXCEPCIÓN: imaginaria en D-1 sí está permitida).
   if (!saltarRestricciones) {
-    const excluidos = await obtenerEfectivosEnServicioOImaginaria(params.fecha, {
+    const excluidos = await obtenerPersonalEnServicioOImaginaria(params.fecha, {
       cuadranteId: params.cuadranteId,
     });
     if (excluidos.todosExcluidosIds.includes(persona.id)) {
@@ -700,8 +700,8 @@ export const generarPatrullasRango = async (params: {
       // Paso 1: Determinar rol candidato dinámico
       const seleccionRol = determinarRolCandidato(personas, memoryPatrullasCache);
 
-      // Obtener efectivos asignados de servicio o imaginaria para excluirlos en esta fecha
-      const excluidos = await obtenerEfectivosEnServicioOImaginaria(fechaIso);
+      // Obtener personal asignado de servicio o imaginaria para excluirlo en esta fecha
+      const excluidos = await obtenerPersonalEnServicioOImaginaria(fechaIso);
 
       // Paso 2: Obtener candidatos ordenados (excluyendo automáticamente los de servicio e imaginaria)
       const candidatos = obtenerCandidatosOrdenados({
@@ -783,7 +783,7 @@ export const sustituirPatrulla = async (params: {
 
   // VALIDACIÓN DEFENSIVA ESTRICTA DE COMPATIBILIDAD (Bloque 4 / Nivel 2 de protección):
   if (!saltarRestricciones) {
-    const excluidos = await obtenerEfectivosEnServicioOImaginaria(patrulla.fecha, {
+    const excluidos = await obtenerPersonalEnServicioOImaginaria(patrulla.fecha, {
       cuadranteId: params.cuadranteId || patrulla.cuadranteId,
     });
     if (excluidos.todosExcluidosIds.includes(nuevaPersona.id)) {
@@ -1013,7 +1013,7 @@ export const eliminarPatrulla = async (params: {
       usuarioNombre: adminInfo.nombre,
       valorAnterior: patrullaAEliminar,
       detalles: patrullaAEliminar
-        ? `Eliminación física definitiva de patrulla #${secuencial} (Fecha: ${patrullaAEliminar.fecha}, Efectivo: ${patrullaAEliminar.personaNombre}, Estado: ${patrullaAEliminar.estado}) por ${adminInfo.nombre}.`
+        ? `Eliminación física definitiva de patrulla #${secuencial} (Fecha: ${patrullaAEliminar.fecha}, Usuario: ${patrullaAEliminar.personaNombre}, Estado: ${patrullaAEliminar.estado}) por ${adminInfo.nombre}.`
         : `Eliminación física definitiva de documento ${patrullaId} por ${adminInfo.nombre}.`,
     });
   } catch (auditErr) {
@@ -1146,7 +1146,7 @@ export const calcularEstadisticasPatrullas = (params: {
     if (p.personaEmpleo === 'ROL 1') totalRol1++;
     else if (p.personaEmpleo === 'ROL 2') totalRol2++;
 
-    // Determinar a qué efectivo corresponde el registro/crédito de la patrulla
+    // Determinar a qué usuario corresponde el registro/crédito de la patrulla
     // Si la patrulla fue REALIZADA y contó con sustitución, el crédito corresponde a quien la realizó efectivamente
     const personaCreditoId = (p.estado === 'REALIZADA' && p.personaSustitutaId)
       ? p.personaSustitutaId

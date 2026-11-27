@@ -17,7 +17,7 @@ import { addDaysToDateStr, getDaysDiff } from '../utils/dateUtils';
  * - RD-05: Ninguna persona tiene servicios consecutivos (D y D+1).
  * - RD-06: Ninguna persona está de imaginaria en D-1, D o D+1 respecto a su servicio.
  * - RD-07: Ninguna persona ocupa dos puestos el mismo día.
- * - RD-08: Correspondencia estricta de empleo en cada puesto.
+ * - RD-08: Correspondencia estricta de rol en cada puesto.
  * - RD-09: Todo el personal asignado debe estar activo.
  * - RD-10: Todos los personaIds deben existir en el directorio.
  */
@@ -115,7 +115,7 @@ export const validarCuadrante = (
         });
       }
 
-      // RD-08: Correspondencia de empleo
+      // RD-08: Correspondencia de rol
       if (persona.empleo !== empleoEsperado) {
         const rolActual = persona.empleo === 'ROL 1' ? 'ROL 1' : 'ROL 2';
         const rolReq = empleoEsperado === 'ROL 1' ? 'ROL 1' : 'ROL 2';
@@ -402,10 +402,10 @@ export const autoCorregirServicios = (
 
       if (tieneChoque) {
         // Buscar rol 2 sustituto elegible
-        const candidato = rol2.find((sold) => {
-          if (titularesHoyIds.has(sold.id)) return false;
-          const candSrvs = diasServicio.get(sold.id) || new Set();
-          const candImags = diasImaginaria.get(sold.id) || new Set();
+        const candidato = rol2.find((pRol2) => {
+          if (titularesHoyIds.has(pRol2.id)) return false;
+          const candSrvs = diasServicio.get(pRol2.id) || new Set();
+          const candImags = diasImaginaria.get(pRol2.id) || new Set();
           return (
             !candSrvs.has(fecha) &&
             !candSrvs.has(fechaAyer) &&
@@ -464,15 +464,15 @@ export interface CapacidadPlantillaResult {
  * Valida la capacidad de personal de forma dinámica y matemáticamente rigurosa.
  *
  * Diferencia tres conceptos fundamentales:
- * 1. MÍNIMO TEÓRICO BASE: 6 efectivos (mínimo de disponibilidad para rotar 1 servicio diario + 4 días libres + 1 imaginaria diaria con 1 titular).
+ * 1. MÍNIMO TEÓRICO BASE: 6 usuarios (mínimo de disponibilidad para rotar 1 servicio diario + 4 días libres + 1 imaginaria diaria con 1 titular).
  * 2. ESTRUCTURA DIARIA ACTUAL: 2 titulares R1 + 2 titulares R2 + 1 imaginaria R1 + 1 imaginaria R2 diarios.
  * 3. CONFIGURACIÓN OPERATIVAMENTE VIABLE:
- *    Para cubrir T titulares diarios respetando 4 días libres, se requieren como mínimo T * (1 + 4) = 10 efectivos titulares,
- *    más la rotación de 1 imaginaria diaria sin conflicto D-1/D+1 (mínimo operativo de 10-11 efectivos por rol).
+ *    Para cubrir T titulares diarios respetando 4 días libres, se requieren como mínimo T * (1 + 4) = 10 usuarios titulares,
+ *    más la rotación de 1 imaginaria diaria sin conflicto D-1/D+1 (mínimo operativo de 10-11 usuarios por rol).
  *
  * Si una plantilla cuenta con 6 R1 y se le exigen 2 titulares diarios:
  * - El descanso medio caería a solo 2 días libres ((6/2) - 1 = 2).
- * - No existirían efectivos disponibles para la imaginaria diaria sin colisión con servicios adyacentes.
+ * - No existirían usuarios disponibles para la imaginaria diaria sin colisión con servicios adyacentes.
  * - Por tanto, el motor DETECTA la contradicción, no fabrica un cuadrante incorrecto,
  *   e informa de forma transparente y matemática al Administrador.
  */
@@ -502,25 +502,25 @@ export const validarCapacidadPlantilla = (personas: Persona[]): CapacidadPlantil
   if (totalRol1 < MIN_ROL1) {
     viable = false;
     detalles.push(
-      `ROL 1 INSUFICIENTE (INVIABLE): Hay ${totalRol1} efectivos ROL 1 activos. El mínimo absoluto teórico del sistema es ${MIN_ROL1}. No es posible cubrir ningún ciclo de guardias.`
+      `ROL 1 INSUFICIENTE (INVIABLE): Hay ${totalRol1} usuarios de ROL 1 activos. El mínimo absoluto teórico del sistema es ${MIN_ROL1}. No es posible cubrir ningún ciclo de guardias.`
     );
   } else if (totalRol1 < minTitularesR1) {
     viable = false;
     const descansoMedioEstimado = ((totalRol1 / PUESTOS_TITULARES_DIARIOS_ROL1) - 1).toFixed(1);
     detalles.push(
-      `INCOMPATIBILIDAD MATEMÁTICA ESTRUCTURAL EN ROL 1: La plantilla cuenta con ${totalRol1} efectivos ROL 1 activos. ` +
-      `La estructura operativa actual exige ${PUESTOS_TITULARES_DIARIOS_ROL1} titulares diarios y un descanso reglamentario de 1 servicio + ${DIAS_LIBRES_MINIMOS_CICLO} días libres. ` +
-      `Matemáticamente se requieren al menos ${minTitularesR1} efectivos ROL 1 para sostener 2 titulares diarios respetando 4 días libres. ` +
-      `Con ${totalRol1} efectivos, el descanso medio sería de solo ${descansoMedioEstimado} días libres y no habría personal disponible para la imaginaria diaria sin solapamiento D-1/D+1. ` +
+      `INCOMPATIBILIDAD MATEMÁTICA ESTRUCTURAL EN ROL 1: La plantilla cuenta con ${totalRol1} usuarios de ROL 1 activos. ` +
+      `La estructura operativa actual exige ${PUESTOS_TITULARES_DIARIOS_ROL1} titulares diarios y un descanso establecido de 1 servicio + ${DIAS_LIBRES_MINIMOS_CICLO} días libres. ` +
+      `Matemáticamente se requieren al menos ${minTitularesR1} usuarios de ROL 1 para sostener 2 titulares diarios respetando 4 días libres. ` +
+      `Con ${totalRol1} usuarios, el descanso medio sería de solo ${descansoMedioEstimado} días libres y no habría personal disponible para la imaginaria diaria sin solapamiento D-1/D+1. ` +
       `No se puede generar automáticamente sin ajuste administrativo en los puestos diarios.`
     );
   } else if (totalRol1 < minOperativoR1) {
     detalles.push(
-      `ROL 1 VIABLE JUSTO: Hay ${totalRol1} efectivos ROL 1 activos (cubre exactamente ${minTitularesR1} titulares con descanso 1+4, con rotación muy ajustada para imaginarias).`
+      `ROL 1 VIABLE JUSTO: Hay ${totalRol1} usuarios de ROL 1 activos (cubre exactamente ${minTitularesR1} titulares con descanso 1+4, con rotación muy ajustada para imaginarias).`
     );
   } else {
     detalles.push(
-      `ROL 1 OPERATIVO: Hay ${totalRol1} efectivos ROL 1 activos (supera el umbral operativo de ${minOperativoR1} efectivos). Régimen 1+4 e imaginarias garantizados.`
+      `ROL 1 OPERATIVO: Hay ${totalRol1} usuarios de ROL 1 activos (supera el umbral operativo de ${minOperativoR1} usuarios). Régimen 1+4 e imaginarias garantizados.`
     );
   }
 
@@ -528,39 +528,39 @@ export const validarCapacidadPlantilla = (personas: Persona[]): CapacidadPlantil
   if (totalRol2 < MIN_ROL2) {
     viable = false;
     detalles.push(
-      `ROL 2 INSUFICIENTE (INVIABLE): Hay ${totalRol2} efectivos ROL 2 activos. El mínimo absoluto teórico del sistema es ${MIN_ROL2}. No es posible cubrir ningún ciclo de guardias.`
+      `ROL 2 INSUFICIENTE (INVIABLE): Hay ${totalRol2} usuarios de ROL 2 activos. El mínimo absoluto teórico del sistema es ${MIN_ROL2}. No es posible cubrir ningún ciclo de guardias.`
     );
   } else if (totalRol2 < minTitularesR2) {
     viable = false;
     const descansoMedioEstimado = ((totalRol2 / PUESTOS_TITULARES_DIARIOS_ROL2) - 1).toFixed(1);
     detalles.push(
-      `INCOMPATIBILIDAD MATEMÁTICA ESTRUCTURAL EN ROL 2: La plantilla cuenta con ${totalRol2} efectivos ROL 2 activos. ` +
+      `INCOMPATIBILIDAD MATEMÁTICA ESTRUCTURAL EN ROL 2: La plantilla cuenta con ${totalRol2} usuarios de ROL 2 activos. ` +
       `La estructura operativa exige ${PUESTOS_TITULARES_DIARIOS_ROL2} titulares diarios y un descanso de 1 servicio + ${DIAS_LIBRES_MINIMOS_CICLO} días libres. ` +
-      `Matemáticamente se requieren al menos ${minTitularesR2} efectivos ROL 2. Con ${totalRol2} efectivos el descanso medio sería de ${descansoMedioEstimado} días libres.`
+      `Matemáticamente se requieren al menos ${minTitularesR2} usuarios de ROL 2. Con ${totalRol2} usuarios el descanso medio sería de ${descansoMedioEstimado} días libres.`
     );
   } else if (totalRol2 < minOperativoR2) {
     detalles.push(
-      `ROL 2 VIABLE JUSTO: Hay ${totalRol2} efectivos ROL 2 activos (cubre ${minTitularesR2} titulares con descanso 1+4).`
+      `ROL 2 VIABLE JUSTO: Hay ${totalRol2} usuarios de ROL 2 activos (cubre ${minTitularesR2} titulares con descanso 1+4).`
     );
   } else {
     detalles.push(
-      `ROL 2 OPERATIVO: Hay ${totalRol2} efectivos ROL 2 activos (plantilla dinámica holgada: ${totalRol2} efectivos). Régimen 1+4 e imaginarias garantizados.`
+      `ROL 2 OPERATIVO: Hay ${totalRol2} usuarios de ROL 2 activos (plantilla dinámica holgada: ${totalRol2} usuarios). Régimen 1+4 e imaginarias garantizados.`
     );
   }
 
   // 3. Análisis de Total General
   if (totalPersonas < minTotalOperativo && viable) {
     detalles.push(
-      `PLANTILLA GLOBAL AJUSTADA: Hay ${totalPersonas} efectivos activos (el mínimo óptimo global para 2 titulares R1 + 2 titulares R2 + 2 imaginarias es de ${minTotalOperativo} efectivos).`
+      `PLANTILLA GLOBAL AJUSTADA: Hay ${totalPersonas} personas activas (el mínimo óptimo global para 2 titulares R1 + 2 titulares R2 + 2 imaginarias es de ${minTotalOperativo} personas).`
     );
   } else if (viable) {
     detalles.push(
-      `PLANTILLA GLOBAL ÓPTIMA: Hay ${totalPersonas} efectivos activos (totalmente compatible con la estructura de guardias de 24h y 4 días libres).`
+      `PLANTILLA GLOBAL ÓPTIMA: Hay ${totalPersonas} personas activas (totalmente compatible con la estructura de guardias de 24h y 4 días libres).`
     );
   }
 
   if (!viable) {
-    motivoBloqueo = `Bloqueo de Capacidad Operativa: La plantilla activa (${totalPersonas} efectivos: ${totalRol1} ROL 1, ${totalRol2} ROL 2) no es compatible con la estructura de puestos diarios actuales (2 titulares R1 + 2 titulares R2) y la regla de 1 servicio + 4 días libres.`;
+    motivoBloqueo = `Bloqueo de Capacidad Operativa: La plantilla activa (${totalPersonas} personas: ${totalRol1} ROL 1, ${totalRol2} ROL 2) no es compatible con la estructura de puestos diarios actuales (2 titulares R1 + 2 titulares R2) y la regla de 1 servicio + 4 días libres.`;
   }
 
   return {

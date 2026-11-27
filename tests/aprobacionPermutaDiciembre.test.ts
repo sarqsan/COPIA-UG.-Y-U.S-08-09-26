@@ -50,7 +50,6 @@ async function runTest() {
     grupo: 'US_SEGURIDAD',
     tipoServicio: 'US',
     activo: true,
-    dni: '11111111A',
     telefono: '600000001',
     fechaCreacion: '2026-01-01',
     fechaActualizacion: '2026-01-01',
@@ -63,7 +62,6 @@ async function runTest() {
     grupo: 'US_SEGURIDAD',
     tipoServicio: 'US',
     activo: true,
-    dni: '22222222B',
     telefono: '600000002',
     fechaCreacion: '2026-01-01',
     fechaActualizacion: '2026-01-01',
@@ -181,7 +179,7 @@ async function runTest() {
   setMemorySolicitudesTest([solicitud]);
 
   // Ejecutar aprobación como administrador
-  const adminInfo = { uid: 'admin-1', nombre: 'Mando Administrador' };
+  const adminInfo = { uid: 'admin-1', nombre: 'Administración' };
   const resultado = await aprobarSolicitudAdmin({
     solicitud,
     adminInfo,

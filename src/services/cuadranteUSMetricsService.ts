@@ -109,7 +109,7 @@ export const calcularMetricasCuadranteUS = (
       }
     });
 
-    // 1. DIURNO (2 efectivos)
+    // 1. DIURNO (2 personas)
     s.diurno.titulares.forEach((t) => {
       const pId = resolvePersonaId(t.personaIdReal || (t as any).personaId, (t as any).nombre);
       if (pId && detallePorPersona[pId]) {
@@ -144,7 +144,7 @@ export const calcularMetricasCuadranteUS = (
       }
     });
 
-    // 2. NOCTURNO (2 efectivos)
+    // 2. NOCTURNO (2 personas)
     s.nocturno.titulares.forEach((t) => {
       const pId = resolvePersonaId(t.personaIdReal || (t as any).personaId, (t as any).nombre);
       if (pId && detallePorPersona[pId]) {
@@ -184,7 +184,7 @@ export const calcularMetricasCuadranteUS = (
       }
     });
 
-    // 3. IMAGINARIA (1 efectivo)
+    // 3. IMAGINARIA (1 persona)
     if (s.imaginaria && (s.imaginaria.personaIdReal || (s.imaginaria as any).personaId)) {
       const pId = resolvePersonaId(s.imaginaria.personaIdReal || (s.imaginaria as any).personaId, (s.imaginaria as any).nombre);
       if (pId && detallePorPersona[pId]) {

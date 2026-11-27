@@ -321,7 +321,7 @@ export const evaluarMotivosIncompatibilidadCambioUS = (params: {
       categoria: 'DISPONIBILIDAD',
       descripcion: `${destinatario.nombre} tiene vacaciones o permiso concedido el día ${fechaServicio}.`,
       fechaAfectada: fechaServicio,
-      servicioAsignado: 'Vacaciones / Permiso oficial',
+      servicioAsignado: 'Vacaciones / Permiso autorizado',
       servicioPretendido: nombreTurnoPretendido,
       codigoRegla: 'US-AUSENCIA',
     });
@@ -835,7 +835,7 @@ export const validarViabilidadPermuta = (
       };
     };
 
-    // 2. Comprobar que no haya duplicidades en el mismo día (que el efectivo no ocupe otro puesto adicional ese día)
+    // 2. Comprobar que no haya duplicidades en el mismo día (que el usuario no ocupe otro puesto adicional ese día)
     if (!esPermutaMismoDiaServicioImaginaria) {
       // En srvA: verificar si destinatario ya tenía OTRO puesto distinto al que se intercambia
       const titularesA = [
@@ -2144,7 +2144,7 @@ export const responderSolicitudCompanero = async (params: {
     await crearNotificacion({
       tipo: 'SOLICITUD_ACEPTADA_COMPANERO',
       titulo: 'Has Aceptado el Cambio de Servicio',
-      mensaje: `Has aceptado el cambio propuesto por ${sol.solicitanteNombre} para el ${sol.fechaServicio}. El trámite ha sido remitido al Mando para autorización.`,
+      mensaje: `Has aceptado el cambio propuesto por ${sol.solicitanteNombre} para el ${sol.fechaServicio}. El trámite ha sido remitido a Administración para autorización.`,
       destinatarioPersonaId: sol.destinatarioPersonaId,
       linkTab: 'mis-servicios',
       referenciaId: solicitudId,
@@ -2406,7 +2406,7 @@ export const resolverSolicitudAdmin = async (params: {
 
   if (!aprobada) {
     sol.estado = 'RECHAZADA_ADMIN';
-    sol.motivoRechazoAdmin = motivoRechazo?.trim() || 'Rechazada por decisión del mando';
+    sol.motivoRechazoAdmin = motivoRechazo?.trim() || 'Rechazada por administración';
     saveLocalCache();
 
     try {
@@ -2441,16 +2441,16 @@ export const resolverSolicitudAdmin = async (params: {
     // Notificar a ambos usuarios
     await crearNotificacion({
       tipo: 'SOLICITUD_RECHAZADA_ADMIN',
-      titulo: 'Cambio de Servicio Denegado por el Mando',
-      mensaje: `Tu solicitud de cambio para el ${sol.fechaServicio} fue rechazada por el Mando. Motivo: ${sol.motivoRechazoAdmin}`,
+      titulo: 'Cambio de Servicio Denegado por Administración',
+      mensaje: `Tu solicitud de cambio para el ${sol.fechaServicio} fue rechazada por Administración. Motivo: ${sol.motivoRechazoAdmin}`,
       destinatarioPersonaId: sol.solicitantePersonaId,
       linkTab: 'mis-servicios',
       referenciaId: solicitudId,
     });
     await crearNotificacion({
       tipo: 'SOLICITUD_RECHAZADA_ADMIN',
-      titulo: 'Cambio de Servicio Denegado por el Mando',
-      mensaje: `La solicitud de cambio para el ${sol.fechaServicio} fue rechazada por el Mando.`,
+      titulo: 'Cambio de Servicio Denegado por Administración',
+      mensaje: `La solicitud de cambio para el ${sol.fechaServicio} fue rechazada por Administración.`,
       destinatarioPersonaId: sol.destinatarioPersonaId,
       linkTab: 'mis-servicios',
       referenciaId: solicitudId,
@@ -2476,12 +2476,11 @@ export const resolverSolicitudAdmin = async (params: {
   if (!solicitanteObj) {
     solicitanteObj = {
       id: sol.solicitantePersonaId || (esUnidadUS ? 'solicitante-us' : 'solicitante-ug'),
-      nombre: sol.solicitanteNombre || 'Efectivo Solicitante',
+      nombre: sol.solicitanteNombre || 'Usuario Solicitante',
       empleo: sol.puesto || (esUnidadUS ? 'ROL 2' : 'ROL 1'),
       activo: true,
       grupo: sol.solicitanteGrupo || (esUnidadUS ? 'US_SEGURIDAD' : 'U.G.'),
       tipoServicio: esUnidadUS ? 'US' : 'GUARDIA',
-      dni: '',
       telefono: '',
       fechaCreacion: now,
       fechaActualizacion: now,
@@ -2500,12 +2499,11 @@ export const resolverSolicitudAdmin = async (params: {
   if (!destinatarioObj) {
     destinatarioObj = {
       id: sol.destinatarioPersonaId || (esUnidadUS ? 'destinatario-us' : 'destinatario-ug'),
-      nombre: sol.destinatarioNombre || 'Efectivo Destinatario',
+      nombre: sol.destinatarioNombre || 'Usuario Destinatario',
       empleo: sol.destinatarioEmpleo || sol.puesto || (esUnidadUS ? 'ROL 2' : 'ROL 1'),
       activo: true,
       grupo: sol.destinatarioGrupo || (esUnidadUS ? 'US_SEGURIDAD' : 'U.G.'),
       tipoServicio: esUnidadUS ? 'US' : 'GUARDIA',
-      dni: '',
       telefono: '',
       fechaCreacion: now,
       fechaActualizacion: now,
@@ -2637,7 +2635,7 @@ export const resolverSolicitudAdmin = async (params: {
     }
   }
 
-  // 2. Generar Documento Electrónico Oficial Firmado
+  // 2. Generar Documento Electrónico Firmado
   const codigoVerificacion = `DOC-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
   const documentoId = `doc-cambio-${Date.now()}`;
 
@@ -2671,11 +2669,11 @@ export const resolverSolicitudAdmin = async (params: {
     autorizacionAdmin: {
       adminUid: adminInfo.uid,
       adminNombre: adminInfo.nombre,
-      firma: firmaAdmin || 'FIRMA_OFICIAL_ADMINISTRADOR',
+      firma: firmaAdmin || 'FIRMA_ADMINISTRADOR',
       fechaAutorizacion: now,
       resolucion: 'AUTORIZADO',
     },
-    detalles: `Autorización oficial de cambio de ${sol.tipoCambio === 'IMAGINARIA' ? 'imaginaria' : 'guardia 24h'} correspondiente al día ${sol.fechaServicio}. ${sol.servicioDevolucionFecha ? `Incluye devolución acordada para el ${sol.servicioDevolucionFecha}.` : ''}`,
+    detalles: `Autorización de cambio de ${sol.tipoCambio === 'IMAGINARIA' ? 'imaginaria' : 'guardia 24h'} correspondiente al día ${sol.fechaServicio}. ${sol.servicioDevolucionFecha ? `Incluye devolución acordada para el ${sol.servicioDevolucionFecha}.` : ''}`,
     motivo: sol.motivo || 'Acuerdo de servicio entre partes',
   };
 
@@ -2748,8 +2746,8 @@ export const resolverSolicitudAdmin = async (params: {
   // 6. Notificar a ambos usuarios y al Administrador (Centro de Notificaciones)
   await crearNotificacion({
     tipo: 'SOLICITUD_APROBADA_ADMIN',
-    titulo: 'Cambio de Servicio Autorizado por el Mando',
-    mensaje: `Cambio de servicio autorizado por el Mando. Documento oficial: ${codigoVerificacion}.`,
+    titulo: 'Cambio de Servicio Autorizado por Administración',
+    mensaje: `Cambio de servicio autorizado por Administración. Documento justificativo: ${codigoVerificacion}.`,
     destinatarioPersonaId: sol.solicitantePersonaId,
     referenciaId: solicitudId,
     cuadranteId: sol.cuadranteId,
@@ -2758,8 +2756,8 @@ export const resolverSolicitudAdmin = async (params: {
   });
   await crearNotificacion({
     tipo: 'SOLICITUD_APROBADA_ADMIN',
-    titulo: 'Cambio de Servicio Autorizado por el Mando',
-    mensaje: `Cambio de servicio autorizado por el Mando. Has asumido la guardia del ${sol.fechaServicio}. Documento oficial: ${codigoVerificacion}.`,
+    titulo: 'Cambio de Servicio Autorizado por Administración',
+    mensaje: `Cambio de servicio autorizado por Administración. Has asumido la guardia del ${sol.fechaServicio}. Documento justificativo: ${codigoVerificacion}.`,
     destinatarioPersonaId: sol.destinatarioPersonaId,
     referenciaId: solicitudId,
     cuadranteId: sol.cuadranteId,
@@ -2810,7 +2808,7 @@ export const getDocumentoFirmado = async (
 };
 
 /**
- * Obtiene la lista completa de documentos de cambio firmados oficiales
+ * Obtiene la lista completa de documentos de cambio firmados
  */
 export const getDocumentosFirmados = async (): Promise<DocumentoCambioFirmado[]> => {
   loadLocalCache();
@@ -2884,7 +2882,7 @@ export const rechazarSolicitudAdmin = async (params: {
 };
 
 /**
- * Limpia todas las solicitudes de cambio y diligencias oficiales de U.G.
+ * Limpia todas las solicitudes de cambio y documentos firmados de U.G.
  * Utilizado al cargar una nueva plantilla de personal en limpio.
  */
 export const limpiarTodosCambiosUG = async () => {
@@ -2926,7 +2924,7 @@ export const limpiarTodosCambiosUG = async () => {
 };
 
 /**
- * Registra directamente un documento firmado oficial (ej. tras una modificación administrativa manual de la U.S.)
+ * Registra directamente un documento firmado (ej. tras una modificación administrativa manual de la U.S.)
  */
 export const registrarDocumentoFirmadoDirecto = async (docFirmado: DocumentoCambioFirmado): Promise<void> => {
   loadLocalCache();

@@ -62,7 +62,7 @@ export const generateInitialMockPersonas = (): Persona[] => {
   const now = '2026-01-01T09:00:00.000Z';
 
   // --- GRUPO DE GUARDIA U.G. (24 Horas) ---
-  // ROL 1 (11 efectivos en referencia actual)
+  // ROL 1 (11 personas en referencia actual)
   for (let i = 1; i <= APELLIDOS_ROL1.length; i++) {
     const apellido = APELLIDOS_ROL1[i - 1] || `ROL1_${i}`;
     personas.push({
@@ -71,7 +71,6 @@ export const generateInitialMockPersonas = (): Persona[] => {
       empleo: 'ROL 1', // Interno ROL 1
       grupo: 'U.G.',
       tipoServicio: 'GUARDIA',
-      dni: '',
       telefono: '',
       activo: true,
       ordenRotacion: i,
@@ -82,7 +81,7 @@ export const generateInitialMockPersonas = (): Persona[] => {
     });
   }
 
-  // ROL 2 (12 efectivos en referencia actual: 11 base + 1 nuevo)
+  // ROL 2 (12 personas en referencia actual: 11 base + 1 nuevo)
   for (let i = 1; i <= APELLIDOS_ROL2.length; i++) {
     const apellido = APELLIDOS_ROL2[i - 1] || `ROL2_${i}`;
     personas.push({
@@ -91,7 +90,6 @@ export const generateInitialMockPersonas = (): Persona[] => {
       empleo: 'ROL 2', // Interno ROL 2
       grupo: 'U.G.',
       tipoServicio: 'GUARDIA',
-      dni: '',
       telefono: '',
       activo: true,
       ordenRotacion: i,
@@ -112,7 +110,6 @@ export const generateInitialMockPersonas = (): Persona[] => {
       empleo: 'ROL 1',
       grupo: 'US_SEGURIDAD',
       tipoServicio: 'US',
-      dni: '',
       telefono: '',
       activo: true,
       ordenRotacion: i,
@@ -132,7 +129,6 @@ export const generateInitialMockPersonas = (): Persona[] => {
       empleo: 'ROL 2',
       grupo: 'US_SEGURIDAD',
       tipoServicio: 'US',
-      dni: '',
       telefono: '',
       activo: true,
       ordenRotacion: i + 8,
@@ -158,7 +154,7 @@ export const generateInitialMockCuentas = (personas: Persona[]): Cuenta[] => {
       .toLowerCase()
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
-      .replace(/^(cabo|soldado|cbo|sld|rol1|rol2)/g, '')
+      .replace(/^(rol1|rol2)/g, '')
       .replace(/[^a-z0-9]/g, '');
 
     const emp = (p.empleo || '').toUpperCase();

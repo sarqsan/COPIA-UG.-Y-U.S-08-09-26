@@ -62,7 +62,7 @@ export const CuadranteMetricasPanel: React.FC<CuadranteMetricasPanelProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* 1. Tarjetas de Resumen Global y por Empleo */}
+      {/* 1. Tarjetas de Resumen Global y por Rol */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         {/* Score Global */}
         <div className={`rounded-xl border p-4 shadow-sm flex flex-col justify-between ${scoreColor}`}>
@@ -85,13 +85,13 @@ export const CuadranteMetricasPanel: React.FC<CuadranteMetricasPanelProps> = ({
         {/* Resumen ROL 1 */}
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <div className="flex items-center justify-between text-slate-700 dark:text-slate-200">
-            <span className="text-xs font-bold uppercase tracking-wider">Efectivos ROL 1</span>
+            <span className="text-xs font-bold uppercase tracking-wider">Usuarios de Rol 1</span>
             <ShieldCheck className="h-5 w-5 text-indigo-500" />
           </div>
           <div className="mt-2 space-y-1.5 text-xs text-slate-600 dark:text-slate-400">
             <div className="flex justify-between font-semibold text-slate-900 dark:text-slate-100">
               <span>Total ROL 1:</span>
-              <span className="text-sm">{metricas.rol1.totalEfectivos}</span>
+              <span className="text-sm">{metricas.rol1.totalPersonal ?? (metricas.rol1 as any).totalEfectivos ?? 0}</span>
             </div>
             <div className="flex justify-between">
               <span>Rango Servicios:</span>
@@ -121,13 +121,13 @@ export const CuadranteMetricasPanel: React.FC<CuadranteMetricasPanelProps> = ({
         {/* Resumen ROL 2 */}
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <div className="flex items-center justify-between text-slate-700 dark:text-slate-200">
-            <span className="text-xs font-bold uppercase tracking-wider">Efectivos ROL 2</span>
+            <span className="text-xs font-bold uppercase tracking-wider">Usuarios de Rol 2</span>
             <UserCheck className="h-5 w-5 text-emerald-500" />
           </div>
           <div className="mt-2 space-y-1.5 text-xs text-slate-600 dark:text-slate-400">
             <div className="flex justify-between font-semibold text-slate-900 dark:text-slate-100">
               <span>Total ROL 2:</span>
-              <span className="text-sm">{metricas.rol2.totalEfectivos}</span>
+              <span className="text-sm">{metricas.rol2.totalPersonal ?? (metricas.rol2 as any).totalEfectivos ?? 0}</span>
             </div>
             <div className="flex justify-between">
               <span>Rango Servicios:</span>
@@ -161,7 +161,7 @@ export const CuadranteMetricasPanel: React.FC<CuadranteMetricasPanelProps> = ({
           <div className="flex items-center gap-2">
             <Calendar className="h-4 w-4 text-blue-600 dark:text-blue-400" />
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-slate-100">
-              Desglose Individual de Carga ({listaPersonas.length} efectivos)
+              Desglose Individual de Carga ({listaPersonas.length} personas)
             </h3>
           </div>
 
@@ -206,7 +206,7 @@ export const CuadranteMetricasPanel: React.FC<CuadranteMetricasPanelProps> = ({
           <table className="w-full text-left text-xs">
             <thead className="border-b border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400 font-semibold uppercase text-[10px]">
               <tr>
-                <th className="px-4 py-3">Efectivo / Rol</th>
+                <th className="px-4 py-3">Personal / Rol</th>
                 <th className="px-3 py-3">Grupo</th>
                 <th
                   className="cursor-pointer px-3 py-3 hover:text-slate-900 dark:hover:text-white"

@@ -178,7 +178,7 @@ export const marcarImaginariasCompensadasUS = async (
 /**
  * Aplica compensaciones automáticas por imaginarias activadas al conjunto de servicios US generados.
  * - Respeta estrictamente el reparto equitativo de servicios Diurnos / Nocturnos / Imaginarias.
- * - Localiza días asignados de presente para los efectivos que tengan imaginarias activadas pendientes.
+ * - Localiza días asignados de presente para los usuarios que tengan imaginarias activadas pendientes.
  * - Cambia dichos presentes por días de Permiso (P) con el motivo exacto:
  *   "Compensación por activación de imaginaria del día DD/MM/AAAA".
  */

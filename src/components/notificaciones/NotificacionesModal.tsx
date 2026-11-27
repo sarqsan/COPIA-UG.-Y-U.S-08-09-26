@@ -124,7 +124,7 @@ export const NotificacionesModal: React.FC<NotificacionesModalProps> = ({
       case 'SOLICITUD_RECHAZADA_COMPANERO':
         return <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-rose-100 text-rose-800 dark:bg-rose-950/80 dark:text-rose-300 border border-rose-200 dark:border-rose-800">Denegada / Rechazada</span>;
       case 'SOLICITUD_APROBADA_ADMIN':
-        return <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">Autorizada Oficial</span>;
+        return <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">Autorizada</span>;
       case 'SOLICITUD_ACEPTADA_COMPANERO':
         return <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-blue-100 text-blue-800 dark:bg-blue-950/80 dark:text-blue-300 border border-blue-200 dark:border-blue-800">Aceptada por Compañero</span>;
       case 'NUEVA_SOLICITUD_CAMBIO':
@@ -132,7 +132,7 @@ export const NotificacionesModal: React.FC<NotificacionesModalProps> = ({
       case 'SOLICITUD_COBERTURA':
         return <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-200 dark:border-amber-800">Activación Cobertura</span>;
       default:
-        return <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">Aviso Oficial</span>;
+        return <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">Aviso del Sistema</span>;
     }
   };
 
@@ -173,7 +173,7 @@ export const NotificacionesModal: React.FC<NotificacionesModalProps> = ({
               </h3>
               <p className="text-xs text-slate-300">
                 {selectedNotif
-                  ? 'Información completa y resolución oficial'
+                  ? 'Información completa y resolución'
                   : noLeidasCount > 0
                   ? `${noLeidasCount} avisos pendientes de lectura`
                   : 'Al día, sin avisos pendientes'}

@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { CuadranteMaestro, ServicioDia, Persona } from '../../types';
 import {
-  MESES_OFICIALES,
+  MESES_CICLO,
   getEstadoPersonaEnServicio,
 } from '../../services/excelCuadranteExport';
 import {
@@ -54,8 +54,8 @@ export const CuadranteImpresionA4Modal: React.FC<CuadranteImpresionA4ModalProps>
 
   const mesActualInfo = useMemo(() => {
     return (
-      MESES_OFICIALES.find((m) => m.key === selectedMesKey) ||
-      MESES_OFICIALES[0]
+      MESES_CICLO.find((m) => m.key === selectedMesKey) ||
+      MESES_CICLO[0]
     );
   }, [selectedMesKey]);
 
@@ -108,7 +108,7 @@ export const CuadranteImpresionA4Modal: React.FC<CuadranteImpresionA4ModalProps>
 
   const mesesAImprimir = useMemo(() => {
     if (mostrarTodosLosMeses) {
-      return MESES_OFICIALES;
+      return MESES_CICLO;
     }
     return [mesActualInfo];
   }, [mostrarTodosLosMeses, mesActualInfo]);
@@ -184,7 +184,7 @@ export const CuadranteImpresionA4Modal: React.FC<CuadranteImpresionA4ModalProps>
             </div>
             <div>
               <h2 className="text-sm font-black text-slate-900 dark:text-white">
-                Cuadrante Oficial de Guardias U.G. — Formato A4
+                Cuadrante de Guardias U.G. — Formato A4
               </h2>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
                 Optimizado para papel A4 apaisado con códigos operativos exactos (S, I, C, B, L) y horario 09:00 a 09:00.
@@ -209,7 +209,7 @@ export const CuadranteImpresionA4Modal: React.FC<CuadranteImpresionA4ModalProps>
                 className="rounded-lg bg-transparent px-2.5 py-1 text-xs font-bold text-slate-900 dark:text-white focus:outline-hidden cursor-pointer"
               >
                 <option value="ALL">Imprimir / Enviar los 6 Meses</option>
-                {MESES_OFICIALES.map((m) => (
+                {MESES_CICLO.map((m) => (
                   <option key={m.key} value={m.key}>
                     Solo {m.nombre} ({m.dias} días)
                   </option>
@@ -294,17 +294,17 @@ export const CuadranteImpresionA4Modal: React.FC<CuadranteImpresionA4ModalProps>
                           {NOMBRE_GRUPO_UG}
                         </span>
                         <h1 className="text-sm sm:text-base font-black tracking-tight text-slate-900">
-                          CUADRANTE OFICIAL DE GUARDIAS DE 24 HORAS — {mesInfo.nombre.toUpperCase()}
+                          CUADRANTE DE GUARDIAS DE 24 HORAS — {mesInfo.nombre.toUpperCase()}
                         </h1>
                       </div>
                       <p className="text-[10px] text-slate-600 mt-0.5 font-medium">
-                        Ciclo: <strong>{cuadrante.nombre}</strong> | Horario: <strong>09:00 a 09:00 (+1)</strong> | Plantilla: <strong>{personasOrdenadas.length} Efectivos</strong> ({personasOrdenadas.filter(p => p.empleo === 'ROL 1').length} ROL 1 + {personasOrdenadas.filter(p => p.empleo === 'ROL 2').length} ROL 2)
+                        Ciclo: <strong>{cuadrante.nombre}</strong> | Horario: <strong>09:00 a 09:00 (+1)</strong> | Plantilla: <strong>{personasOrdenadas.length} Personas</strong> ({personasOrdenadas.filter(p => p.empleo === 'ROL 1').length} ROL 1 + {personasOrdenadas.filter(p => p.empleo === 'ROL 2').length} ROL 2)
                       </p>
                     </div>
 
                     {/* Badge de Seguridad */}
                     <div className="text-right text-[10px] font-mono text-slate-500">
-                      <div className="font-bold text-slate-800">DOCUMENTO OFICIAL</div>
+                      <div className="font-bold text-slate-800">DOCUMENTO DE CUADRANTE</div>
                       <div>VIGENCIA: {cuadrante.fechaInicio} / {cuadrante.fechaFin}</div>
                     </div>
                   </div>
@@ -318,7 +318,7 @@ export const CuadranteImpresionA4Modal: React.FC<CuadranteImpresionA4ModalProps>
                           <th className="px-1.5 py-1 text-left w-6 border border-slate-400">Nº</th>
                           <th className="px-1.5 py-1 text-left w-12 border border-slate-400">ROL</th>
                           <th className="px-2 py-1 text-left min-w-[130px] border border-slate-400">
-                            EFECTIVO (APELLIDOS)
+                            PERSONAL (APELLIDOS)
                           </th>
 
                           {/* Columnas de días */}
@@ -356,7 +356,7 @@ export const CuadranteImpresionA4Modal: React.FC<CuadranteImpresionA4ModalProps>
                         </tr>
                       </thead>
 
-                      {/* Cuerpo de Efectivos */}
+                      {/* Cuerpo de Personal */}
                       <tbody>
                         {personasOrdenadas.map((persona, index) => {
                           const rol = getRolUG(persona.empleo);
@@ -490,7 +490,7 @@ export const CuadranteImpresionA4Modal: React.FC<CuadranteImpresionA4ModalProps>
                     </table>
                   </div>
 
-                  {/* Document Footer: Leyenda & Firmas Oficiales */}
+                  {/* Document Footer: Leyenda y Firmas */}
                   <div className="mt-3.5 pt-2.5 border-t-2 border-slate-300 flex flex-wrap items-end justify-between gap-4 text-[10px]">
                     {/* Leyenda con cuadrados de colores */}
                     <div className="space-y-1 max-w-xl">
@@ -530,7 +530,7 @@ export const CuadranteImpresionA4Modal: React.FC<CuadranteImpresionA4ModalProps>
                             I
                           </span>
                           <span className="font-semibold text-slate-800">
-                            Imaginaria de Retén
+                            Imaginaria de Guardia
                           </span>
                         </div>
 
@@ -591,14 +591,14 @@ export const CuadranteImpresionA4Modal: React.FC<CuadranteImpresionA4ModalProps>
                       </div>
                     </div>
 
-                    {/* Cajas de Firmas Oficiales */}
+                    {/* Cajas de Firmas */}
                     <div className="flex items-center gap-6 text-center text-[9px]">
                       <div className="w-36 border-t border-slate-400 pt-1">
                         <div className="font-bold text-slate-800">Vº Bº Responsable Cuadrante</div>
                         <div className="text-slate-500 text-[8px]">Firma y Fecha</div>
                       </div>
                       <div className="w-36 border-t border-slate-400 pt-1">
-                        <div className="font-bold text-slate-800">Vº Bº Jefe de la Grupo</div>
+                        <div className="font-bold text-slate-800">Vº Bº Responsable de Grupo</div>
                         <div className="text-slate-500 text-[8px]">Firma y Sello</div>
                       </div>
                     </div>
@@ -637,7 +637,7 @@ export const CuadranteImpresionA4Modal: React.FC<CuadranteImpresionA4ModalProps>
                 <input
                   type="email"
                   required
-                  placeholder="ejemplo@mando.es"
+                  placeholder="ejemplo@dominio.es"
                   value={emailDestino}
                   onChange={(e) => setEmailDestino(e.target.value)}
                   className="w-full text-xs font-medium text-slate-900 bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 focus:ring-2 focus:ring-blue-600 focus:outline-hidden"

@@ -5,7 +5,7 @@ import { getPersonas } from './personasService';
 import { getPatrullas } from './patrullaService';
 import { getDiaEspecialConfig } from './diasEspecialesService';
 import { getRolUG, getApellidoUG, NOMBRE_GRUPO_UG } from '../utils/ugNomenclatura';
-import { getEstadoPersonaEnServicio, MESES_OFICIALES } from './excelCuadranteExport';
+import { getEstadoPersonaEnServicio, MESES_CICLO } from './excelCuadranteExport';
 import { Patrulla } from '../types/patrullaTypes';
 import { getEstadoEnDiaUS, calcularMetricasPersonaUS } from './excelUSCuadranteExport';
 import { clasificarDiaUS } from './cuadranteUSCalendarHelper';
@@ -85,9 +85,9 @@ const getMesInfoFromFecha = (fechaStr: string) => {
   const nombreMes = NOMBRES_MESES[mes - 1] || 'Mes';
   const diasEnMes = new Date(anio, mes, 0).getDate();
 
-  // Buscar si coincide con los meses oficiales
-  const oficial = MESES_OFICIALES.find((m) => m.key === key);
-  if (oficial) return oficial;
+  // Buscar si coincide con los meses del ciclo
+  const mesCiclo = MESES_CICLO.find((m) => m.key === key);
+  if (mesCiclo) return mesCiclo;
 
   return {
     key,
@@ -99,11 +99,11 @@ const getMesInfoFromFecha = (fechaStr: string) => {
 };
 
 /**
- * Genera y descarga el archivo oficial Excel (.xlsx) asociado al cambio autorizado.
+ * Genera y descarga el archivo Excel (.xlsx) asociado al cambio autorizado.
  * El documento contiene:
  *  - HOJA 1: "DILIGENCIA CAMBIO" con todos los datos legales, firmas, explicación clara y trazabilidad.
  *  - HOJA 2: "CUADRANTE MES AFECTADO" con el cuadrante mensual completo vigente tras la autorización,
- *            con el formato oficial del Excel de cuadrantes y los días/personas afectados destacados.
+ *            con el formato del Excel de cuadrantes y los días/personas afectados destacados.
  */
 export const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
   let binary = '';
@@ -118,8 +118,8 @@ export const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
 };
 
 /**
- * Construye la Hoja 2 oficial del Cuadrante Mensual de la U.S. tras una modificación o cambio,
- * destacando con borde y color ámbar oficial las celdas afectadas por la resolución.
+ * Construye la Hoja 2 del Cuadrante Mensual de la U.S. tras una modificación o cambio,
+ * destacando con borde y color ámbar las celdas afectadas por la resolución.
  */
 function generarHojaCuadranteUSParaDocumento(
   wsCuadrante: ExcelJS.Worksheet,
@@ -144,18 +144,17 @@ function generarHojaCuadranteUSParaDocumento(
     .sort((a, b) => a.fecha.localeCompare(b.fecha));
 
   const numDias = mesInfo.dias;
-  const totalCols = 4 + numDias + 12;
+  const totalCols = 3 + numDias + 12;
 
   wsCuadrante.getColumn(1).width = 5;
   wsCuadrante.getColumn(2).width = 28;
   wsCuadrante.getColumn(3).width = 12;
-  wsCuadrante.getColumn(4).width = 13;
 
   for (let d = 0; d < numDias; d++) {
-    wsCuadrante.getColumn(5 + d).width = 4.5;
+    wsCuadrante.getColumn(4 + d).width = 4.5;
   }
 
-  const colTotalesStart = 5 + numDias;
+  const colTotalesStart = 4 + numDias;
   for (let t = 0; t < 12; t++) {
     wsCuadrante.getColumn(colTotalesStart + t).width = t >= 8 ? 12 : 8.5;
   }
@@ -175,7 +174,7 @@ function generarHojaCuadranteUSParaDocumento(
   const rowSub = wsCuadrante.getRow(2);
   rowSub.height = 20;
   const cellSub = wsCuadrante.getCell(2, 1);
-  cellSub.value = `Ciclo: ${cuadrante.nombre} | Versión oficial tras modificación en fecha ${formatearFechaEspanol(documento.fechaServicioA)} | Celdas modificadas resaltadas con recuadro ámbar`;
+  cellSub.value = `Ciclo: ${cuadrante.nombre} | Versión vigente tras modificación en fecha ${formatearFechaEspanol(documento.fechaServicioA)} | Celdas modificadas resaltadas con recuadro ámbar`;
   cellSub.font = { name: 'Calibri', size: 9, italic: true, color: { argb: 'FFE2E8F0' } };
   cellSub.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
   cellSub.alignment = { vertical: 'middle', horizontal: 'center' };
@@ -189,9 +188,8 @@ function generarHojaCuadranteUSParaDocumento(
 
   const headersFijos = [
     { col: 1, label: 'Nº' },
-    { col: 2, label: 'EFECTIVO / APELLIDOS Y NOMBRE' },
-    { col: 3, label: 'EMPLEO' },
-    { col: 4, label: 'DNI' },
+    { col: 2, label: 'PERSONAL / APELLIDOS Y NOMBRE' },
+    { col: 3, label: 'ROL' },
   ];
 
   headersFijos.forEach((h) => {
@@ -208,7 +206,7 @@ function generarHojaCuadranteUSParaDocumento(
   const nombresDiasSemana = ['D', 'L', 'M', 'X', 'J', 'V', 'S'];
 
   for (let d = 1; d <= numDias; d++) {
-    const colIdx = 4 + d;
+    const colIdx = 3 + d;
     const fechaStr = `${mesInfo.key}-${d.toString().padStart(2, '0')}`;
     const dateObj = new Date(fechaStr);
     const diaSemana = dateObj.getDay();
@@ -244,7 +242,7 @@ function generarHojaCuadranteUSParaDocumento(
 
     if (esFestivo) {
       const festInfo = getFestivoInfoUS(fechaStr);
-      if (festInfo.nombre) c5.note = `Festivo Oficial: ${festInfo.nombre}`;
+      if (festInfo.nombre) c5.note = `Festivo: ${festInfo.nombre}`;
     }
   }
 
@@ -298,14 +296,8 @@ function generarHojaCuadranteUSParaDocumento(
     cEmp.alignment = { vertical: 'middle', horizontal: 'center' };
     cEmp.border = BORDER_THIN_GRAY;
 
-    const cDni = wsCuadrante.getCell(filaActual, 4);
-    cDni.value = p.dni;
-    cDni.font = { name: 'Calibri', size: 9, color: { argb: 'FF64748B' } };
-    cDni.alignment = { vertical: 'middle', horizontal: 'center' };
-    cDni.border = BORDER_THIN_GRAY;
-
     for (let d = 1; d <= numDias; d++) {
-      const colIdx = 4 + d;
+      const colIdx = 3 + d;
       const fechaStr = `${mesInfo.key}-${d.toString().padStart(2, '0')}`;
       const srv = serviciosMes.find((s) => s.fecha === fechaStr) || { fecha: fechaStr, diaSemana: new Date(fechaStr).getDay() };
       const est = getEstadoEnDiaUS(srv as any, p.id, p.nombre);
@@ -322,7 +314,7 @@ function generarHojaCuadranteUSParaDocumento(
         cell.border = BORDER_CAMBIO_DESTACADO;
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
         cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF92400E' } };
-        cell.note = `Modificación Oficial (${documento.codigoVerificacion}): ${documento.detalles || 'Cambio aplicado'}`;
+        cell.note = `Modificación Aplicada (${documento.codigoVerificacion}): ${documento.detalles || 'Cambio aplicado'}`;
       } else {
         cell.border = BORDER_THIN_GRAY;
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: est.bgColor } };
@@ -378,7 +370,7 @@ function generarHojaCuadranteUSParaDocumento(
 }
 
 /**
- * Genera los datos binarios y base64 del Excel oficial del cambio (Hoja Diligencia + Hoja Cuadrante del Mes).
+ * Genera los datos binarios y base64 del Excel del cambio (Hoja Diligencia + Hoja Cuadrante del Mes).
  * NO recalcula ni altera nada: toma exactamente el estado vigente tras la autorización.
  */
 export const generarDocumentoCambioExcelData = async (
@@ -488,8 +480,8 @@ export const generarDocumentoCambioExcelData = async (
     wsCambio.mergeCells('B3:E3');
     const cellT2 = wsCambio.getCell('B3');
     cellT2.value = isUS
-      ? 'DILIGENCIA OFICIAL DE MODIFICACIÓN / CAMBIO EN CUADRANTE U.S.'
-      : 'DILIGENCIA OFICIAL DE AUTORIZACIÓN DE CAMBIO EN CUADRANTE';
+      ? 'DILIGENCIA DE MODIFICACIÓN / CAMBIO EN CUADRANTE U.S.'
+      : 'DILIGENCIA DE AUTORIZACIÓN DE CAMBIO EN CUADRANTE';
     cellT2.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FFFFFFFF' } };
     cellT2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } }; // Slate 800
     cellT2.alignment = { vertical: 'middle', horizontal: 'center' };
@@ -519,7 +511,7 @@ export const generarDocumentoCambioExcelData = async (
 
     const datosGenerales = [
       { campo: 'Número / Ref. Expediente', val1: documento.id, val2: `CSV: ${documento.codigoVerificacion}` },
-      { campo: 'Tipo de Modificación', val1: documento.tipoCambio === 'IMAGINARIA' ? 'Cambio de Retén de Imaginaria' : 'Permuta de Guardia 24 Horas', val2: `Ciclo: ${cuadrante.nombre}` },
+      { campo: 'Tipo de Modificación', val1: documento.tipoCambio === 'IMAGINARIA' ? 'Cambio de Imaginaria' : 'Permuta de Guardia 24 Horas', val2: `Ciclo: ${cuadrante.nombre}` },
       { campo: 'Fecha y Hora Solicitud', val1: formatearFechaHoraEspanol(documento.personaA.fechaFirma), val2: `Emitido por: ${documento.personaA.nombre}` },
       { campo: 'Fecha y Hora Autorización', val1: formatearFechaHoraEspanol(documento.autorizacionAdmin.fechaAutorizacion), val2: `Autorizado por: ${documento.autorizacionAdmin.adminNombre}` },
       { campo: 'Estado Administrativo', val1: 'AUTORIZADO', val2: 'Ratificado en Cuadrante Mensual' },
@@ -578,14 +570,14 @@ export const generarDocumentoCambioExcelData = async (
     cConceptoH.alignment = { vertical: 'middle', horizontal: 'center' };
 
     const cSolH = wsCambio.getCell(`C${currRow}`);
-    cSolH.value = 'EFECTIVO QUE CEDE EL SERVICIO';
+    cSolH.value = 'USUARIO QUE CEDE EL SERVICIO';
     cSolH.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FFFFFFFF' } };
     cSolH.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } }; // Azul
     cSolH.border = BORDER_HEADER;
     cSolH.alignment = { vertical: 'middle', horizontal: 'center' };
 
     const cDestH = wsCambio.getCell(`D${currRow}`);
-    cDestH.value = 'EFECTIVO QUE ASUME EL SERVICIO';
+    cDestH.value = 'USUARIO QUE ASUME EL SERVICIO';
     cDestH.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FFFFFFFF' } };
     cDestH.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF065F46' } }; // Esmeralda
     cDestH.border = BORDER_HEADER;
@@ -607,7 +599,7 @@ export const generarDocumentoCambioExcelData = async (
         obs: 'Personal Activo U.G.',
       },
       {
-        concepto: 'Empleo y Rol',
+        concepto: 'Rol Operativo',
         sol: `${documento.personaA.empleo} (${getRolUG(documento.personaA.empleo)})`,
         dest: `${documento.personaB.empleo} (${getRolUG(documento.personaB.empleo)})`,
         obs: 'Mismo rol operativo',
@@ -616,7 +608,7 @@ export const generarDocumentoCambioExcelData = async (
         concepto: 'Servicio Principal Afectado',
         sol: `${formatearFechaEspanol(documento.fechaServicioA)} (09:00 a 09:00)`,
         dest: `Realiza la guardia del ${formatearFechaEspanol(documento.fechaServicioA)}`,
-        obs: documento.tipoCambio === 'IMAGINARIA' ? 'Retén de 24 horas' : 'Guardia presencial 24h',
+        obs: documento.tipoCambio === 'IMAGINARIA' ? 'Imaginaria de 24 horas' : 'Guardia presencial 24h',
       },
       {
         concepto: 'Compensación / Devolución',
@@ -689,7 +681,7 @@ export const generarDocumentoCambioExcelData = async (
   El servicio ha sido modificado y pasa a quedar asignado a ${documento.personaB.nombre}.${documento.fechaServicioB ? `\n  Asimismo, la guardia del día ${formatearFechaEspanol(documento.fechaServicioB)} pasa a quedar asignada a ${documento.personaA.nombre}.` : ''}
 
 • IMPACTO EN CUADRANTE:
-  El cuadrante mensual oficial reflejado en la Hoja 2 de este archivo contiene la distribución completa resultante en vigor tras la aplicación de esta modificación.`;
+  El cuadrante mensual reflejado en la Hoja 2 de este archivo contiene la distribución completa resultante en vigor tras la aplicación de esta modificación.`;
 
     cellExplicacion.value = explicacionTexto;
     cellExplicacion.font = { name: 'Calibri', size: 9, color: { argb: 'FF0F172A' } };
@@ -701,10 +693,10 @@ export const generarDocumentoCambioExcelData = async (
     wsCambio.getRow(currRow).height = 10;
     currRow++;
 
-    // SECCIÓN 4: REGISTRO DE FIRMAS ELECTRÓNICAS Y AUTORIZACIÓN DEL MANDO
+    // SECCIÓN 4: REGISTRO DE FIRMAS ELECTRÓNICAS Y AUTORIZACIÓN ADMINISTRATIVA
     wsCambio.mergeCells(`B${currRow}:E${currRow}`);
     const sec4 = wsCambio.getCell(`B${currRow}`);
-    sec4.value = '4. REGISTRO DE FIRMAS ELECTRÓNICAS Y AUTORIZACIÓN DEL MANDO';
+    sec4.value = '4. REGISTRO DE FIRMAS ELECTRÓNICAS Y AUTORIZACIÓN ADMINISTRATIVA';
     sec4.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
     sec4.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF334155' } };
     sec4.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
@@ -725,10 +717,10 @@ export const generarDocumentoCambioExcelData = async (
         hash: documento.personaB.firma || 'FIRMA_ELECTRONICA_REGISTRADA',
       },
       {
-        rol: 'Autorización Mando (Jefatura / Mando)',
+        rol: 'Autorización Administrativa',
         nombre: documento.autorizacionAdmin.adminNombre,
         fecha: formatearFechaHoraEspanol(documento.autorizacionAdmin.fechaAutorizacion),
-        hash: documento.autorizacionAdmin.firma || 'FIRMA_OFICIAL_ADMINISTRADOR',
+        hash: documento.autorizacionAdmin.firma || 'FIRMA_ADMINISTRADOR',
       },
     ];
 
@@ -799,10 +791,10 @@ export const generarDocumentoCambioExcelData = async (
     });
 
     if (isUS) {
-      // HOJA 2 OFICIAL PARA UNIDAD DE SEGURIDAD (U.S.)
+      // HOJA 2 PARA UNIDAD DE SEGURIDAD (U.S.)
       generarHojaCuadranteUSParaDocumento(wsCuadrante, cuadrante, servicios, personas, documento, mesInfo);
     } else {
-      // HOJA 2 OFICIAL PARA UNIDAD DE GESTIÓN (UG) — PRESERVADA ÍNTEGRAMENTE
+      // HOJA 2 PARA UNIDAD DE GESTIÓN (UG) — PRESERVADA ÍNTEGRAMENTE
       // Ancho de columnas para cuadrante: Nº, ROL, APELLIDOS + días + 5 totales
       const totalCols = 3 + mesInfo.dias + 5;
 
@@ -877,7 +869,7 @@ export const generarDocumentoCambioExcelData = async (
 
     wsCuadrante.getCell(4, 1).value = 'Nº';
     wsCuadrante.getCell(4, 2).value = 'ROL';
-    wsCuadrante.getCell(4, 3).value = 'APELLIDOS / EFECTIVO';
+    wsCuadrante.getCell(4, 3).value = 'APELLIDOS / PERSONAL';
 
     [1, 2, 3].forEach((colIdx) => {
       const cell = wsCuadrante.getCell(4, colIdx);
@@ -1242,7 +1234,7 @@ export const generarDocumentoCambioExcelData = async (
     const filaNotaCambio = filaLeyenda + 1;
     wsCuadrante.mergeCells(filaNotaCambio, 1, filaNotaCambio, totalCols);
     const cellNotaCambio = wsCuadrante.getCell(filaNotaCambio, 1);
-    cellNotaCambio.value = `★ NOTA: Este cuadrante refleja la situación oficial vigente tras autorizar el cambio Ref. ${documento.codigoVerificacion} (${documento.personaA.nombre} ➔ ${documento.personaB.nombre}, ${formatearFechaEspanol(documento.fechaServicioA)}). Personal puede utilizar este Excel como sustitución inmediata del cuadrante anterior.`;
+    cellNotaCambio.value = `★ NOTA: Este cuadrante refleja la situación vigente tras autorizar el cambio Ref. ${documento.codigoVerificacion} (${documento.personaA.nombre} ➔ ${documento.personaB.nombre}, ${formatearFechaEspanol(documento.fechaServicioA)}). Personal puede utilizar este Excel como sustitución inmediata del cuadrante anterior.`;
     cellNotaCambio.font = { name: 'Calibri', size: 8, bold: true, color: { argb: 'FF92400E' } };
     cellNotaCambio.alignment = { vertical: 'middle', horizontal: 'center' };
     cellNotaCambio.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
@@ -1294,7 +1286,7 @@ export const generarDocumentoCambioExcelData = async (
 };
 
 /**
- * Genera y dispara la descarga en el navegador del Excel oficial del cambio.
+ * Genera y dispara la descarga en el navegador del Excel del cambio.
  * Preserva compatibilidad total con llamadas existentes en la aplicación.
  */
 export const generarYDescargarDocumentoCambioExcel = async (

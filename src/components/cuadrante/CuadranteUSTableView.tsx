@@ -94,7 +94,7 @@ export const CuadranteUSTableView: FC<CuadranteUSTableViewProps> = ({
           <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
           <input
             type="text"
-            placeholder="Buscar por fecha o nombre de efectivo..."
+            placeholder="Buscar por fecha o nombre de persona..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
@@ -195,7 +195,7 @@ export const CuadranteUSTableView: FC<CuadranteUSTableViewProps> = ({
                     {s.esFestivo && (
                       <span
                         className="px-1.5 py-0.5 rounded-md bg-amber-500 text-white font-extrabold text-[9px] uppercase"
-                        title={s.nombreFestivo || 'Festivo Oficial'}
+                        title={s.nombreFestivo || 'Festivo'}
                       >
                         Festivo
                       </span>

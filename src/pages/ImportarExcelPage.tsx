@@ -135,7 +135,7 @@ export const ImportarExcelPage: React.FC<ImportarExcelPageProps> = ({
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
             {activeUnidad === 'US'
               ? 'Plantilla U.S. (12h): Alta inicial o sustitución con formato APELLIDO + ROL (dotación variable adaptativa).'
-              : 'Plantilla U.G. (24h): Módulo de carga masiva oficial (22 personas: 11 ROL 1 + 11 ROL 2) con cuadrante limpio.'}
+              : 'Plantilla U.G. (24h): Módulo de carga masiva (22 personas: 11 ROL 1 + 11 ROL 2) con cuadrante limpio.'}
           </p>
         </div>
 

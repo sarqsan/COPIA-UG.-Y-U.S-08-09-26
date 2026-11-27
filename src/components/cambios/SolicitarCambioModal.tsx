@@ -308,7 +308,7 @@ export const SolicitarCambioModal: React.FC<SolicitarCambioModalProps> = ({
     const fechaServicio = itemSeleccionado.servicio.fecha;
     const esImaginaria = itemSeleccionado.tipoCambio === 'IMAGINARIA';
 
-    // Filtrar personas: en US todos los efectivos de la US; en UG mismo empleo
+    // Filtrar personas: en US todo el personal de la US; en UG mismo rol operativo
     const companerosFiltrados = isUS
       ? personas.filter(
           (p) =>
@@ -584,7 +584,7 @@ export const SolicitarCambioModal: React.FC<SolicitarCambioModalProps> = ({
     }
 
     if (!firmaAceptada) {
-      setErrorMsg('Debes aceptar la declaración de firma electrónica oficial.');
+      setErrorMsg('Debes aceptar la declaración de firma electrónica.');
       return;
     }
 
@@ -596,7 +596,7 @@ export const SolicitarCambioModal: React.FC<SolicitarCambioModalProps> = ({
       firmado: true,
       fechaHora: nowIso,
       ip: '127.0.0.1 (Autenticado)',
-      identificadorFirmante: currentPersona.dni || currentPersona.id,
+      identificadorFirmante: currentPersona.id,
       nombreCompleto: currentPersona.nombre,
       empleo: currentPersona.empleo,
     };
@@ -673,7 +673,7 @@ export const SolicitarCambioModal: React.FC<SolicitarCambioModalProps> = ({
             </div>
             <div>
               <h3 className="text-lg font-bold">
-                {solicitudEnviadaConExito ? 'Confirmación de Envío' : 'Solicitar Cambio Oficial'}
+                {solicitudEnviadaConExito ? 'Confirmación de Envío' : 'Solicitar Cambio'}
               </h3>
               <p className="text-xs text-slate-300">
                 {solicitudEnviadaConExito
@@ -746,9 +746,9 @@ export const SolicitarCambioModal: React.FC<SolicitarCambioModalProps> = ({
                   3
                 </div>
                 <div>
-                  <h5 className="font-bold text-slate-900">Resolución del Administrador / Mando</h5>
+                  <h5 className="font-bold text-slate-900">Resolución de Administración</h5>
                   <p className="text-slate-600 mt-0.5 leading-relaxed">
-                    Una vez aceptada por ambos, pasará al Mando para su ratificación. Te llegará una notificación formal cuando sea <strong>aprobada</strong> o el motivo detallado si es <strong>denegada</strong>.
+                    Una vez aceptada por ambos, pasará a Administración para su ratificación. Te llegará una notificación cuando sea <strong>aprobada</strong> o el motivo detallado si es <strong>denegada</strong>.
                   </p>
                 </div>
               </div>
@@ -937,7 +937,7 @@ export const SolicitarCambioModal: React.FC<SolicitarCambioModalProps> = ({
                     <div className="flex items-start gap-1.5 text-emerald-800 font-medium pt-1 text-[11px]">
                       <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                       <span>
-                        <strong>PERMUTA VÁLIDA:</strong> El resultado final cumple la normativa de descansos reglamentarios para ambos efectivos tras el intercambio simultáneo.
+                        <strong>PERMUTA VÁLIDA:</strong> El resultado final cumple la normativa de descansos reglamentarios para ambas personas tras el intercambio simultáneo.
                       </span>
                     </div>
                   )}
@@ -973,7 +973,7 @@ export const SolicitarCambioModal: React.FC<SolicitarCambioModalProps> = ({
                       <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                       <div>
                         <strong>Sin candidatos compatibles disponibles:</strong>{' '}
-                        Todos los compañeros de tu empleo tienen servicio asignado en esa fecha o en días adyacentes.
+                        Todos los compañeros de tu rol operativo tienen servicio asignado en esa fecha o en días adyacentes.
                       </div>
                     </div>
                   ) : (
@@ -1073,7 +1073,7 @@ export const SolicitarCambioModal: React.FC<SolicitarCambioModalProps> = ({
               <span>Firma Electrónica del Solicitante:</span>
             </div>
             <div className="text-[11px] text-blue-900/90 leading-tight">
-              Certifico la veracidad de la presente solicitud y el compromiso de cumplimiento del servicio acordado una vez ratificado por el Mando.
+              Certifico la veracidad de la presente solicitud y el compromiso de cumplimiento del servicio acordado una vez ratificado por la Administración.
             </div>
             <label className="flex items-center gap-2 cursor-pointer pt-1">
               <input

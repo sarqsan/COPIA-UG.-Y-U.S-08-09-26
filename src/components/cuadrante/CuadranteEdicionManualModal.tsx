@@ -168,7 +168,7 @@ export const CuadranteEdicionManualModal: React.FC<CuadranteEdicionManualModalPr
   const personaOriginal = personas.find((p) => p.id === asignacionActual.personaIdOriginal);
   const personaReal = personas.find((p) => p.id === asignacionActual.personaIdReal);
 
-  // Candidatos válidos: rigurosamente del mismo empleo requerido (R1 para R1, R2 para R2) y activos
+  // Candidatos válidos: rigurosamente del mismo rol requerido (R1 para R1, R2 para R2) y activos
   const candidatos = personas.filter(
     (p) => p.activo && p.empleo === empleoRequerido && p.id !== asignacionActual.personaIdReal
   );
@@ -185,7 +185,7 @@ export const CuadranteEdicionManualModal: React.FC<CuadranteEdicionManualModalPr
 
   const candidatoOcupadoEnEsteDia = idsOcupadosHoy.includes(nuevaPersonaId);
 
-  // Datos de los efectivos para la permuta directa Servicio ↔ Imaginaria en la fecha seleccionada según rolPermuta
+  // Datos de las personas para la permuta directa Servicio ↔ Imaginaria en la fecha seleccionada según rolPermuta
   const opcionesServicio = (
     rolPermuta === 'ROL 1'
       ? [
@@ -266,7 +266,7 @@ export const CuadranteEdicionManualModal: React.FC<CuadranteEdicionManualModalPr
     }
 
     if (!nuevaPersonaId) {
-      setErrorMsg('Debes seleccionar al efectivo que cubrirá el puesto.');
+      setErrorMsg('Debes seleccionar a la persona que cubrirá el puesto.');
       return;
     }
     if (!motivo.trim()) {
@@ -411,7 +411,7 @@ export const CuadranteEdicionManualModal: React.FC<CuadranteEdicionManualModalPr
                 <div>
                   <p className="font-bold text-[12px]">Permuta Directa Administrativa ({rolPermuta})</p>
                   <p className="text-[11px] opacity-90 mt-0.5">
-                    Intercambia directamente en la fecha seleccionada a un efectivo de <strong>{rolPermuta} en SERVICIO</strong> con el efectivo de <strong>{rolPermuta} en IMAGINARIA</strong>, sin regenerar el cuadrante ni alterar rotaciones.
+                    Intercambia directamente en la fecha seleccionada a un usuario de <strong>{rolPermuta} en SERVICIO</strong> con el usuario de <strong>{rolPermuta} en IMAGINARIA</strong>, sin regenerar el cuadrante ni alterar rotaciones.
                   </p>
                 </div>
               </div>
@@ -606,7 +606,7 @@ export const CuadranteEdicionManualModal: React.FC<CuadranteEdicionManualModalPr
               {/* Selector de Nueva Persona */}
               <div className="space-y-1">
                 <label className="font-bold text-slate-700 dark:text-slate-300">
-                  Nuevo Efectivo que Realizará el Servicio <span className="text-rose-500">*</span>
+                  Nueva Persona que Realizará el Servicio <span className="text-rose-500">*</span>
                 </label>
                 <select
                   value={nuevaPersonaId}
@@ -627,7 +627,7 @@ export const CuadranteEdicionManualModal: React.FC<CuadranteEdicionManualModalPr
               {candidatoOcupadoEnEsteDia && (
                 <div className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 p-2.5 text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
                   <AlertTriangle className="h-4 w-4 shrink-0" />
-                  <span>Este efectivo ya ocupa otro puesto en la misma fecha ({servicio.fecha}). Si deseas intercambiar Servicio e Imaginaria de ROL 2 en este mismo día, usa la pestaña «Permutar Servicio ↔ Imaginaria».</span>
+                  <span>Esta persona ya ocupa otro puesto en la misma fecha ({servicio.fecha}). Si deseas intercambiar Servicio e Imaginaria de ROL 2 en este mismo día, usa la pestaña «Permutar Servicio ↔ Imaginaria».</span>
                 </div>
               )}
 

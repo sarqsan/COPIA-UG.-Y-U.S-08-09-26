@@ -10,7 +10,7 @@ export interface WhatsAppInviteResult {
 }
 
 /**
- * Servicio de generación de mensajes y enlaces de acceso para efectivos de la Grupo
+ * Servicio de generación de mensajes y enlaces de acceso para personal del Grupo
  * FASE: Generación directa con credenciales iniciales normalizadas (apellido+rol)
  * y cambio obligatorio de usuario y contraseña en primer acceso.
  */
@@ -28,7 +28,7 @@ export const generarEnlaceActivacionWhatsApp = (
 
   return {
     success: true,
-    message: 'Enlace oficial generado correctamente con credenciales normalizadas (apellido+rol).',
+    message: 'Enlace generado correctamente con credenciales normalizadas (apellido+rol).',
     url: waUrl,
     textPayload: creds.mensajeWhatsApp,
     isConfigured: true,

@@ -17,7 +17,7 @@ export interface ConsumoDiaItem {
   solicitudId: string;
   estado: 'PENDIENTE_ADMIN' | 'APROBADA' | 'RECHAZADA';
   motivo?: string;
-  horasComputadas: number; // 7.5h si computa saldo, 0h si es festivo oficial o fin de semana
+  horasComputadas: number; // 7.5h si computa saldo, 0h si es festivo o fin de semana
   esFestivo?: boolean;
   nombreFestivo?: string;
   esFinSemana?: boolean;
@@ -58,8 +58,8 @@ export const HORAS_POR_DIA_AUSENCIA_O_PRESENTE = 7.0;
 /**
  * Calcula el balance detallado de días asignados, consumidos y pendientes para una persona.
  * REGLA U.S. OBLIGATORIA:
- * - Los días festivos oficiales incluidos en un periodo solicitado NUNCA consumen saldo.
- * - Cada festivo oficial contribuye exactamente 0 días y 0 horas de consumo de saldo.
+ * - Los días festivos incluidos en un periodo solicitado NUNCA consumen saldo.
+ * - Cada festivo contribuye exactamente 0 días y 0 horas de consumo de saldo.
  * - Solo las solicitudes 'APROBADA' representan consumo definitivo de saldo.
  * - Las solicitudes 'PENDIENTE_ADMIN' representan únicamente reserva preventiva si corresponde.
  */
@@ -405,7 +405,7 @@ export const validarDisponibilidadDias = (
         partesExcluidos.push(`${diasFinesSemanaExcluidos} fin(es) de semana`);
       }
       if (diasFestivosExcluidos > 0) {
-        partesExcluidos.push(`${diasFestivosExcluidos} festivo(s) oficiales`);
+        partesExcluidos.push(`${diasFestivosExcluidos} festivo(s)`);
       }
       textoDetalleExcluidos = ` (${partesExcluidos.join(', ')} excluidos de un total de ${diasTotales} días naturales)`;
     }

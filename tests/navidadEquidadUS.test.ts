@@ -7,7 +7,7 @@ import {
 import { generarSimulacionCuadranteUS } from '../src/services/cuadranteUSGeneratorService';
 import { validarCuadranteUS } from '../src/services/cuadranteUSValidatorService';
 import { generateInitialMockPersonas } from '../src/services/seedService';
-import { PERMISOS_OFICIALES_HISTORICOS_US } from '../src/services/ausenciasUSService';
+import { PERMISOS_HISTORICOS_US } from '../src/services/ausenciasUSService';
 import { AusenciaDiaUS } from '../src/types/usTypes';
 import { generarRangoFechas } from '../src/services/cuadranteGeneratorService';
 
@@ -36,21 +36,21 @@ async function runNavidadTests() {
   assert(!esDiaEspecialNavidadUS('2026-12-23'), '23 Dic NO es de los 4 días especiales de Navidad');
   assert(!esDiaEspecialNavidadUS('2026-12-26'), '26 Dic NO es de los 4 días especiales de Navidad');
 
-  // 2. Plantilla oficial de la U.S. (16 efectivos)
+  // 2. Plantilla de la U.S. (16 personas)
   const personas = generateInitialMockPersonas().filter(
     (p) => p.grupo === 'US_SEGURIDAD' || p.tipoServicio === 'US'
   );
-  // Asociar a ARAGON (efectivo con permiso oficial 30 Nov - 29 Ene)
+  // Asociar a ARAGON (persona con permiso 30 Nov - 29 Ene)
   personas[0] = {
     ...personas[0],
     id: 'excel-us-rol2-12-lz7r',
     nombre: 'ARAGON',
   };
-  assert(personas.length === 16, `Plantilla U.S. tiene 16 efectivos (obtenido: ${personas.length})`);
+  assert(personas.length === 16, `Plantilla U.S. tiene 16 personas (obtenido: ${personas.length})`);
 
-  // 3. Simular ausencias oficiales de Diciembre 2026 (ARAGON tiene permiso concedido 30 Nov - 29 Ene)
+  // 3. Simular ausencias de Diciembre 2026 (ARAGON tiene permiso concedido 30 Nov - 29 Ene)
   const mapaAusencias: Record<string, AusenciaDiaUS[]> = {};
-  PERMISOS_OFICIALES_HISTORICOS_US.forEach((perm) => {
+  PERMISOS_HISTORICOS_US.forEach((perm) => {
     const rango = generarRangoFechas(perm.fechaInicio, perm.fechaFin);
     rango.forEach((f) => {
       if (!mapaAusencias[f]) mapaAusencias[f] = [];
@@ -73,12 +73,12 @@ async function runNavidadTests() {
   });
 
   assert(
-    analisis.efectivosDisponiblesCount === 15,
-    `Al haber 1 de permiso (ARAGON), quedan exactamente 15 efectivos disponibles (obtenido: ${analisis.efectivosDisponiblesCount})`
+    analisis.personalDisponibleCount === 15,
+    `Al haber 1 de permiso (ARAGON), quedan exactamente 15 personas disponibles (obtenido: ${analisis.personalDisponibleCount})`
   );
   assert(
     analisis.repeticionesNecesarias === 1,
-    `Con 15 disponibles para 16 slots, exactamente 1 efectivo debe repetir (obtenido: ${analisis.repeticionesNecesarias})`
+    `Con 15 disponibles para 16 slots, exactamente 1 persona debe repetir (obtenido: ${analisis.repeticionesNecesarias})`
   );
   assert(
     !analisis.requiereConfirmacionAdmin,
@@ -106,7 +106,7 @@ async function runNavidadTests() {
   assert(asig01 !== undefined, 'Existe asignación para el 1 de enero');
   assert(
     asig01?.nocturnos.includes(repiteId) ?? false,
-    `El efectivo que repite (${repiteId}) está asignado al Nocturno del 1 de enero`
+    `La persona que repite (${repiteId}) está asignada al Nocturno del 1 de enero`
   );
 
   // Contar cuántos servicios tiene cada uno en los 4 días
@@ -120,11 +120,11 @@ async function runNavidadTests() {
   const personasCon1 = Object.values(conteoServicios).filter((c) => c === 1).length;
   const personasCon2 = Object.values(conteoServicios).filter((c) => c === 2).length;
 
-  assert(personasCon1 === 14, `Exactamente 14 efectivos realizan 1 servicio navideño (obtenido: ${personasCon1})`);
-  assert(personasCon2 === 1, `Exactamente 1 efectivo realiza 2 servicios navideños (obtenido: ${personasCon2})`);
+  assert(personasCon1 === 14, `Exactamente 14 personas realizan 1 servicio navideño (obtenido: ${personasCon1})`);
+  assert(personasCon2 === 1, `Exactamente 1 persona realiza 2 servicios navideños (obtenido: ${personasCon2})`);
   assert(
     conteoServicios[repiteId] === 2,
-    `El efectivo que repite es quien tiene 2 servicios`
+    `La persona que repite es quien tiene 2 servicios`
   );
 
   // 6. Simulación completa de Cuadrante U.S. de Diciembre 2026
@@ -142,7 +142,7 @@ async function runNavidadTests() {
 
   assert(sim.serviciosUS.length >= 31, `El cuadrante tiene al menos 31 días (obtenido: ${sim.serviciosUS.length})`);
 
-  // Validar con el validador oficial
+  // Validar con el validador del sistema
   const validacion = validarCuadranteUS({
     servicios: sim.serviciosUS,
     personas,
@@ -164,7 +164,7 @@ async function runNavidadTests() {
         personaId: segundaBajaId,
         personaNombre: personas[1].nombre,
         tipo: 'P',
-        motivo: 'Permiso Oficial',
+        motivo: 'Permiso',
       },
     ];
   });
@@ -177,12 +177,12 @@ async function runNavidadTests() {
   });
 
   assert(
-    analisis2.efectivosDisponiblesCount === 14,
-    `Al haber 2 ausencias, quedan 14 efectivos disponibles (obtenido: ${analisis2.efectivosDisponiblesCount})`
+    analisis2.personalDisponibleCount === 14,
+    `Al haber 2 ausencias, quedan 14 personas disponibles (obtenido: ${analisis2.personalDisponibleCount})`
   );
   assert(
     analisis2.repeticionesNecesarias === 2,
-    `Es necesario que 2 efectivos repitan servicio (obtenido: ${analisis2.repeticionesNecesarias})`
+    `Es necesario que 2 personas repitan servicio (obtenido: ${analisis2.repeticionesNecesarias})`
   );
   assert(
     analisis2.requiereConfirmacionAdmin,

@@ -169,7 +169,7 @@ export const PatrullaDetalleModal: React.FC<PatrullaDetalleModalProps> = ({
           {/* Asignación Actual */}
           <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800 bg-white dark:bg-slate-900">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-              Efectivo Asignado Actual
+              Persona Asignada Actual
             </span>
             <div className="mt-2 flex items-center justify-between">
               <div className="flex items-center gap-3">

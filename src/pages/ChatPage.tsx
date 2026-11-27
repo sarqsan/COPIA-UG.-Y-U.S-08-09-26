@@ -14,7 +14,7 @@ import {
   enviarMensajePrivado,
   enviarMensajeAdministrativo,
   getConversacionPrivadaId,
-  ADMIN_OFICIAL_ID,
+  ADMIN_CANAL_ID,
 } from '../services/chatService';
 import { getApellidoUG, getRolUG } from '../utils/ugNomenclatura';
 import { formatEmpleo } from '../utils/formatters';
@@ -72,8 +72,8 @@ export const ChatPage: React.FC<ChatPageProps> = ({
   const activas = (personas || []).filter((p) => p.activo !== false);
 
   // Lista de destinatarios privados posibles:
-  // Si es Admin: lista todos los efectivos activos (ROL 1 y ROL 2)
-  // Si es Usuario: incluye "Mando / Administración" en primer lugar, y luego sus compañeros activos
+  // Si es Admin: lista todo el personal activo (ROL 1 y ROL 2)
+  // Si es Usuario: incluye "Administración" en primer lugar, y luego sus compañeros activos
   const opcionesPrivado = React.useMemo(() => {
     if (isAdmin) {
       return activas.map((p) => ({
@@ -84,8 +84,8 @@ export const ChatPage: React.FC<ChatPageProps> = ({
     } else {
       const lista = [
         {
-          id: ADMIN_OFICIAL_ID,
-          nombre: '★ Mando / Oficina de Cuadrantes (Administración)',
+          id: ADMIN_CANAL_ID,
+          nombre: '★ Administración / Cuadrantes',
           persona: null,
         },
       ];
@@ -126,7 +126,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({
     let convId: string | undefined = undefined;
     if (tab === 'PRIVADO') {
       if (isAdmin && destinatarioPrivadoId) {
-        convId = getConversacionPrivadaId(ADMIN_OFICIAL_ID, destinatarioPrivadoId);
+        convId = getConversacionPrivadaId(ADMIN_CANAL_ID, destinatarioPrivadoId);
       } else if (currentPersona && destinatarioPrivadoId) {
         convId = getConversacionPrivadaId(currentPersona.id, destinatarioPrivadoId);
       }
@@ -154,7 +154,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({
     let convId: string | undefined = undefined;
     if (tab === 'PRIVADO') {
       if (isAdmin && destinatarioPrivadoId) {
-        convId = getConversacionPrivadaId(ADMIN_OFICIAL_ID, destinatarioPrivadoId);
+        convId = getConversacionPrivadaId(ADMIN_CANAL_ID, destinatarioPrivadoId);
       } else if (currentPersona && destinatarioPrivadoId) {
         convId = getConversacionPrivadaId(currentPersona.id, destinatarioPrivadoId);
       }
@@ -204,17 +204,17 @@ export const ChatPage: React.FC<ChatPageProps> = ({
           return;
         }
 
-        let destNombre = 'Mando / Administración';
+        let destNombre = 'Administración';
         let destUid: string | undefined = undefined;
 
-        if (destinatarioPrivadoId !== ADMIN_OFICIAL_ID) {
+        if (destinatarioPrivadoId !== ADMIN_CANAL_ID) {
           const destObj = personas.find((p) => p.id === destinatarioPrivadoId);
           if (destObj) {
             destNombre = `${getRolUG(destObj.empleo)} ${getApellidoUG(destObj)}`;
           }
         }
 
-        const remitentePersonaId = currentPersona ? currentPersona.id : ADMIN_OFICIAL_ID;
+        const remitentePersonaId = currentPersona ? currentPersona.id : ADMIN_CANAL_ID;
         const remitenteNombre = currentPersona ? `${getRolUG(currentPersona.empleo)} ${getApellidoUG(currentPersona)}` : currentCuentaInfo.nombre;
 
         const nuevo = await enviarMensajePrivado({
@@ -232,7 +232,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({
         setMensajes((prev) => [...prev, nuevo]);
       } else if (tab === 'ADMINISTRATIVO') {
         if (!isAdmin) {
-          alert('Solo los administradores tienen autorización para emitir directivas de mando.');
+          alert('Solo los administradores tienen autorización para emitir avisos administrativos.');
           return;
         }
         const nuevo = await enviarMensajeAdministrativo({
@@ -271,7 +271,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({
                 Chat & Comunicaciones Internas
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Canal general de la guardia 24h, mensajes privados directos y directivas de mando
+                Canal general de la guardia 24h, mensajes privados directos y avisos administrativos
               </p>
             </div>
           </div>
@@ -317,7 +317,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({
             }`}
           >
             <Lock className="h-4 w-4" />
-            <span>Mensajes Privados {isAdmin ? '(Con Efectivos)' : '(Mando / Compañeros)'}</span>
+            <span>Mensajes Privados {isAdmin ? '(Con Personal)' : '(Administración / Compañeros)'}</span>
           </button>
 
           <button
@@ -329,7 +329,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({
             }`}
           >
             <Megaphone className="h-4 w-4" />
-            <span>Directivas de Mando {isAdmin ? '(Emisión Oficial)' : '(Tablón)'}</span>
+            <span>Avisos Administrativos {isAdmin ? '(Emisión)' : '(Tablón)'}</span>
           </button>
         </div>
       </div>
@@ -340,7 +340,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({
           <div className="flex items-center gap-2 text-indigo-950 dark:text-indigo-200 font-bold">
             <User className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
             <span>
-              {isAdmin ? 'Conversación privada con el efectivo:' : 'Destinatario del mensaje privado:'}
+              {isAdmin ? 'Conversación privada con el usuario:' : 'Destinatario del mensaje privado:'}
             </span>
           </div>
 
@@ -358,12 +358,12 @@ export const ChatPage: React.FC<ChatPageProps> = ({
         </div>
       )}
 
-      {/* Sub-selector para directiva de mando (solo admin) */}
+      {/* Sub-selector para aviso administrativo (solo admin) */}
       {tab === 'ADMINISTRATIVO' && isAdmin && (
         <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50/70 p-3 text-xs dark:border-amber-900/40 dark:bg-amber-950/30">
           <div className="flex items-center gap-1.5 text-amber-950 dark:text-amber-200 font-bold">
             <Radio className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-            <span>Destinatarios oficiales de la directiva:</span>
+            <span>Destinatarios del aviso administrativo:</span>
           </div>
 
           <select
@@ -430,7 +430,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({
                     </span>
                     {msg.autorRol === 'ADMIN' && (
                       <span className="rounded-sm bg-slate-900 px-1.5 py-0.2 text-[9px] font-bold text-white dark:bg-slate-700">
-                        MANDO
+                        ADMIN
                       </span>
                     )}
                     {msg.autorEmpleo && (
@@ -458,7 +458,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({
                     {msg.tipo === 'ADMINISTRATIVO' && (
                       <div className="text-[10px] uppercase font-black tracking-wider text-amber-950 mb-1 flex items-center gap-1">
                         <Megaphone className="h-3 w-3" />
-                        DIRECTIVA OFICIAL ({msg.destinoAdmin || 'GENERAL'})
+                        AVISO DE ADMINISTRACIÓN ({msg.destinoAdmin || 'GENERAL'})
                       </div>
                     )}
                     <p className="whitespace-pre-wrap">{msg.contenido}</p>
@@ -474,7 +474,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({
         {tab === 'ADMINISTRATIVO' && !isAdmin ? (
           <div className="p-3.5 bg-slate-100 dark:bg-slate-800/60 border-t border-slate-200 dark:border-slate-800 text-center text-xs text-slate-500 dark:text-slate-400 font-medium flex items-center justify-center gap-1.5">
             <Info className="h-3.5 w-3.5" />
-            <span>Tablón de solo lectura. Reservado a directivas oficiales del mando.</span>
+            <span>Tablón de solo lectura. Reservado a avisos de administración.</span>
           </div>
         ) : (
           <form
@@ -485,7 +485,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({
               type="text"
               placeholder={
                 tab === 'ADMINISTRATIVO'
-                  ? 'Escribir directiva de mando oficial...'
+                  ? 'Escribir aviso de administración...'
                   : tab === 'PRIVADO'
                   ? 'Escribir mensaje privado...'
                   : 'Escribir mensaje en canal general...'

@@ -13,7 +13,6 @@ import {
   MAX_PERSONAL_GRUPO,
   normalizeEmpleo,
   normalizeGrupo,
-  normalizeDni,
   findMatchingPersona,
 } from '../utils/validators';
 import {
@@ -95,16 +94,14 @@ export const parseExcelFile = async (
             clean === 'r1' ||
             clean === 'r2' ||
             clean === '1' ||
-            clean === '2' ||
-            clean === 'cabo' ||
-            clean === 'soldado'
+            clean === '2'
           ) {
             return false;
           }
           return [
-            'nombre', 'nombres', 'apellido', 'apellidos', 'persona', 'personas', 'efectivo', 'efectivos',
-            'personal', 'rol', 'roles', 'empleo', 'empleos', 'rango', 'cargo', 'grupo', 'grupos',
-            'destino', 'dni', 'telefono', 'teléfono', 'tel', 'orden'
+            'nombre', 'nombres', 'apellido', 'apellidos', 'persona', 'personas',
+            'personal', 'rol', 'roles', 'cargo', 'grupo', 'grupos',
+            'destino', 'telefono', 'teléfono', 'tel', 'orden', 'usuario', 'usuarios'
           ].includes(clean);
         };
 
@@ -116,21 +113,17 @@ export const parseExcelFile = async (
         let nombreIdx = -1;
         let empleoIdx = -1;
         let grupoIdx = -1;
-        let dniIdx = -1;
         let telIdx = -1;
 
         if (hasHeaderRow) {
           nombreIdx = firstRowLower.findIndex((h: string) =>
-            isStrictHeaderCell(h) && (h.includes('apellido') || h.includes('nombre') || h.includes('persona') || h.includes('efectivo') || h.includes('usuario'))
+            isStrictHeaderCell(h) && (h.includes('apellido') || h.includes('nombre') || h.includes('persona') || h.includes('usuario'))
           );
           empleoIdx = firstRowLower.findIndex((h: string) =>
-            isStrictHeaderCell(h) && (h.includes('rol') || h.includes('empleo') || h.includes('rango') || h.includes('cargo') || h.includes('puesto'))
+            isStrictHeaderCell(h) && (h.includes('rol') || h.includes('cargo') || h.includes('puesto'))
           );
           grupoIdx = firstRowLower.findIndex((h: string) =>
-            isStrictHeaderCell(h) && (h.includes('grupo') || h.includes('destino') || h.includes('cia') || h.includes('u.'))
-          );
-          dniIdx = firstRowLower.findIndex((h: string) =>
-            isStrictHeaderCell(h) && (h.includes('dni') || h.includes('identificacion') || h.includes('nif'))
+            isStrictHeaderCell(h) && (h.includes('grupo') || h.includes('destino') || h.includes('u.'))
           );
           telIdx = firstRowLower.findIndex((h: string) =>
             isStrictHeaderCell(h) && (h.includes('tel') || h.includes('movil') || h.includes('telefono'))
@@ -204,11 +197,10 @@ export const parseExcelFile = async (
 
         const validRows: ExcelRowParsed[] = [];
         const invalidRows: ExcelRowParsed[] = [];
-        const seenDnis = new Set<string>();
 
         // 3. Procesar filas
         if (isSideBySideLayout) {
-          // Formato lado a lado: cada fila contiene 1 efectivo ROL 1 en col 0 y 1 efectivo ROL 2 en col 1
+          // Formato lado a lado: cada fila contiene 1 usuario ROL 1 en col 0 y 1 usuario ROL 2 en col 1
           let rowIndexSeq = 1;
           rawDataRows.forEach((item) => {
             const nameRol1 = String(item.cells[0] || '').trim().toUpperCase();
@@ -216,13 +208,11 @@ export const parseExcelFile = async (
 
             if (nameRol1) {
               const numSec1 = String(rowIndexSeq).padStart(2, '0');
-              const dniGenerado1 = `100000${numSec1}A`;
               validRows.push({
                 rowNumber: item.originalRowIndex,
                 nombre: nameRol1,
                 empleo: 'ROL 1',
                 grupo: 'U.G.',
-                dni: dniGenerado1,
                 telefono: `6000000${numSec1}`,
                 valid: true,
                 errors: [],
@@ -232,13 +222,11 @@ export const parseExcelFile = async (
 
             if (nameRol2) {
               const numSec2 = String(rowIndexSeq).padStart(2, '0');
-              const dniGenerado2 = `100000${numSec2}B`;
               validRows.push({
                 rowNumber: item.originalRowIndex,
                 nombre: nameRol2,
                 empleo: 'ROL 2',
                 grupo: 'U.G.',
-                dni: dniGenerado2,
                 telefono: `6000000${numSec2}`,
                 valid: true,
                 errors: [],
@@ -256,7 +244,6 @@ export const parseExcelFile = async (
             const rawNombre = String(nombreIdx !== -1 && row[nombreIdx] !== undefined ? row[nombreIdx] : row[0] || '').trim();
             const rawEmpleo = empleoIdx !== -1 && row[empleoIdx] !== undefined ? String(row[empleoIdx]).trim() : '';
             const rawGrupo = grupoIdx !== -1 && row[grupoIdx] !== undefined ? String(row[grupoIdx]).trim() : '';
-            const rawDni = dniIdx !== -1 && row[dniIdx] !== undefined ? String(row[dniIdx]).trim() : '';
             const rawTel = telIdx !== -1 && row[telIdx] !== undefined ? String(row[telIdx]).trim() : '';
 
             const errors: string[] = [];
@@ -268,7 +255,7 @@ export const parseExcelFile = async (
             // Nombre/Apellido normalizado en mayúsculas
             const nombreFormateado = rawNombre.toUpperCase();
 
-            // Determinar Rol/Empleo:
+            // Determinar Rol:
             let normEmpleo: Empleo | null = null;
             if (rawEmpleo) {
               normEmpleo = normalizeEmpleo(rawEmpleo);
@@ -286,29 +273,15 @@ export const parseExcelFile = async (
               normGrupo = 'U.G.';
             }
 
-            // DNI seguro
             const numSec = String(index + 1).padStart(2, '0');
-            const dniGenerado = `100000${numSec}${normEmpleo === 'ROL 1' ? 'A' : 'B'}`;
-            const normDni = rawDni ? (normalizeDni(rawDni) || rawDni) : dniGenerado;
             const telGenerado = `6000000${numSec}`;
             const telFinal = rawTel || telGenerado;
-
-            if (normDni) {
-              if (seenDnis.has(normDni)) {
-                // Generar DNI único si hay colisión
-                const dniUnico = `${normDni}-${index + 1}`;
-                seenDnis.add(dniUnico);
-              } else {
-                seenDnis.add(normDni);
-              }
-            }
 
             const parsedRow: ExcelRowParsed = {
               rowNumber: item.originalRowIndex,
               nombre: nombreFormateado,
               empleo: normEmpleo,
               grupo: normGrupo,
-              dni: normDni,
               telefono: telFinal,
               valid: errors.length === 0,
               errors,
@@ -347,7 +320,7 @@ export const parseExcelFile = async (
 
         if (totalCount < 4) {
           generalErrors.push(
-            `IMPORTACIÓN NO VÁLIDA: Se encontraron ${totalCount} personas válidas. Se requiere un mínimo de 4 efectivos (al menos 2 de ROL 1 y 2 de ROL 2) para cubrir los puestos de guardia.`
+            `IMPORTACIÓN NO VÁLIDA: Se encontraron ${totalCount} personas válidas. Se requiere un mínimo de 4 personas (al menos 2 de ROL 1 y 2 de ROL 2) para cubrir los puestos de guardia.`
           );
         } else if (rol1Count < 2 || rol2Count < 2) {
           generalErrors.push(
@@ -427,7 +400,7 @@ export const calcularSimulacionImportacion = (
 
   newRows.forEach((row) => {
     const { match, strategy, isSafeAutoMatch } = findMatchingPersona(
-      { nombre: row.nombre, dni: row.dni },
+      { nombre: row.nombre },
       existingPersonas
     );
 
@@ -440,7 +413,6 @@ export const calcularSimulacionImportacion = (
         nombre: row.nombre,
         empleo: empleoNorm,
         grupo: grupoNorm,
-        dni: row.dni,
         telefono: row.telefono,
         tipoAccion: 'REVISION_MANUAL',
         personaExistenteId: match.id,
@@ -452,17 +424,15 @@ export const calcularSimulacionImportacion = (
         nombre: row.nombre,
         empleo: empleoNorm,
         grupo: grupoNorm,
-        dni: row.dni,
         telefono: row.telefono,
         tipoAccion: 'NUEVA',
-        motivo: 'Persona nueva en la plantilla oficial',
+        motivo: 'Persona nueva en la plantilla activa',
       });
     } else {
       matchedExistingIds.add(match.id);
       const empleoCambio = match.empleo !== empleoNorm;
       const grupoCambio = match.grupo !== grupoNorm;
       const datosCambio =
-        (row.dni && match.dni !== row.dni) ||
         (row.telefono && match.telefono !== row.telefono) ||
         grupoCambio ||
         !match.activo;
@@ -473,11 +443,10 @@ export const calcularSimulacionImportacion = (
           nombre: row.nombre,
           empleo: empleoNorm,
           grupo: grupoNorm,
-          dni: row.dni,
           telefono: row.telefono,
           tipoAccion: 'CAMBIO_EMPLEO',
           personaExistenteId: match.id,
-          motivo: `Cambio de empleo: ${match.empleo} -> ${empleoNorm}`,
+          motivo: `Cambio de rol: ${match.empleo} -> ${empleoNorm}`,
         });
       } else if (datosCambio) {
         modificadas++;
@@ -492,7 +461,6 @@ export const calcularSimulacionImportacion = (
           nombre: row.nombre,
           empleo: empleoNorm,
           grupo: grupoNorm,
-          dni: row.dni,
           telefono: row.telefono,
           tipoAccion: 'MODIFICADA',
           personaExistenteId: match.id,
@@ -504,7 +472,6 @@ export const calcularSimulacionImportacion = (
           nombre: row.nombre,
           empleo: empleoNorm,
           grupo: grupoNorm,
-          dni: row.dni,
           telefono: row.telefono,
           tipoAccion: 'SIN_CAMBIOS',
           personaExistenteId: match.id,
@@ -523,7 +490,6 @@ export const calcularSimulacionImportacion = (
         nombre: p.nombre,
         empleo: p.empleo,
         grupo: p.grupo || 'U.G.',
-        dni: p.dni,
         telefono: p.telefono,
         tipoAccion: 'DESACTIVAR',
         personaExistenteId: p.id,
@@ -544,7 +510,7 @@ export const calcularSimulacionImportacion = (
 
 /**
  * Ejecuta la importación confirmada:
- * 1. Registra las 22 personas con su orden de rotación oficial (1..11 ROL 1, 1..11 ROL 2).
+ * 1. Registra las 22 personas con su orden de rotación (1..11 ROL 1, 1..11 ROL 2).
  * 2. Limpia todos los cambios de pruebas anteriores (solicitudes, documentos firmados, bajas/incidencias).
  * 3. Regenera y confirma el cuadrante 100% limpio para la U.G.
  */
@@ -567,7 +533,7 @@ export const ejecutarImportacionConfirmada = async (
     for (let i = 0; i < validRows.length; i++) {
       const row = validRows[i];
       const { match, isSafeAutoMatch } = findMatchingPersona(
-        { nombre: row.nombre, dni: row.dni },
+        { nombre: row.nombre },
         existingPersonas
       );
 
@@ -591,7 +557,6 @@ export const ejecutarImportacionConfirmada = async (
           empleo: empleoNorm,
           grupo: grupoNorm,
           tipoServicio: 'GUARDIA',
-          dni: row.dni,
           telefono: row.telefono,
           activo: true,
           ordenRotacion,
@@ -610,7 +575,6 @@ export const ejecutarImportacionConfirmada = async (
           empleo: empleoNorm,
           grupo: grupoNorm,
           tipoServicio: 'GUARDIA',
-          dni: row.dni || match.dni,
           telefono: row.telefono || match.telefono,
           activo: true,
           ordenRotacion,
@@ -622,7 +586,6 @@ export const ejecutarImportacionConfirmada = async (
           empleo: empleoNorm,
           grupo: grupoNorm,
           tipoServicio: 'GUARDIA',
-          dni: row.dni || match.dni,
           telefono: row.telefono || match.telefono,
           activo: true,
           ordenRotacion,
@@ -673,12 +636,12 @@ export const ejecutarImportacionConfirmada = async (
       adminUid: adminInfo.uid,
       adminNombre: adminInfo.nombre,
       accion: 'IMPORTAR_PERSONAL',
-      detalles: `Plantilla oficial de personal importada: ${validRows.length} efectivos (11 ROL 1 y 11 ROL 2). Cambios previos eliminados y cuadrante general de la U.G. regenerado en limpio.`,
+      detalles: `Plantilla de personal importada: ${validRows.length} usuarios (11 ROL 1 y 11 ROL 2). Cambios previos eliminados y cuadrante general de la U.G. regenerado en limpio.`,
     });
 
     return {
       success: true,
-      message: `Importación completada con éxito. Se han cargado los ${validRows.length} efectivos (11 ROL 1 y 11 ROL 2). Todas las pruebas anteriores han sido eliminadas y el cuadrante general ha quedado completamente limpio.`,
+      message: `Importación completada con éxito. Se han cargado los ${validRows.length} usuarios (11 ROL 1 y 11 ROL 2). Todas las pruebas anteriores han sido eliminadas y el cuadrante general ha quedado completamente limpio.`,
       count: validRows.length,
     };
   } catch (error: any) {
@@ -718,7 +681,7 @@ export const descargarPlantillaExcelApellidos = () => {
 };
 
 /**
- * Genera y descarga una plantilla Excel oficial con dos columnas: ROL y APELLIDO
+ * Genera y descarga una plantilla Excel con dos columnas: ROL y APELLIDO
  */
 export const descargarPlantillaExcelEjemplo = (rol1Count = 11, rol2Count = 11) => {
   const data: any[] = [
@@ -748,7 +711,7 @@ export const descargarPlantillaExcelEjemplo = (rol1Count = 11, rol2Count = 11) =
   const ws = XLSX.utils.aoa_to_sheet(data);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Plantilla Personal UG');
-  XLSX.writeFile(wb, 'plantilla_oficial_rol_apellido.xlsx');
+  XLSX.writeFile(wb, 'plantilla_rol_apellido.xlsx');
 };
 
 /**
@@ -848,8 +811,6 @@ export const parseExcelFileUS = async (
             if (
               str === 'rol' ||
               str === 'roles' ||
-              str === 'empleo' ||
-              str === 'empleos' ||
               str === 'cargo' ||
               str === 'puesto'
             ) {
@@ -862,8 +823,7 @@ export const parseExcelFileUS = async (
               str === 'nombres' ||
               str === 'persona' ||
               str === 'personas' ||
-              str === 'efectivo' ||
-              str === 'efectivos' ||
+              str === 'personal' ||
               str === 'usuario'
             ) {
               apellidoColIdx = idx;
@@ -925,9 +885,9 @@ export const parseExcelFileUS = async (
           const apellidoLimpio = String(rawApellido || '').trim().toUpperCase();
           let rolNormalizado: Empleo = 'ROL 2';
           const rolStr = String(rawRol || '').toUpperCase();
-          if (rolStr.includes('1') || rolStr.includes('ROL 1') || rolStr.includes('CABO')) {
+          if (rolStr.includes('1') || rolStr.includes('ROL 1')) {
             rolNormalizado = 'ROL 1';
-          } else if (rolStr.includes('2') || rolStr.includes('ROL 2') || rolStr.includes('SOLDADO')) {
+          } else if (rolStr.includes('2') || rolStr.includes('ROL 2')) {
             rolNormalizado = 'ROL 2';
           } else {
             // Por defecto si no se especifica, alternar o asignar ROL 2
@@ -947,7 +907,6 @@ export const parseExcelFileUS = async (
             nombre: apellidoLimpio,
             empleo: rolNormalizado,
             grupo: 'US_SEGURIDAD',
-            dni: '',
             telefono: '',
             valid: rowErrors.length === 0,
             errors: rowErrors,
@@ -968,7 +927,7 @@ export const parseExcelFileUS = async (
         // Validación de dotación mínima para 12h: se requieren al menos 5 personas
         if (totalCount < 5) {
           generalErrors.push(
-            `Dotación insuficiente para la U.S.: se han detectado ${totalCount} efectivos. Se requieren al menos 5 personas para cubrir los turnos de 12h (2 Diurnos + 2 Nocturnos + 1 Imaginaria).`
+            `Dotación insuficiente para la U.S.: se han detectado ${totalCount} personas. Se requieren al menos 5 personas para cubrir los turnos de 12h (2 Diurnos + 2 Nocturnos + 1 Imaginaria).`
           );
         }
 
@@ -1059,7 +1018,6 @@ export const ejecutarImportacionConfirmadaUS = async (
           empleo: empleoNorm,
           grupo: 'US_SEGURIDAD',
           tipoServicio: 'US',
-          dni: '',
           telefono: '',
           activo: true,
           ordenRotacion,
@@ -1145,7 +1103,7 @@ export const ejecutarImportacionConfirmadaUS = async (
 
     return {
       success: true,
-      message: `Plantilla U.S. actualizada correctamente con ${validRows.length} efectivos activos (${rol1Count} ROL 1 y ${rol2Count} ROL 2). Los datos históricos han sido preservados.`,
+      message: `Plantilla U.S. actualizada correctamente con ${validRows.length} usuarios activos (${rol1Count} ROL 1 y ${rol2Count} ROL 2). Los datos históricos han sido preservados.`,
       count: validRows.length,
     };
   } catch (error: any) {

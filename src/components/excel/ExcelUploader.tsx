@@ -92,7 +92,7 @@ export const ExcelUploader: React.FC<ExcelUploaderProps> = ({
         <p className="mt-1.5 max-w-lg text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
           {isUS ? (
             <>
-              Carga únicamente las columnas <strong>ROL</strong> y <strong>APELLIDO</strong> (ej: ROL 1 / Apellido). <strong>No se requieren DNI, teléfonos ni datos personales</strong>. La dotación es variable (habitual: ~16 efectivos).
+              Carga únicamente las columnas <strong>ROL</strong> y <strong>APELLIDO</strong> (ej: ROL 1 / Apellido). <strong>No se requieren documentos identificativos, teléfonos ni datos personales</strong>. La dotación es variable (habitual: ~16 personas).
             </>
           ) : (
             <>
@@ -120,7 +120,7 @@ export const ExcelUploader: React.FC<ExcelUploaderProps> = ({
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3.5 dark:border-slate-800 dark:bg-slate-900/60 text-xs">
         <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
           <AlertCircle className="h-4 w-4 text-slate-400 shrink-0" />
-          <span>Descarga las plantillas oficiales preconfiguradas:</span>
+          <span>Descarga las plantillas preconfiguradas:</span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {isUS ? (

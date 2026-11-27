@@ -113,7 +113,7 @@ export const CuadranteSimulacionView: React.FC<CuadranteSimulacionViewProps> = (
               </span>
               <span>•</span>
               <span>
-                Efectivos: <strong className="text-slate-800 dark:text-slate-200">{cuadrante.totalRol1} ROL 1</strong> + <strong className="text-slate-800 dark:text-slate-200">{cuadrante.totalRol2} ROL 2</strong> ({cuadrante.totalPersonas} total)
+                Personal: <strong className="text-slate-800 dark:text-slate-200">{cuadrante.totalRol1} ROL 1</strong> + <strong className="text-slate-800 dark:text-slate-200">{cuadrante.totalRol2} ROL 2</strong> ({cuadrante.totalPersonas} total)
               </span>
             </p>
           </div>

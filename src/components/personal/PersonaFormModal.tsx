@@ -9,7 +9,6 @@ interface PersonaFormModalProps {
     nombre: string;
     empleo: Empleo;
     grupo: Grupo;
-    dni: string;
     telefono: string;
     activo: boolean;
     notas?: string;
@@ -65,7 +64,7 @@ export const PersonaFormModal: React.FC<PersonaFormModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nombre.trim()) {
-      setErrors(['El apellido del efectivo es obligatorio']);
+      setErrors(['El apellido del usuario es obligatorio']);
       return;
     }
 
@@ -75,7 +74,6 @@ export const PersonaFormModal: React.FC<PersonaFormModalProps> = ({
         nombre: nombre.trim().toUpperCase(),
         empleo,
         grupo,
-        dni: '',
         telefono: '',
         activo,
         notas: notas.trim(),
@@ -85,7 +83,7 @@ export const PersonaFormModal: React.FC<PersonaFormModalProps> = ({
       });
       onClose();
     } catch (err: any) {
-      setErrors([err.message || 'Error al guardar el efectivo']);
+      setErrors([err.message || 'Error al guardar el registro']);
     } finally {
       setSaving(false);
     }
@@ -96,7 +94,7 @@ export const PersonaFormModal: React.FC<PersonaFormModalProps> = ({
       id="modal-persona-form"
       isOpen={isOpen}
       onClose={onClose}
-      title={personaEditar ? `Editar Efectivo: ${personaEditar.nombre}` : 'Nuevo Efectivo en el Grupo'}
+      title={personaEditar ? `Editar Persona: ${personaEditar.nombre}` : 'Nueva Persona en el Grupo'}
       subtitle="El ID interno del sistema es único y permanente."
     >
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -114,7 +112,7 @@ export const PersonaFormModal: React.FC<PersonaFormModalProps> = ({
         {/* Apellido */}
         <div>
           <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-            Apellido del Efectivo <span className="text-rose-500">*</span>
+            Apellido <span className="text-rose-500">*</span>
           </label>
           <input
             id="input-persona-nombre"
@@ -186,7 +184,7 @@ export const PersonaFormModal: React.FC<PersonaFormModalProps> = ({
               Estado en el grupo
             </p>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              Los efectivos inactivos se conservan en el histórico sin turnos activos.
+              El personal inactivo se conserva en el histórico sin turnos activos.
             </p>
           </div>
           <button
@@ -275,7 +273,7 @@ export const PersonaFormModal: React.FC<PersonaFormModalProps> = ({
           <textarea
             id="textarea-persona-notas"
             rows={2}
-            placeholder="Información adicional sobre el efectivo..."
+            placeholder="Información adicional sobre el usuario..."
             value={notas}
             onChange={(e) => setNotas(e.target.value)}
             className="w-full rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-xs font-medium text-slate-900 focus:border-slate-400 focus:bg-white focus:outline-none dark:border-slate-800 dark:bg-slate-800 dark:text-white"
@@ -299,7 +297,7 @@ export const PersonaFormModal: React.FC<PersonaFormModalProps> = ({
             disabled={saving}
             className="rounded-xl bg-slate-900 px-5 py-2 text-xs font-bold text-white shadow-xs hover:bg-slate-800 disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white"
           >
-            {saving ? 'Guardando...' : personaEditar ? 'Guardar Cambios' : 'Registrar Efectivo'}
+            {saving ? 'Guardando...' : personaEditar ? 'Guardar Cambios' : 'Registrar Persona'}
           </button>
         </div>
       </form>

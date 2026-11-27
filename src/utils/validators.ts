@@ -3,11 +3,6 @@ import { Empleo, Persona, Grupo, GRUPOS_VALIDOS } from '../types';
 export const MIN_PERSONAL_GRUPO = 21;
 export const MAX_PERSONAL_GRUPO = 23;
 
-export const normalizeDni = (dni?: string | null): string => {
-  if (!dni) return '';
-  return dni.toUpperCase().replace(/[\s-]/g, '').trim();
-};
-
 export const isValidEmpleo = (empleo: string): empleo is Empleo => {
   return normalizeEmpleo(empleo) !== null;
 };
@@ -18,13 +13,7 @@ export const normalizeEmpleo = (empleo: string): Empleo | null => {
     norm === 'ROL 1' ||
     norm === 'ROL1' ||
     norm === 'R1' ||
-    norm === '1' ||
-    norm === 'CABO' ||
-    norm === 'CABO 1' ||
-    norm === 'CABO 1º' ||
-    norm === 'CABO PRIMERO' ||
-    norm === 'CBO' ||
-    norm === 'CBO.'
+    norm === '1'
   ) {
     return 'ROL 1';
   }
@@ -32,12 +21,7 @@ export const normalizeEmpleo = (empleo: string): Empleo | null => {
     norm === 'ROL 2' ||
     norm === 'ROL2' ||
     norm === 'R2' ||
-    norm === '2' ||
-    norm === 'SOLDADO' ||
-    norm === 'SLD' ||
-    norm === 'SLD.' ||
-    norm === 'SDO' ||
-    norm === 'SOLDADO 1ª'
+    norm === '2'
   ) {
     return 'ROL 2';
   }
@@ -64,7 +48,6 @@ export const validatePersonData = (data: {
   nombre?: string;
   empleo?: string;
   grupo?: string;
-  dni?: string;
   telefono?: string;
 }): { isValid: boolean; errors: string[] } => {
   const errors: string[] = [];
@@ -86,17 +69,16 @@ export const validatePersonData = (data: {
 /**
  * Estrategia segura y conservadora de coincidencia de personas para importaciones:
  * 1. Coincidencia por ID interno seguro -> 'ID_EXACTO' (match seguro).
- * 2. Si existe DNI válido y coincide exactamente -> 'DNI_EXACTO' (match seguro).
- * 3. Si ÚNICAMENTE coincide el nombre -> 'NOMBRE_HOMONIMO_REVISION'. NO se actualiza automáticamente
+ * 2. Si ÚNICAMENTE coincide el nombre -> 'NOMBRE_HOMONIMO_REVISION'. NO se actualiza automáticamente
  *    para evitar sobreescribir personas de ciclos anteriores con el mismo nombre y apellidos.
- * 4. Si no coincide ninguno -> 'NINGUNA' (persona nueva).
+ * 3. Si no coincide ninguno -> 'NINGUNA' (persona nueva).
  */
 export const findMatchingPersona = (
-  candidate: { id?: string; nombre: string; dni?: string },
+  candidate: { id?: string; nombre: string },
   existingPersonas: Persona[]
 ): {
   match: Persona | null;
-  strategy: 'ID_EXACTO' | 'DNI_EXACTO' | 'NOMBRE_HOMONIMO_REVISION' | 'NINGUNA';
+  strategy: 'ID_EXACTO' | 'NOMBRE_HOMONIMO_REVISION' | 'NINGUNA';
   isSafeAutoMatch: boolean;
 } => {
   // 1. Coincidencia por ID interno si viene especificado
@@ -107,31 +89,15 @@ export const findMatchingPersona = (
     }
   }
 
-  const candDni = normalizeDni(candidate.dni);
   const candNombre = candidate.nombre.trim().toLowerCase();
 
-  // 2. Coincidencia por DNI válido (mínimo 6 caracteres alfanuméricos)
-  if (candDni && candDni.length >= 6) {
-    const dniMatch = existingPersonas.find(
-      (p) => normalizeDni(p.dni) === candDni
-    );
-    if (dniMatch) {
-      return { match: dniMatch, strategy: 'DNI_EXACTO', isSafeAutoMatch: true };
-    }
-  }
-
-  // 3. Coincidencia únicamente por nombre
+  // 2. Coincidencia únicamente por nombre
   const nameMatches = existingPersonas.filter(
     (p) => p.nombre.trim().toLowerCase() === candNombre
   );
 
   if (nameMatches.length > 0) {
     const existing = nameMatches[0];
-    // Si la persona existente tiene DNI y el candidato tiene otro DNI distinto, es otra persona
-    const existDni = normalizeDni(existing.dni);
-    if (candDni && existDni && candDni !== existDni) {
-      return { match: null, strategy: 'NINGUNA', isSafeAutoMatch: false };
-    }
 
     // Coincide solo el nombre: REQUIERE REVISIÓN MANUAL, NO ACTUALIZACIÓN AUTOMÁTICA
     return {

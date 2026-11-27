@@ -21,8 +21,8 @@ console.log('  25 Dic esFestivo:', d25.esFestivo, '| esLaborable:', d25.esLabora
 console.log('  1 Ene esFestivo:', d01.esFestivo, '| esLaborable:', d01.esLaborable);
 console.log('  6 Ene esFestivo:', d06.esFestivo, '| esLaborable:', d06.esLaborable);
 
-if (!d24.esFestivo || d24.esLaborable) throw new Error('24 Dic debe ser festivo oficial y no laborable');
-if (!d31.esFestivo || d31.esLaborable) throw new Error('31 Dic debe ser festivo oficial y no laborable');
+if (!d24.esFestivo || d24.esLaborable) throw new Error('24 Dic debe ser festivo y no laborable');
+if (!d31.esFestivo || d31.esLaborable) throw new Error('31 Dic debe ser festivo y no laborable');
 if (d07.esFestivo || !d07.esLaborable) throw new Error('7 Dic debe ser laborable normal');
 console.log('  ✓ 24 y 31 Dic son festivos y no laborables (0 horas)');
 console.log('  ✓ 7 Dic es laborable normal');
@@ -59,7 +59,7 @@ detalle.forEach(p => {
     throw new Error(`Persona ${p.nombre} excede 154h con ${p.totalHorasComputables}h`);
   }
 });
-console.log('  ✓ Todos los efectivos tienen horas <= 154h');
+console.log('  ✓ Todo el personal tiene horas <= 154h');
 
 // 4. Test de Ajuste de Cuadrante Existente (sin modificar turnos nombrados)
 console.log('3. Ajuste de Cuadrante Existente:');

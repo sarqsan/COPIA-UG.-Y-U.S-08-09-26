@@ -9,7 +9,7 @@ import {
   getHorarioPorSecuencial,
   esDiaLaborablePatrullas,
 } from '../../services/patrullaService';
-import { obtenerEfectivosEnServicioOImaginaria } from '../../services/cuadranteService';
+import { obtenerPersonalEnServicioOImaginaria } from '../../services/cuadranteService';
 import {
   X,
   Shield,
@@ -74,13 +74,13 @@ export const CrearPatrullaModal: React.FC<CrearPatrullaModalProps> = ({
       adminInfo?.rol === 'ADMINISTRADOR_PATRULLAS'
   );
 
-  // Cargar efectivos en servicio e imaginaria cada vez que cambia la fecha
+  // Cargar personal en servicio e imaginaria cada vez que cambia la fecha
   useEffect(() => {
     let active = true;
     const cargarExcluidosFecha = async () => {
       setCargandoExcluidos(true);
       try {
-        const res = await obtenerEfectivosEnServicioOImaginaria(fecha, { cuadranteId });
+        const res = await obtenerPersonalEnServicioOImaginaria(fecha, { cuadranteId });
         if (active) {
           setExcluidosIds(res.todosExcluidosIds);
           const motivosMap: Record<string, string> = {};
@@ -92,7 +92,7 @@ export const CrearPatrullaModal: React.FC<CrearPatrullaModalProps> = ({
           setMotivosExclusionPorId(motivosMap);
         }
       } catch (err) {
-        console.warn('Error cargando efectivos de servicio/imaginaria:', err);
+        console.warn('Error cargando personal de servicio/imaginaria:', err);
       } finally {
         if (active) setCargandoExcluidos(false);
       }
@@ -150,7 +150,7 @@ export const CrearPatrullaModal: React.FC<CrearPatrullaModalProps> = ({
     e.preventDefault();
     const idParaAsignar = personaSeleccionadaId || candidatoAuto?.personaId;
     if (!idParaAsignar) {
-      setError('No hay ningún efectivo disponible para asignar en este día (todos están de servicio o imaginaria).');
+      setError('No hay ningún usuario disponible para asignar en este día (todos están de servicio o imaginaria).');
       return;
     }
 
@@ -347,7 +347,7 @@ export const CrearPatrullaModal: React.FC<CrearPatrullaModalProps> = ({
                       </div>
                       <div>
                         <span className="text-[10px] font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-400 block">
-                          Efectivo Asignado Automáticamente
+                          Usuario Asignado Automáticamente
                         </span>
                         <h4 className="text-sm font-black text-slate-900 dark:text-white leading-tight">
                           {candidatoSeleccionadoActual?.personaNombre || candidatoAuto.personaNombre}
@@ -370,8 +370,8 @@ export const CrearPatrullaModal: React.FC<CrearPatrullaModalProps> = ({
                 </div>
               ) : (
                 <div className="rounded-2xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
-                  <p className="font-bold mb-1">Sin efectivos disponibles en {rolActivo}</p>
-                  Todos los efectivos de este rol se encuentran asignados de servicio (24h) o de imaginaria para esta fecha.
+                  <p className="font-bold mb-1">Sin usuarios disponibles en {rolActivo}</p>
+                  Todos los usuarios de este rol se encuentran asignados de servicio (24h) o de imaginaria para esta fecha.
                 </div>
               )}
 
@@ -490,7 +490,7 @@ export const CrearPatrullaModal: React.FC<CrearPatrullaModalProps> = ({
                   type="text"
                   value={observaciones}
                   onChange={(e) => setObservaciones(e.target.value)}
-                  placeholder="Ej: Punto de control, retén o motivo específico"
+                  placeholder="Ej: Zona asignada o motivo específico"
                   className="w-full rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-800 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                 />
               </div>
@@ -524,7 +524,7 @@ export const CrearPatrullaModal: React.FC<CrearPatrullaModalProps> = ({
                   Generación Automática de Rango
                 </p>
                 El sistema recorrerá día por día evaluando en cada fecha el rol mayoritario activo,
-                asignando el horario secuencial según calendario (en días laborables siempre horario de noche 17:00 / 18:00; en fines de semana y festivos rotación), <strong>excluyendo en cada día a los efectivos de servicio (24h), saliente de guardia (D-1) y de imaginaria (D, D+1)</strong> e integrando al efectivo que por normativa corresponde.
+                asignando el horario secuencial según calendario (en días laborables siempre horario de noche 17:00 / 18:00; en fines de semana y festivos rotación), <strong>excluyendo en cada día al personal de servicio (24h), saliente de guardia (D-1) y de imaginaria (D, D+1)</strong> e integrando al usuario que por normativa corresponde.
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

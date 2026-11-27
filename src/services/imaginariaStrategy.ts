@@ -6,15 +6,15 @@ import { addDaysToDateStr } from '../utils/dateUtils';
  *
  * REGLAS INVIOLABLES:
  * 1. 1 ROL 1 de imaginaria y 1 ROL 2 de imaginaria cada día (09:00 a 09:00).
- * 2. Correspondencia estricta de empleo (ROL 1 cubre ROL 1, ROL 2 cubre ROL 2).
+ * 2. Correspondencia estricta de rol (ROL 1 cubre ROL 1, ROL 2 cubre ROL 2).
  * 3. Si una persona tiene servicio en el día D:
  *    - PROHIBIDO ser imaginaria en D-1 (víspera)
  *    - PROHIBIDO ser imaginaria en D (día de servicio)
  *    - PROHIBIDO ser imaginaria en D+1 (día saliente)
  * 4. Nadie puede ser titular e imaginaria en el mismo día.
  * 5. Rotación circular lógica, predecible y determinista:
- *    - La lista de efectivos se ordena estrictamente por ordenRotacion.
- *    - Se mantiene un puntero circular por empleo.
+ *    - La lista de personal se ordena estrictamente por ordenRotacion.
+ *    - Se mantiene un puntero circular por rol.
  *    - Para cada día D, se busca la siguiente persona elegible en orden circular a partir del puntero.
  *    - Al seleccionar a la persona en el índice K, el puntero avanza a (K + 1) % Total.
  *    - Dos ejecuciones con los mismos datos iniciales producen exactamente el mismo resultado.
@@ -87,7 +87,7 @@ export const esPersonaElegibleParaImaginaria = (
 /**
  * Implementación de la estrategia de rotación equitativa y determinista de imaginaria.
  * Elimina cualquier bloqueo de paridad aritmética (evitando patrones impares 1, 3, 5, 7...)
- * y garantiza una distribución equilibrada de guardias de imaginaria entre todos los efectivos.
+ * y garantiza una distribución equilibrada de guardias de imaginaria entre todos los usuarios.
  */
 export class CircularDeterministicImaginariaStrategy implements ImaginariaAssignmentStrategy {
   asignarImaginarias(params: {
@@ -119,16 +119,16 @@ export class CircularDeterministicImaginariaStrategy implements ImaginariaAssign
   }
 
   private asignarRotacionEquitativa(
-    efectivos: Persona[],
+    personas: Persona[],
     diasFechas: string[],
     diasServicioPorPersona: Map<string, Set<string>>,
     resultadoMap: Map<string, Persona>,
     diasPatrullaPorPersona?: Map<string, Set<string>>
   ) {
-    if (efectivos.length === 0) return;
+    if (personas.length === 0) return;
 
     // Ordenar estrictamente por ordenRotacion ASC
-    const listaOrdenada = [...efectivos].sort(
+    const listaOrdenada = [...personas].sort(
       (a, b) => (a.ordenRotacion ?? 999) - (b.ordenRotacion ?? 999) || a.id.localeCompare(b.id)
     );
 

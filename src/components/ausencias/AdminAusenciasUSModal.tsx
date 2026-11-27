@@ -61,7 +61,7 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
   // Modal de Detalle de Días Consumidos
   const [personaSeleccionadaDetalle, setPersonaSeleccionadaDetalle] = useState<Persona | null>(null);
 
-  // Modal / Estado para editar bolsa de días de un efectivo
+  // Modal / Estado para editar bolsa de días de una persona
   const [personaEditandoBolsa, setPersonaEditandoBolsa] = useState<Persona | null>(null);
   const [diasVacInput, setDiasVacInput] = useState(22);
   const [diasAPInput, setDiasAPInput] = useState(6);
@@ -248,7 +248,7 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
     e.preventDefault();
     const pers = personasUS.find((p) => p.id === personaDirectaId);
     if (!pers) {
-      alert('Selecciona un efectivo.');
+      alert('Selecciona una persona.');
       return;
     }
 
@@ -286,7 +286,7 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
     try {
       const recuperadas = await reconstruirAusenciasUSDesdeCuadrantes();
       alert(
-        `Recuperación completada:\n\nSe han localizado y reconstruido ${recuperadas.length} solicitudes de permiso, vacaciones y asuntos propios (incluyendo Diciembre y meses venideros) a partir de los cuadrantes oficiales, registros históricos de auditoría y catálogo del sistema.`
+        `Recuperación completada:\n\nSe han localizado y reconstruido ${recuperadas.length} solicitudes de permiso, vacaciones y asuntos propios (incluyendo Diciembre y meses venideros) a partir de los cuadrantes, registros históricos de auditoría y catálogo del sistema.`
       );
       await cargarSolicitudes();
       onUpdate();
@@ -455,13 +455,13 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
 
         {/* Contenido según pestaña */}
         <div className="p-3.5 sm:p-5 overflow-y-auto overscroll-contain flex-1 space-y-4">
-          {/* 1. PESTAÑA: SALDOS Y BOLSA DE DÍAS DE TODOS LOS EFECTIVOS */}
+          {/* 1. PESTAÑA: SALDOS Y BOLSA DE DÍAS DE TODO EL PERSONAL */}
           {activeTab === 'SALDOS' && (
             <div className="space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                 <div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
-                    Bolsa Anual de Días por Efectivo (U.S.)
+                    Bolsa Anual de Días por Persona (U.S.)
                   </h3>
                   <p className="text-[11px] text-slate-500">
                     Control de días asignados por la Administración, consumidos y pendientes para cada miembro.
@@ -555,7 +555,7 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
                 <table className="w-full min-w-[650px] text-left text-xs">
                   <thead className="bg-slate-50 dark:bg-slate-800/70 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase border-b border-slate-200 dark:border-slate-800">
                     <tr>
-                      <th className="px-4 py-3">Efectivo</th>
+                      <th className="px-4 py-3">Personal</th>
                       <th className="px-4 py-3 text-center">Vacaciones (V)</th>
                       <th className="px-4 py-3 text-center">Asuntos Prop. (A.P.)</th>
                       <th className="px-4 py-3 text-center">Permisos (PER)</th>
@@ -643,13 +643,13 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
           {activeTab === 'NUEVA_DIRECTA' && (
             <form onSubmit={handleAsignacionDirecta} className="space-y-4 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700">
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-                Asignar Vacaciones / Permiso Oficialmente a un Efectivo
+                Asignar Vacaciones / Permiso Directamente a una Persona
               </h3>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
-                    Efectivo U.S.
+                    Personal U.S.
                   </label>
                   <select
                     required
@@ -657,7 +657,7 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
                     onChange={(e) => setPersonaDirectaId(e.target.value)}
                     className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
                   >
-                    <option value="">Seleccionar efectivo...</option>
+                    <option value="">Seleccionar persona...</option>
                     {personasUSOrdenadas.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.nombre} ({p.empleo})
@@ -733,7 +733,7 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
                         <span className="text-purple-700 dark:text-purple-300 font-medium ml-1">
                           Se excluyen {desglose.totalDiasNoConsumibles} día(s) no computables
                           {desglose.totalFinesSemanaExcluidos > 0 && ` (${desglose.totalFinesSemanaExcluidos} fin(es) de semana)`}
-                          {desglose.totalFestivosExcluidos > 0 && ` (${desglose.totalFestivosExcluidos} festivos oficiales)`}.
+                          {desglose.totalFestivosExcluidos > 0 && ` (${desglose.totalFestivosExcluidos} festivos)`}.
                         </span>
                       ) : (
                         <span> Sin festivos ni días no computables.</span>
@@ -750,7 +750,7 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
                     <span className="font-bold">Aviso de Saldo Insuficiente:</span>
                     <p className="text-[11px] mt-0.5">{advertenciaSaldoDirecta}</p>
                     <p className="text-[10px] text-amber-800 dark:text-amber-300 mt-1">
-                      Como administrador puedes forzar la aprobación directa o ajustar la bolsa de días del efectivo.
+                      Como administrador puedes forzar la aprobación directa o ajustar la bolsa de días de la persona.
                     </p>
                   </div>
                 </div>
@@ -758,11 +758,11 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
 
               <div>
                 <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
-                  Motivo / Referencia del documento oficial
+                  Motivo / Referencia del documento
                 </label>
                 <input
                   type="text"
-                  placeholder="Ej: Concesión resolución oficial núm. 45/2026..."
+                  placeholder="Ej: Concesión resolución núm. 45/2026..."
                   value={motivoDirecto}
                   onChange={(e) => setMotivoDirecto(e.target.value)}
                   className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
@@ -790,7 +790,7 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
                   <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
                   <input
                     type="text"
-                    placeholder="Buscar por efectivo o tipo..."
+                    placeholder="Buscar por persona o tipo..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
@@ -801,7 +801,7 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
                     onClick={handleRecuperarDesdeCuadrantes}
                     disabled={actionLoading || recuperando}
                     className="px-3 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 dark:bg-teal-950/40 dark:hover:bg-teal-900/60 text-teal-800 dark:text-teal-200 border border-teal-200 dark:border-teal-800 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0 shadow-2xs"
-                    title="Recupera y reconstruye automáticamente todas las vacaciones y permisos desde los cuadrantes oficiales de la U.S."
+                    title="Recupera y reconstruye automáticamente todas las vacaciones y permisos desde los cuadrantes de la U.S."
                   >
                     <RefreshCw className={`w-3.5 h-3.5 text-teal-600 dark:text-teal-400 ${recuperando ? 'animate-spin' : ''}`} />
                     <span>{recuperando ? 'Recuperando...' : 'Recuperar Permisos de Cuadrantes'}</span>
@@ -878,7 +878,7 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
                               )}
                               {festivos && festivos.length > 0 && (
                                 <div className="text-[10px] text-purple-700 dark:text-purple-300 font-medium flex items-center gap-1">
-                                  <span>🎉 {festivos.length} festivo(s) oficial(es): {festivos.map((f) => f.nombre).join(', ')}</span>
+                                  <span>🎉 {festivos.length} festivo(s): {festivos.map((f) => f.nombre).join(', ')}</span>
                                 </div>
                               )}
                             </div>
@@ -1084,13 +1084,13 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
 
                 <div>
                   <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
-                    Motivo / Observaciones oficiales
+                    Motivo / Observaciones
                   </label>
                   <input
                     type="text"
                     value={editMotivo}
                     onChange={(e) => setEditMotivo(e.target.value)}
-                    placeholder="Ej: Corrección fechas por resolución oficial..."
+                    placeholder="Ej: Corrección de fechas..."
                     className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
                   />
                 </div>
@@ -1117,7 +1117,7 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
           </div>
         )}
 
-        {/* Modal de edición rápida de bolsa de días de un efectivo */}
+        {/* Modal de edición rápida de bolsa de días de una persona */}
         {personaEditandoBolsa && (
           <div className="fixed inset-0 z-60 flex items-center justify-center p-2.5 sm:p-4 bg-black/60 backdrop-blur-xs">
             <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl max-w-md w-full max-h-[92vh] overflow-y-auto p-4 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4">
@@ -1202,7 +1202,7 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
           </div>
         )}
 
-        {/* Modal de Detalle de Días Consumidos para el efectivo seleccionado */}
+        {/* Modal de Detalle de Días Consumidos para la persona seleccionada */}
         {personaSeleccionadaDetalle && (
           <DetalleDiasConsumidosModal
             persona={personaSeleccionadaDetalle}

@@ -15,7 +15,7 @@ import {
   enviarMensajePrivado,
   enviarMensajeAdministrativo,
   getConversacionPrivadaId,
-  ADMIN_OFICIAL_ID,
+  ADMIN_CANAL_ID,
 } from '../../services/chatService';
 import {
   MessageSquare,
@@ -76,12 +76,12 @@ export const ChatModal: React.FC<ChatModalProps> = ({
     const lista: { id: string; nombre: string; empleo: string; grupo: string; esAdmin?: boolean }[] = [];
 
     if (!isAdmin) {
-      // Para usuarios normales, el primer destinatario siempre es el Administrador / Mando
+      // Para usuarios normales, el primer destinatario siempre es Administración
       lista.push({
-        id: ADMIN_OFICIAL_ID,
-        nombre: 'Mando / Oficina de Cuadrantes',
+        id: ADMIN_CANAL_ID,
+        nombre: 'Administración / Cuadrantes',
         empleo: 'ADMINISTRACIÓN',
-        grupo: 'PLMM',
+        grupo: 'ADMIN',
         esAdmin: true,
       });
       // Añadir al resto de compañeros de Guardia
@@ -96,7 +96,7 @@ export const ChatModal: React.FC<ChatModalProps> = ({
           });
         });
     } else {
-      // Para el Administrador, listar a todos los efectivos de Guardia
+      // Para el Administrador, listar a todo el personal de Guardia
       activas.forEach((p) => {
         lista.push({
           id: p.id,
@@ -131,7 +131,7 @@ export const ChatModal: React.FC<ChatModalProps> = ({
 
     let convId: string | undefined = undefined;
     if (tab === 'PRIVADO') {
-      const remitenteId = currentPersona ? currentPersona.id : ADMIN_OFICIAL_ID;
+      const remitenteId = currentPersona ? currentPersona.id : ADMIN_CANAL_ID;
       const targetId = compañeroPrivadoId || (destinatariosPrivados[0]?.id);
       if (targetId) {
         convId = getConversacionPrivadaId(remitenteId, targetId);
@@ -184,17 +184,17 @@ export const ChatModal: React.FC<ChatModalProps> = ({
           return;
         }
 
-        let destNombre = 'Mando / Oficina de Cuadrantes';
+        let destNombre = 'Administración / Cuadrantes';
         let destUid: string | undefined = undefined;
 
-        if (targetId !== ADMIN_OFICIAL_ID) {
+        if (targetId !== ADMIN_CANAL_ID) {
           const destObj = personas.find((p) => p.id === targetId);
           if (destObj) {
             destNombre = `${destObj.empleo} ${destObj.nombre}`;
           }
         }
 
-        const remitentePersonaId = currentPersona ? currentPersona.id : ADMIN_OFICIAL_ID;
+        const remitentePersonaId = currentPersona ? currentPersona.id : ADMIN_CANAL_ID;
         const remitenteNombre = currentPersona ? currentPersona.nombre : currentCuentaInfo.nombre;
 
         const nuevo = await enviarMensajePrivado({
@@ -212,7 +212,7 @@ export const ChatModal: React.FC<ChatModalProps> = ({
         setMensajes((prev) => [...prev, nuevo]);
       } else if (tab === 'ADMINISTRATIVO') {
         if (!isAdmin) {
-          alert('Solo los administradores pueden emitir directivas oficiales.');
+          alert('Solo los administradores pueden emitir avisos administrativos.');
           return;
         }
         const nuevo = await enviarMensajeAdministrativo({
@@ -246,7 +246,7 @@ export const ChatModal: React.FC<ChatModalProps> = ({
             <div>
               <h3 className="text-lg font-bold">Comunicaciones del Grupo</h3>
               <p className="text-xs text-slate-300">
-                Canal de guardia, coordinación y directivas oficiales
+                Canal de guardia, coordinación y avisos administrativos
               </p>
             </div>
           </div>
@@ -291,7 +291,7 @@ export const ChatModal: React.FC<ChatModalProps> = ({
             }`}
           >
             <Megaphone className="w-4 h-4 text-amber-500" />
-            Directivas de Mando
+            Avisos de Administración
           </button>
         </div>
 
@@ -402,7 +402,7 @@ export const ChatModal: React.FC<ChatModalProps> = ({
                     {msg.tipo === 'ADMINISTRATIVO' && (
                       <div className="text-[10px] uppercase font-black tracking-wider text-amber-950 mb-1 flex items-center gap-1">
                         <Megaphone className="w-3 h-3" />
-                        DIRECTIVA OFICIAL ({msg.destinoAdmin || 'GENERAL'})
+                        AVISO DE ADMINISTRACIÓN ({msg.destinoAdmin || 'GENERAL'})
                       </div>
                     )}
                     <p className="whitespace-pre-wrap">{msg.contenido}</p>
@@ -416,7 +416,7 @@ export const ChatModal: React.FC<ChatModalProps> = ({
         {/* Input de Envío */}
         {tab === 'ADMINISTRATIVO' && !isAdmin ? (
           <div className="p-3 bg-slate-100 border-t border-slate-200 text-center text-xs text-slate-500 font-medium">
-            Tablón de solo lectura. Reservado a directivas del mando.
+            Tablón de solo lectura. Reservado a avisos de administración.
           </div>
         ) : (
           <form onSubmit={handleEnviar} className="p-4 bg-white border-t border-slate-200 flex gap-2">
@@ -424,7 +424,7 @@ export const ChatModal: React.FC<ChatModalProps> = ({
               type="text"
               placeholder={
                 tab === 'ADMINISTRATIVO'
-                  ? 'Escribir directiva de mando oficial...'
+                  ? 'Escribir aviso administrativo...'
                   : tab === 'PRIVADO'
                   ? 'Escribir mensaje privado...'
                   : 'Escribir novedad en canal general...'

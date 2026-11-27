@@ -81,7 +81,6 @@ async function run() {
     diasVacacionesAsignados: 22,
     diasAsuntosPropiosAsignados: 6,
     diasPermisoAsignados: 5,
-    dni: '11111111A',
     telefono: '600111111',
     fechaCreacion: '2026-01-01',
     fechaActualizacion: '2026-01-01',
@@ -97,7 +96,6 @@ async function run() {
     diasVacacionesAsignados: 22,
     diasAsuntosPropiosAsignados: 6,
     diasPermisoAsignados: 5,
-    dni: '22222222B',
     telefono: '600222222',
     fechaCreacion: '2026-01-01',
     fechaActualizacion: '2026-01-01',
@@ -106,7 +104,7 @@ async function run() {
   // ---------------------------------------------------------------------------
   // CASO 1: Simulación de Cuadrante U.S. con Ausencias Grabadas en srv.ausencias
   // ---------------------------------------------------------------------------
-  console.log('--- 1. Simulación de Cuadrante U.S. con Permisos y Vacaciones Oficiales ---');
+  console.log('--- 1. Simulación de Cuadrante U.S. con Permisos y Vacaciones ---');
 
   const cuadranteNoviembreUS: CuadranteMaestro = {
     id: 'cuad-us-nov-2026',
@@ -276,7 +274,7 @@ async function run() {
   // Llamar a getSolicitudesAusenciaUS(): debe detectar que está vacío y reconstruir desde el cuadrante
   const recuperadas = await getSolicitudesAusenciaUS();
 
-  assert(recuperadas.length === 2, `Se recuperaron las 2 solicitudes oficiales (obtenido: ${recuperadas.length})`);
+  assert(recuperadas.length === 2, `Se recuperaron las 2 solicitudes (obtenido: ${recuperadas.length})`);
 
   const solSanchez = recuperadas.find((s) => s.personaId === p1.id);
   assert(!!solSanchez, 'Se recuperó la solicitud de Sánchez');
@@ -294,7 +292,7 @@ async function run() {
   assert(solGarcia?.diasConsumibles === 1, '1 día computable de AP');
 
   // ---------------------------------------------------------------------------
-  // CASO 3: Verificación de Saldos de los Efectivos tras la Recuperación
+  // CASO 3: Verificación de Saldos del Personal tras la Recuperación
   // ---------------------------------------------------------------------------
   console.log('\n--- 3. Verificación de Saldos Restaurados ---');
 

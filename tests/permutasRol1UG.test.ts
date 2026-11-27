@@ -2,9 +2,9 @@
  * TEST SUITE: Permuta de Guardia Titular (Servicio) e Imaginaria para ROL 1 en U.G.
  * 
  * Verifica que:
- * 1. Los efectivos de ROL 1 (ej. Sanchez en Servicio y Edi en Imaginaria el 17 de noviembre)
+ * 1. Los usuarios de ROL 1 (ej. Sanchez en Servicio y Edi en Imaginaria el 17 de noviembre)
  *    pueden permutar de forma directa y reglamentaria en el cuadrante de 24h de la U.G.
- * 2. Los efectivos de ROL 2 mantienen intacta su capacidad de permuta (regresión garantizada).
+ * 2. Los usuarios de ROL 2 mantienen intacta su capacidad de permuta (regresión garantizada).
  * 3. Se rechazan de forma estricta las permutas cruzadas incompatibles (ROL 1 con ROL 2).
  * 4. permutarServicioImaginariaAdmin valida rol ADMIN, asignación real y no duplicidad.
  * 5. validarViabilidadPermuta y getCandidatosViablesPermuta soportan permuta Servicio ↔ Imaginaria el mismo día.
@@ -49,7 +49,6 @@ async function runTests() {
     grupo: 'U.G.',
     tipoServicio: 'GUARDIA',
     activo: true,
-    dni: '11111111A',
     telefono: '600000001',
     fechaCreacion: '2026-01-01',
     fechaActualizacion: '2026-01-01',
@@ -62,7 +61,6 @@ async function runTests() {
     grupo: 'U.G.',
     tipoServicio: 'GUARDIA',
     activo: true,
-    dni: '22222222B',
     telefono: '600000002',
     fechaCreacion: '2026-01-01',
     fechaActualizacion: '2026-01-01',
@@ -75,7 +73,6 @@ async function runTests() {
     grupo: 'U.G.',
     tipoServicio: 'GUARDIA',
     activo: true,
-    dni: '33333333C',
     telefono: '600000003',
     fechaCreacion: '2026-01-01',
     fechaActualizacion: '2026-01-01',
@@ -88,7 +85,6 @@ async function runTests() {
     grupo: 'U.G.',
     tipoServicio: 'GUARDIA',
     activo: true,
-    dni: '44444444D',
     telefono: '600000004',
     fechaCreacion: '2026-01-01',
     fechaActualizacion: '2026-01-01',
@@ -190,7 +186,7 @@ async function runTests() {
     'Ya NO se rechaza a ROL 1 por restricción exclusiva de ROL 2'
   );
 
-  // Caso 2: Intento de permuta entre ROL 1 y ROL 2 (rechazo estricto de empleo cruzado)
+  // Caso 2: Intento de permuta entre ROL 1 y ROL 2 (rechazo estricto de rol cruzado)
   const resCruzada = await permutarServicioImaginariaAdmin({
     cuadranteId: 'cuad-ug-nov-2026',
     servicioId: 'srv-2026-11-17',
@@ -202,7 +198,7 @@ async function runTests() {
   });
   assert(
     !resCruzada.success && resCruzada.message.includes('Validación denegada: Ambos usuarios deben pertenecer al mismo empleo'),
-    'Permuta cruzada entre ROL 1 (Sánchez) y ROL 2 (Navarro) es denegada por incompatibilidad de empleo'
+    'Permuta cruzada entre ROL 1 (Sánchez) y ROL 2 (Navarro) es denegada por incompatibilidad de rol'
   );
 
   // Caso 3: Permuta usuario consigo mismo denegada
@@ -261,7 +257,7 @@ async function runTests() {
     tipoCambioA: 'SERVICIO',
     tipoCambioB: 'SERVICIO',
   });
-  assert(!checkMismoDiaDosServicios.valido, 'Permuta el mismo día entre dos efectivos ambos en SERVICIO es rechazada');
+  assert(!checkMismoDiaDosServicios.valido, 'Permuta el mismo día entre dos usuarios ambos en SERVICIO es rechazada');
 
   // Caso 8: getCandidatosViablesPermuta incluye a Edi (Imaginaria ROL 1 el 17 de noviembre) para Sánchez (Servicio ROL 1 el 17 de noviembre)
   const candidatosParaSanchez = getCandidatosViablesPermuta(
@@ -283,9 +279,9 @@ async function runTests() {
 
   // Caso 9: Ningún usuario de ROL 2 aparece como candidato para Sánchez (ROL 1) en U.G.
   const candRol2 = candidatosParaSanchez.filter((c) => c.persona.empleo === 'ROL 2');
-  assert(candRol2.length === 0, 'No se mezclan usuarios de ROL 2 como candidatos para un efectivo de ROL 1');
+  assert(candRol2.length === 0, 'No se mezclan usuarios de ROL 2 como candidatos para un usuario de ROL 1');
 
-  // Caso 10: ROL 2 sigue funcionando con sus propios efectivos
+  // Caso 10: ROL 2 sigue funcionando con sus propios usuarios
   const candidatosParaRomero = getCandidatosViablesPermuta(
     pRomeroRol2,
     '2026-11-17',

@@ -43,12 +43,12 @@ async function runTests() {
 
   // 24 de Junio: San Juan / Fogueres (Festivo local/autonómico Alicante)
   const dia24Jun2026 = clasificarDiaUS('2026-06-24');
-  assert(dia24Jun2026.esFestivo, 'El 24 de junio (San Juan / Fogueres) ES festivo oficial en Alicante');
+  assert(dia24Jun2026.esFestivo, 'El 24 de junio (San Juan / Fogueres) ES festivo en Alicante');
   assert(!dia24Jun2026.esLaborable, 'El 24 de junio NO computa como día laborable ordinario');
 
   // 9 de Octubre: Día de la Comunitat Valenciana
   const dia9Oct2026 = clasificarDiaUS('2026-10-09');
-  assert(dia9Oct2026.esFestivo, 'El 9 de octubre (Día de la Comunitat Valenciana) ES festivo oficial');
+  assert(dia9Oct2026.esFestivo, 'El 9 de octubre (Día de la Comunitat Valenciana) ES festivo');
 
   // Festivos Nacionales vigentes
   const dia1Ene = clasificarDiaUS('2026-01-01');
@@ -76,10 +76,9 @@ async function runTests() {
   
   const personaPrueba: Persona = {
     id: 'p-test-01',
-    nombre: 'Agente Prueba',
+    nombre: 'Usuario Prueba',
     empleo: 'ROL 1',
     grupo: 'US_SEGURIDAD',
-    dni: '12345678A',
     telefono: '600000000',
     activo: true,
     fechaCreacion: new Date().toISOString(),
@@ -154,7 +153,7 @@ async function runTests() {
     ausencias: [
       {
         personaId: 'p-test-01',
-        personaNombre: 'Agente Prueba',
+        personaNombre: 'Usuario Prueba',
         tipo: 'AP',
         motivo: 'Asuntos propios',
       },
@@ -250,7 +249,7 @@ async function runTests() {
     tipoAusencia: 'VACACIONES',
     fechaInicio: '2026-12-22',
     fechaFin: '2026-12-24',
-    motivo: 'Asignado oficialmente por administración de la U.S.',
+    motivo: 'Asignado por administración de la U.S.',
     forzarPorAdmin: true,
     adminInfo: { uid: 'admin-01', nombre: 'Administrador Principal' },
   });
@@ -263,7 +262,7 @@ async function runTests() {
   console.log('\n4. Confirmación de Regla de Continuidad del Cuadrante (Día 10 del mes anterior):');
   
   // Simular un último día de mes con permuta/cambio aplicado:
-  // Titular original: 'agente-original-D1', pero cubierto por permuta por 'agente-suplente-D1'
+  // Titular original: 'usuario-original-D1', pero cubierto por permuta por 'usuario-suplente-D1'
   const servicioUltimoDiaMes: ServicioDiaUS = {
     id: 'SRV-US-2026-10-31',
     cuadranteId: 'cuad-oct-2026',
@@ -279,14 +278,14 @@ async function runTests() {
       horas: 12,
       titulares: [
         {
-          personaIdOriginal: 'agente-original-D1',
-          personaIdReal: 'agente-suplente-D1', // Hubo una permuta
+          personaIdOriginal: 'usuario-original-D1',
+          personaIdReal: 'usuario-suplente-D1', // Hubo una permuta
           estadoAsignacion: 'PROGRAMADO',
           tipoOrigen: 'GENERADO_AUTOMATICO',
         },
         {
-          personaIdOriginal: 'agente-original-D2',
-          personaIdReal: 'agente-original-D2',
+          personaIdOriginal: 'usuario-original-D2',
+          personaIdReal: 'usuario-original-D2',
           estadoAsignacion: 'PROGRAMADO',
           tipoOrigen: 'GENERADO_AUTOMATICO',
         },
@@ -298,22 +297,22 @@ async function runTests() {
       horas: 12,
       titulares: [
         {
-          personaIdOriginal: 'agente-original-N1',
-          personaIdReal: 'agente-suplente-N1', // Hubo otra permuta
+          personaIdOriginal: 'usuario-original-N1',
+          personaIdReal: 'usuario-suplente-N1', // Hubo otra permuta
           estadoAsignacion: 'PROGRAMADO',
           tipoOrigen: 'GENERADO_AUTOMATICO',
         },
         {
-          personaIdOriginal: 'agente-original-N2',
-          personaIdReal: 'agente-original-N2',
+          personaIdOriginal: 'usuario-original-N2',
+          personaIdReal: 'usuario-original-N2',
           estadoAsignacion: 'PROGRAMADO',
           tipoOrigen: 'GENERADO_AUTOMATICO',
         },
       ],
     },
     imaginaria: {
-      personaIdOriginal: 'agente-original-IMAG',
-      personaIdReal: 'agente-original-IMAG',
+      personaIdOriginal: 'usuario-original-IMAG',
+      personaIdReal: 'usuario-original-IMAG',
       estadoAsignacion: 'PROGRAMADO',
       tipoOrigen: 'GENERADO_AUTOMATICO',
     },
@@ -326,12 +325,12 @@ async function runTests() {
   const estadoContinuidad = extraerEstadoContinuidadDesdeServiciosUS([servicioUltimoDiaMes]);
   assert(estadoContinuidad !== null, 'Se extrae el estado de continuidad del mes anterior');
   assert(
-    estadoContinuidad?.diurnosOriginales[0] === 'agente-original-D1',
-    `Continuidad toma el titular ORIGINAL del diurno 1 ('agente-original-D1', ignorando permuta 'agente-suplente-D1')`
+    estadoContinuidad?.diurnosOriginales[0] === 'usuario-original-D1',
+    `Continuidad toma el titular ORIGINAL del diurno 1 ('usuario-original-D1', ignorando permuta 'usuario-suplente-D1')`
   );
   assert(
-    estadoContinuidad?.nocturnosOriginales[0] === 'agente-original-N1',
-    `Continuidad toma el titular ORIGINAL del nocturno 1 ('agente-original-N1', ignorando permuta 'agente-suplente-N1')`
+    estadoContinuidad?.nocturnosOriginales[0] === 'usuario-original-N1',
+    `Continuidad toma el titular ORIGINAL del nocturno 1 ('usuario-original-N1', ignorando permuta 'usuario-suplente-N1')`
   );
 
   console.log(`\n========================================`);

@@ -85,7 +85,7 @@ export const ResponderContraofertaModal: React.FC<ResponderContraofertaModalProp
         const res = await responderSolicitudCompanero({
           solicitudId: solicitud.id,
           aceptada: true,
-          firmaDestinatario: `FIRMA_DIGITAL_${currentPersona.dni || currentPersona.id}_${Date.now()}`,
+          firmaDestinatario: `FIRMA_DIGITAL_${currentPersona.id}_${Date.now()}`,
           personaInfo: { id: currentPersona.id, nombre: currentPersona.nombre, empleo: currentPersona.empleo },
         });
 
@@ -245,7 +245,7 @@ export const ResponderContraofertaModal: React.FC<ResponderContraofertaModalProp
                 <span>Declaración de Conformidad y Firma Digital:</span>
               </div>
               <p className="text-[11px] text-emerald-900 leading-tight">
-                Acepto cubrir la guardia del día {solicitud.fechaServicio}. Esta conformidad se remitirá al administrador para su ratificación oficial.
+                Acepto cubrir la guardia del día {solicitud.fechaServicio}. Esta conformidad se remitirá al administrador para su ratificación.
               </p>
               <label className="flex items-center gap-2 cursor-pointer pt-1">
                 <input

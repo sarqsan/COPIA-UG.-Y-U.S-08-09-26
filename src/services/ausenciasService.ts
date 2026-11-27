@@ -211,7 +211,7 @@ export const comunicarAusencia = async (params: {
       tipo: 'AVISO_IMPORTANTE',
       tipoServicio: 'GUARDIA',
       titulo: `⚠️ SIN IMAGINARIA DE ${titRol(titular.empleo)} PARA ${fechaServicio}`,
-      mensaje: `No se encontró imaginaria de ${titularRol} asignada para cubrir la baja de ${titularApellido}. Requiere asignación manual por el mando.`,
+      mensaje: `No se encontró imaginaria de ${titularRol} asignada para cubrir la baja de ${titularApellido}. Requiere asignación manual por administración.`,
       esParaAdmin: true,
       linkTab: 'cuadrantes',
       referenciaId: incidenciaId,
@@ -223,7 +223,7 @@ export const comunicarAusencia = async (params: {
   // 2. Alertar a los administradores con el aviso de cobertura de imaginaria
   let mensajeAdmin = `Indisposición comunicada para el servicio del ${fechaServicio} (${horaExacta}) por ${titularApellido} (${titularRol}). Alertada imaginaria: ${imagAsignadaNombre}.`;
   if (alertaMasDeDos) {
-    mensajeAdmin += ` [ALERTA: La baja continuada afecta a ${totalAfectados} servicios (> 2). Continúan cubiertos por imaginarias mientras no haya sustitución oficial.]`;
+    mensajeAdmin += ` [ALERTA: La baja continuada afecta a ${totalAfectados} servicios (> 2). Continúan cubiertos por imaginarias mientras no haya sustitución administrativa.]`;
   }
 
   await crearNotificacion({
@@ -257,7 +257,7 @@ export const comunicarAusencia = async (params: {
     success: true,
     incidencia: nuevaIncidencia,
     alertaMasDeDosServicios: alertaMasDeDos,
-    message: `Tu imaginaria asignada es ${imagAsignadaNombre} (${titularRol}).\n\nLa aplicación ha enviado el aviso al imaginaria y a los administradores. Recuerda remitir el parte médico oficial a través del WhatsApp de la Grupo / Mando.`,
+    message: `Tu imaginaria asignada es ${imagAsignadaNombre} (${titularRol}).\n\nLa aplicación ha enviado el aviso al imaginaria y a los administradores. Recuerda remitir el parte médico a través del WhatsApp de Administración.`,
   };
 };
 
@@ -320,7 +320,7 @@ export const confirmarRecepcionAvisoImaginaria = async (params: {
     });
   }
 
-  // Si el efectivo que entra de servicio pertenece a la U.S., registrar la activación para compensarle al mes siguiente
+  // Si el usuario que entra de servicio pertenece a la U.S., registrar la activación para compensarle al mes siguiente
   if (
     imaginariaPersona.tipoServicio === 'US' ||
     imaginariaPersona.grupo === 'US_SEGURIDAD' ||
@@ -455,7 +455,7 @@ export const resolverIncidenciaAdmin = async (params: {
 
   if (!aprobada) {
     inc.estado = 'RECHAZADA_ADMIN';
-    inc.motivoRechazoAdmin = motivoRechazo?.trim() || 'Cobertura desestimada por el mando';
+    inc.motivoRechazoAdmin = motivoRechazo?.trim() || 'Cobertura desestimada por administración';
     saveIncidenciasLocalCache();
 
     try {
@@ -547,7 +547,7 @@ export const resolverIncidenciaAdmin = async (params: {
   await crearNotificacion({
     tipo: 'COBERTURA_APROBADA',
     titulo: 'Cobertura de Ausencia Tramitada',
-    mensaje: `Tu ausencia para el ${inc.fechaServicio} ha sido cubierta oficialmente por ${inc.imaginariaAceptanteNombre}.`,
+    mensaje: `Tu ausencia para el ${inc.fechaServicio} ha sido cubierta por ${inc.imaginariaAceptanteNombre}.`,
     destinatarioPersonaId: inc.titularPersonaId,
     referenciaId: incidenciaId,
   });
@@ -559,9 +559,9 @@ export const resolverIncidenciaAdmin = async (params: {
 };
 
 /**
- * Sustitución oficial por mando (ADMIN ONLY)
+ * Sustitución directa por administración (ADMIN ONLY)
  */
-export const sustituirTitularOficialAdmin = async (params: {
+export const sustituirTitularAdmin = async (params: {
   cuadranteId: string;
   servicioId: string;
   fechaServicio: string;
@@ -596,7 +596,7 @@ export const sustituirTitularOficialAdmin = async (params: {
     servicioId,
     slotTipo,
     nuevaPersonaId: personaSustituta.id,
-    motivo: `SUSTITUCIÓN OFICIAL POR MANDO: ${motivoSustitucion}. Titular original: ${getApellidoUG(personaOriginal)} -> Sustituto asignado: ${getApellidoUG(personaSustituta)}`,
+    motivo: `SUSTITUCIÓN ADMINISTRATIVA: ${motivoSustitucion}. Titular original: ${getApellidoUG(personaOriginal)} -> Sustituto asignado: ${getApellidoUG(personaSustituta)}`,
     personas,
     adminInfo,
   });
@@ -619,13 +619,13 @@ export const sustituirTitularOficialAdmin = async (params: {
     personaIdReal: personaSustituta.id,
     personaNombre: sustAp,
     motivo: motivoSustitucion,
-    detalles: `Sustitución oficial ordenada por ${adminInfo.nombre}. Servicio del ${fechaServicio}. Titular original ${origAp} (${rol}) relevado oficialmente por ${sustAp} (${rol}).`,
+    detalles: `Sustitución ordenada por ${adminInfo.nombre}. Servicio del ${fechaServicio}. Titular original ${origAp} (${rol}) relevado por ${sustAp} (${rol}).`,
   });
 
   await crearNotificacion({
     tipo: 'AVISO_IMPORTANTE',
-    titulo: 'Asignación Oficial de Sustitución',
-    mensaje: `Has sido asignado oficialmente por el mando para cubrir la guardia del ${fechaServicio} en sustitución de ${origAp}.`,
+    titulo: 'Asignación de Sustitución',
+    mensaje: `Has sido asignado por administración para cubrir la guardia del ${fechaServicio} en sustitución de ${origAp}.`,
     destinatarioPersonaId: personaSustituta.id,
     cuadranteId,
     servicioId,
@@ -633,7 +633,7 @@ export const sustituirTitularOficialAdmin = async (params: {
 
   return {
     success: true,
-    message: `Sustitución oficial completada. ${sustAp} asignado como titular real para el ${fechaServicio}.`,
+    message: `Sustitución completada. ${sustAp} asignado como titular real para el ${fechaServicio}.`,
   };
 };
 

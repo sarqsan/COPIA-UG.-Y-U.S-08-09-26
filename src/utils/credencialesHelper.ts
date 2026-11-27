@@ -14,7 +14,7 @@ export const normalizarApellidoParaLogin = (apellidoOrNombre: string): string =>
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/^(cabo|soldado|cbo|sld|rol1|rol2)/g, '')
+    .replace(/^(rol1|rol2)/g, '')
     .replace(/[^a-z0-9]/g, '');
 };
 
@@ -41,7 +41,7 @@ export interface CredencialesGeneradas {
 }
 
 /**
- * Genera las credenciales iniciales normalizadas y el mensaje para un efectivo:
+ * Genera las credenciales iniciales normalizadas y el mensaje para un usuario:
  * Usuario inicial: apellido+rol (ej: sanchezrol1, garciarol1, ruizrol2)
  * Contraseña inicial: apellido+rol (ej: sanchezrol1, garciarol1, ruizrol2)
  */
@@ -63,7 +63,7 @@ export const getCredencialesParaPersona = (
   const rolTexto = persona.empleo === 'ROL 1' ? 'ROL 1' : 'ROL 2';
   const nombreDisplay = persona.nombre.toUpperCase();
 
-  const mensajeWhatsApp = `👋 Hola ${nombreDisplay} (${rolTexto}), aquí tienes tu enlace oficial para acceder al sistema de Cuadrantes y Servicios del Grupo (U.G.):
+  const mensajeWhatsApp = `👋 Hola ${nombreDisplay} (${rolTexto}), aquí tienes tu enlace para acceder al sistema de Cuadrantes y Servicios del Grupo (U.G.):
 
 🔗 *Enlace de acceso:*
 ${urlAccesoDirecto}

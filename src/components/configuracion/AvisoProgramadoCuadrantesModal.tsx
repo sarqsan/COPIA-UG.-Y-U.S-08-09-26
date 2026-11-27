@@ -127,7 +127,7 @@ export const AvisoProgramadoCuadrantesModal: React.FC<AvisoProgramadoCuadrantesM
       setPaquete(null);
       setErrorMsg(
         err?.message ||
-          'No se pudieron generar los dos archivos Excel oficiales (.xlsx) actualizados.'
+          'No se pudieron generar los dos archivos Excel (.xlsx) actualizados.'
       );
     } finally {
       if (reqId === generationReqIdRef.current) {
@@ -452,7 +452,7 @@ export const AvisoProgramadoCuadrantesModal: React.FC<AvisoProgramadoCuadrantesM
       });
       setShareResultado({
         tipo: 'exito',
-        texto: `Correo enviado correctamente a ${config.destinatario} con ambos Excel oficiales (.xlsx) adjuntos y aviso registrado como completado.`,
+        texto: `Correo enviado correctamente a ${config.destinatario} con ambos Excel (.xlsx) adjuntos y aviso registrado como completado.`,
       });
     } finally {
       if (isOpenRef.current) setProcesandoGmail(null);
@@ -565,7 +565,7 @@ export const AvisoProgramadoCuadrantesModal: React.FC<AvisoProgramadoCuadrantesM
   const handleMarcarEnviado = async () => {
     if (!excels) {
       setErrorMsg(
-        'Debes generar correctamente ambos archivos Excel oficiales (.xlsx) antes de marcar el aviso como enviado.'
+        'Debes generar correctamente ambos archivos Excel (.xlsx) antes de marcar el aviso como enviado.'
       );
       return;
     }
@@ -669,7 +669,7 @@ export const AvisoProgramadoCuadrantesModal: React.FC<AvisoProgramadoCuadrantesM
               </span>
             </div>
             <p className="text-[11px] text-amber-800/90 dark:text-amber-300/90 leading-relaxed">
-              Los dos archivos Excel oficiales (<strong>.xlsx</strong>) de UG y US se generan directamente con los datos actualizados de la base de datos.
+              Los dos archivos Excel (<strong>.xlsx</strong>) de UG y US se generan directamente con los datos actualizados de la base de datos.
             </p>
           </div>
 
@@ -700,7 +700,7 @@ export const AvisoProgramadoCuadrantesModal: React.FC<AvisoProgramadoCuadrantesM
             <div className="rounded-2xl border border-blue-200 bg-blue-50 p-3.5 text-blue-900 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 flex items-center gap-2.5">
               <Loader2 className="h-4 w-4 animate-spin text-blue-600 shrink-0" />
               <span className="font-semibold">
-                Generando los 2 libros Excel oficiales (.xlsx) de UG y US...
+                Generando los 2 libros Excel (.xlsx) de UG y US...
               </span>
             </div>
           )}
@@ -731,7 +731,7 @@ export const AvisoProgramadoCuadrantesModal: React.FC<AvisoProgramadoCuadrantesM
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1.5 text-emerald-900 dark:text-emerald-200 font-bold">
                     <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
-                    <span>2 Excel oficiales (.xlsx) listos</span>
+                    <span>2 Excel (.xlsx) listos</span>
                   </div>
                   <button
                     type="button"

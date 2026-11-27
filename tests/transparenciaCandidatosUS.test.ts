@@ -10,7 +10,7 @@
  * 6. Los cambios individuales muestran sus incompatibilidades.
  * 7. Las permutas muestran tanto las incompatibilidades del servicio solicitado como las de la devolución.
  * 8. Los compañeros no evaluables por falta de información no se presentan como incompatibles por una causa inventada.
- * 9. La confirmación de una solicitud sigue ejecutando las validaciones oficiales.
+ * 9. La confirmación de una solicitud sigue ejecutando las validaciones del sistema.
  * 10. La corrección US-09 continúa funcionando (nocturno consecutivo permitido con 12h descanso, diurno bloqueado por empalme).
  * 11. Las reglas de imaginarias y descansos permanecen intactas.
  * 12. No existen regresiones en las pruebas del sistema.
@@ -59,12 +59,11 @@ console.log('===================================================================
 // 1. Plantilla de prueba U.S.
 const solicitante: Persona = {
   id: 'us-sol',
-  nombre: 'Agente Solicitante',
+  nombre: 'Usuario Solicitante',
   empleo: 'ROL 2',
   activo: true,
   grupo: 'US_SEGURIDAD',
   tipoServicio: 'US',
-  dni: '00000001S',
   telefono: '600000001',
   fechaCreacion: '2026-01-01',
   fechaActualizacion: '2026-01-01',
@@ -72,12 +71,11 @@ const solicitante: Persona = {
 
 const compCompatibleMismoDia: Persona = {
   id: 'us-comp-mismo-dia',
-  nombre: 'Agente Mismo Día',
+  nombre: 'Usuario Mismo Día',
   empleo: 'ROL 2',
   activo: true,
   grupo: 'US_SEGURIDAD',
   tipoServicio: 'US',
-  dni: '00000002A',
   telefono: '600000002',
   fechaCreacion: '2026-01-01',
   fechaActualizacion: '2026-01-01',
@@ -85,12 +83,11 @@ const compCompatibleMismoDia: Persona = {
 
 const compCompatibleOtraFecha: Persona = {
   id: 'us-comp-otra-fecha',
-  nombre: 'Agente Otra Fecha',
+  nombre: 'Usuario Otra Fecha',
   empleo: 'ROL 2',
   activo: true,
   grupo: 'US_SEGURIDAD',
   tipoServicio: 'US',
-  dni: '00000003B',
   telefono: '600000003',
   fechaCreacion: '2026-01-01',
   fechaActualizacion: '2026-01-01',
@@ -98,12 +95,11 @@ const compCompatibleOtraFecha: Persona = {
 
 const compSinReciprocidad: Persona = {
   id: 'us-comp-sin-recip',
-  nombre: 'Agente Sin Devolución',
+  nombre: 'Usuario Sin Devolución',
   empleo: 'ROL 2',
   activo: true,
   grupo: 'US_SEGURIDAD',
   tipoServicio: 'US',
-  dni: '00000004C',
   telefono: '600000004',
   fechaCreacion: '2026-01-01',
   fechaActualizacion: '2026-01-01',
@@ -111,12 +107,11 @@ const compSinReciprocidad: Persona = {
 
 const compEmpalme24hUS09: Persona = {
   id: 'us-comp-empalme',
-  nombre: 'Agente Empalme 24h',
+  nombre: 'Usuario Empalme 24h',
   empleo: 'ROL 2',
   activo: true,
   grupo: 'US_SEGURIDAD',
   tipoServicio: 'US',
-  dni: '00000005D',
   telefono: '600000005',
   fechaCreacion: '2026-01-01',
   fechaActualizacion: '2026-01-01',
@@ -124,12 +119,11 @@ const compEmpalme24hUS09: Persona = {
 
 const compIncompatibleMultiple: Persona = {
   id: 'us-comp-multiple',
-  nombre: 'Agente Múltiples Motivos',
+  nombre: 'Usuario Múltiples Motivos',
   empleo: 'ROL 2',
   activo: true,
   grupo: 'US_SEGURIDAD',
   tipoServicio: 'US',
-  dni: '00000006E',
   telefono: '600000006',
   fechaCreacion: '2026-01-01',
   fechaActualizacion: '2026-01-01',
@@ -137,12 +131,11 @@ const compIncompatibleMultiple: Persona = {
 
 const compIncompatibleAusencia: Persona = {
   id: 'us-comp-permiso',
-  nombre: 'Agente Con Permiso',
+  nombre: 'Usuario Con Permiso',
   empleo: 'ROL 2',
   activo: true,
   grupo: 'US_SEGURIDAD',
   tipoServicio: 'US',
-  dni: '00000007F',
   telefono: '600000007',
   fechaCreacion: '2026-01-01',
   fechaActualizacion: '2026-01-01',
@@ -150,12 +143,11 @@ const compIncompatibleAusencia: Persona = {
 
 const compIncompatibleImaginariaUS08: Persona = {
   id: 'us-comp-imag-08',
-  nombre: 'Agente Imaginaria Adyacente',
+  nombre: 'Usuario Imaginaria Adyacente',
   empleo: 'ROL 2',
   activo: true,
   grupo: 'US_SEGURIDAD',
   tipoServicio: 'US',
-  dni: '00000008G',
   telefono: '600000008',
   fechaCreacion: '2026-01-01',
   fechaActualizacion: '2026-01-01',
@@ -421,10 +413,10 @@ console.log('\n--- PRUEBA 4: Conservación de Regla US-09 (Nocturno tras Nocturn
 }
 
 // ---------------------------------------------------------------------------
-// PRUEBA 5: COHERENCIA ESTRICTA CON VALIDACIONES OFICIALES
-// La validación oficial validarViabilidadCambio y el selector arrojan el mismo veredicto
+// PRUEBA 5: COHERENCIA ESTRICTA CON VALIDACIONES DEL SISTEMA
+// La validación del sistema validarViabilidadCambio y el selector arrojan el mismo veredicto
 // ---------------------------------------------------------------------------
-console.log('\n--- PRUEBA 5: Coherencia Estricta entre Selector y Validación Oficial ---');
+console.log('\n--- PRUEBA 5: Coherencia Estricta entre Selector y Validación del Sistema ---');
 {
   todasPersonasUS.forEach((p) => {
     if (p.id === solicitante.id) return;
@@ -439,7 +431,7 @@ console.log('\n--- PRUEBA 5: Coherencia Estricta entre Selector y Validación Of
       tipoTurnoUSParam: 'DIURNO',
     });
 
-    const oficial = validarViabilidadCambio(
+    const validacionSistema = validarViabilidadCambio(
       solicitante,
       p,
       '2026-11-15',
@@ -450,10 +442,10 @@ console.log('\n--- PRUEBA 5: Coherencia Estricta entre Selector y Validación Of
     );
 
     if (motivos.length === 0) {
-      assert(oficial.valido === true, `Coherencia: ${p.nombre} es válido en selector y en validación oficial`);
+      assert(validacionSistema.valido === true, `Coherencia: ${p.nombre} es válido en selector y en validación del sistema`);
     } else {
-      assert(oficial.valido === false, `Coherencia: ${p.nombre} es incompatible en selector y en validación oficial`);
-      assert(oficial.motivo === motivos[0].descripcion, `El mensaje oficial coincide con motivos[0]: "${oficial.motivo?.substring(0, 40)}..."`);
+      assert(validacionSistema.valido === false, `Coherencia: ${p.nombre} es incompatible en selector y en validación del sistema`);
+      assert(validacionSistema.motivo === motivos[0].descripcion, `El mensaje del sistema coincide con motivos[0]: "${validacionSistema.motivo?.substring(0, 40)}..."`);
     }
   });
 }

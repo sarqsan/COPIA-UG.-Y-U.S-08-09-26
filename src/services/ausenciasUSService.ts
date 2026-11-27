@@ -165,10 +165,10 @@ export const calcularCupoMaximoAusenciasUS = (totalMiembrosUS: number = 16): num
  * 1. Todos los servicios diarios de los cuadrantes U.S. (srv.ausencias).
  * 2. Respaldos guardados en respaldos_sistema o en caché local.
  *
- * Restaura el historial oficial, recalcula días computables y no computables,
+ * Restaura el historial de ausencias, recalcula días computables y no computables,
  * actualiza la memoria, el almacenamiento local y persiste en Firestore.
  */
-export const PERMISOS_OFICIALES_HISTORICOS_US: {
+export const PERMISOS_HISTORICOS_US: {
   id: string;
   personaId: string;
   personaNombre: string;
@@ -184,7 +184,7 @@ export const PERMISOS_OFICIALES_HISTORICOS_US: {
     tipoAusencia: 'PERMISO',
     fechaInicio: '2026-11-02',
     fechaFin: '2026-11-19',
-    motivo: 'Asignación oficial de PERMISO',
+    motivo: 'Asignación de PERMISO',
   },
   {
     id: 'sol-aus-us-1790081563318-excel',
@@ -193,7 +193,7 @@ export const PERMISOS_OFICIALES_HISTORICOS_US: {
     tipoAusencia: 'VACACIONES',
     fechaInicio: '2026-11-02',
     fechaFin: '2026-11-20',
-    motivo: 'Asignación oficial de VACACIONES',
+    motivo: 'Asignación de VACACIONES',
   },
   {
     id: 'sol-aus-us-1790081631143-excel',
@@ -202,7 +202,7 @@ export const PERMISOS_OFICIALES_HISTORICOS_US: {
     tipoAusencia: 'ASUNTOS_PROPIOS',
     fechaInicio: '2026-11-23',
     fechaFin: '2026-11-30',
-    motivo: 'Asignación oficial de ASUNTOS PROPIOS',
+    motivo: 'Asignación de ASUNTOS PROPIOS',
   },
   {
     id: 'sol-aus-us-1790083225908-excel',
@@ -211,7 +211,7 @@ export const PERMISOS_OFICIALES_HISTORICOS_US: {
     tipoAusencia: 'VACACIONES',
     fechaInicio: '2026-11-01',
     fechaFin: '2026-11-02',
-    motivo: 'Asignación oficial de VACACIONES',
+    motivo: 'Asignación de VACACIONES',
   },
   {
     id: 'sol-aus-us-1790159449490-excel',
@@ -220,7 +220,7 @@ export const PERMISOS_OFICIALES_HISTORICOS_US: {
     tipoAusencia: 'VACACIONES',
     fechaInicio: '2026-11-03',
     fechaFin: '2026-11-18',
-    motivo: 'Asignación oficial de VACACIONES',
+    motivo: 'Asignación de VACACIONES',
   },
   {
     id: 'sol-aus-us-1790159490002-excel',
@@ -229,7 +229,7 @@ export const PERMISOS_OFICIALES_HISTORICOS_US: {
     tipoAusencia: 'ASUNTOS_PROPIOS',
     fechaInicio: '2026-11-20',
     fechaFin: '2026-11-30',
-    motivo: 'Asignación oficial de ASUNTOS PROPIOS',
+    motivo: 'Asignación de ASUNTOS PROPIOS',
   },
   {
     id: 'sol-aus-us-1790588125196-excel',
@@ -238,7 +238,7 @@ export const PERMISOS_OFICIALES_HISTORICOS_US: {
     tipoAusencia: 'ASUNTOS_PROPIOS',
     fechaInicio: '2026-11-03',
     fechaFin: '2026-11-11',
-    motivo: 'Asignación oficial de ASUNTOS PROPIOS',
+    motivo: 'Asignación de ASUNTOS PROPIOS',
   },
   {
     id: 'sol-aus-us-1790588157388-excel',
@@ -247,7 +247,7 @@ export const PERMISOS_OFICIALES_HISTORICOS_US: {
     tipoAusencia: 'VACACIONES',
     fechaInicio: '2026-11-18',
     fechaFin: '2026-12-02',
-    motivo: 'Asignación oficial de VACACIONES',
+    motivo: 'Asignación de VACACIONES',
   },
   {
     id: 'sol-aus-us-1790759511951-excel',
@@ -256,7 +256,7 @@ export const PERMISOS_OFICIALES_HISTORICOS_US: {
     tipoAusencia: 'PERMISO',
     fechaInicio: '2026-11-30',
     fechaFin: '2027-01-29',
-    motivo: 'Asignación oficial de PERMISO',
+    motivo: 'Asignación de PERMISO',
   },
   {
     id: 'sol-aus-us-1790759671212-excel',
@@ -265,7 +265,7 @@ export const PERMISOS_OFICIALES_HISTORICOS_US: {
     tipoAusencia: 'VACACIONES',
     fechaInicio: '2026-11-16',
     fechaFin: '2026-11-27',
-    motivo: 'Asignación oficial de VACACIONES',
+    motivo: 'Asignación de VACACIONES',
   },
   {
     id: 'sol-aus-us-1790842762437-excel',
@@ -274,7 +274,7 @@ export const PERMISOS_OFICIALES_HISTORICOS_US: {
     tipoAusencia: 'VACACIONES',
     fechaInicio: '2026-12-01',
     fechaFin: '2026-12-18',
-    motivo: 'Asignación oficial de VACACIONES (Diciembre)',
+    motivo: 'Asignación de VACACIONES (Diciembre)',
   },
   {
     id: 'sol-aus-us-1793953063940-excel',
@@ -292,26 +292,26 @@ export const PERMISOS_OFICIALES_HISTORICOS_US: {
     tipoAusencia: 'VACACIONES',
     fechaInicio: '2026-11-16',
     fechaFin: '2026-11-18',
-    motivo: 'Asignación oficial de VACACIONES',
+    motivo: 'Asignación de VACACIONES',
   },
 ];
 
 /**
  * Reconstruye y recupera de forma exhaustiva las solicitudes de ausencia U.S.
  * a partir de:
- * 1. El catálogo oficial de asignaciones históricas U.S. (incluido Diciembre y meses venideros).
+ * 1. El catálogo de asignaciones históricas U.S. (incluido Diciembre y meses venideros).
  * 2. Todos los servicios diarios de los cuadrantes U.S. confirmados (srv.ausencias).
  * 3. El registro inmutable de auditoría (auditLogs) para rescates de concesiones directas.
  * 4. Respaldos guardados en respaldos_sistema o en caché local.
  *
- * Restaura el historial oficial, recalcula días computables y no computables,
+ * Restaura el historial, recalcula días computables y no computables,
  * actualiza la memoria, el almacenamiento local y persiste en Firestore.
  */
 export const reconstruirAusenciasUSDesdeCuadrantes = async (): Promise<SolicitudAusenciaUS[]> => {
   const recuperadasMap = new Map<string, SolicitudAusenciaUS>();
 
-  // 1. Cargar catálogo oficial de asignaciones históricas U.S. (incluye Diciembre)
-  for (const item of PERMISOS_OFICIALES_HISTORICOS_US) {
+  // 1. Cargar catálogo de asignaciones históricas U.S. (incluye Diciembre)
+  for (const item of PERMISOS_HISTORICOS_US) {
     const fechas = expandirRangoFechas(item.fechaInicio, item.fechaFin);
     const desglose = desglosarPeriodoPermisoUS(fechas, item.tipoAusencia);
     const sol: SolicitudAusenciaUS = {
@@ -331,8 +331,8 @@ export const reconstruirAusenciasUSDesdeCuadrantes = async (): Promise<Solicitud
       estado: 'APROBADA',
       fechaSolicitud: `${item.fechaInicio}T08:00:00.000Z`,
       fechaResolucion: `${item.fechaInicio}T09:00:00.000Z`,
-      adminResolucionNombre: 'Administración Oficial (Recuperado)',
-      documentoOficialEntregado: true,
+      adminResolucionNombre: 'Administración (Recuperado)',
+      documentoJustificativoEntregado: true,
     };
     recuperadasMap.set(sol.id, sol);
   }
@@ -400,7 +400,7 @@ export const reconstruirAusenciasUSDesdeCuadrantes = async (): Promise<Solicitud
           if (!gruposPorPersonaYTipo.has(key)) {
             gruposPorPersonaYTipo.set(key, {
               personaId: aus.personaId,
-              personaNombre: aus.personaNombre || 'Efectivo U.S.',
+              personaNombre: aus.personaNombre || 'Usuario U.S.',
               tipo: tipoAusencia,
               fechas: new Set<string>(),
               motivos: [],
@@ -410,7 +410,7 @@ export const reconstruirAusenciasUSDesdeCuadrantes = async (): Promise<Solicitud
 
           const g = gruposPorPersonaYTipo.get(key)!;
           g.fechas.add(srv.fecha);
-          if (aus.personaNombre && (!g.personaNombre || g.personaNombre === 'Efectivo U.S.')) {
+          if (aus.personaNombre && (!g.personaNombre || g.personaNombre === 'Usuario U.S.')) {
             g.personaNombre = aus.personaNombre;
           }
           if (aus.motivo && !g.motivos.includes(aus.motivo)) {
@@ -429,7 +429,7 @@ export const reconstruirAusenciasUSDesdeCuadrantes = async (): Promise<Solicitud
         const desglose = desglosarPeriodoPermisoUS(fechasOrdenadas, g.tipo);
 
         const solId = g.solicitudIdOriginal || `sol-recuperada-${g.personaId}-${g.tipo.substring(0, 3)}-${fechaInicio}`;
-        const motivoTxt = g.motivos.length > 0 ? g.motivos.join('; ') : 'Recuperado de cuadrante oficial';
+        const motivoTxt = g.motivos.length > 0 ? g.motivos.join('; ') : 'Recuperado de cuadrante';
 
         const solRecuperada: SolicitudAusenciaUS = {
           id: solId,
@@ -449,7 +449,7 @@ export const reconstruirAusenciasUSDesdeCuadrantes = async (): Promise<Solicitud
           fechaSolicitud: `${fechaInicio}T08:00:00.000Z`,
           fechaResolucion: `${fechaInicio}T09:00:00.000Z`,
           adminResolucionNombre: 'Administración (Recuperado)',
-          documentoOficialEntregado: true,
+          documentoJustificativoEntregado: true,
         };
 
         recuperadasMap.set(solRecuperada.id, solRecuperada);
@@ -508,7 +508,7 @@ export const reconstruirAusenciasUSDesdeCuadrantes = async (): Promise<Solicitud
             ? 'PERMISO'
             : 'ASUNTOS_PROPIOS';
 
-        const personaNombre = l.personaNombre || 'Efectivo U.S.';
+        const personaNombre = l.personaNombre || 'Usuario U.S.';
         const personaId = l.personaId || `us-persona-${personaNombre.toLowerCase()}`;
 
         const matchId = det.match(/\[ID:\s*([a-zA-Z0-9_-]+)\]/);
@@ -530,12 +530,12 @@ export const reconstruirAusenciasUSDesdeCuadrantes = async (): Promise<Solicitud
           diasNoConsumibles: desglose.totalDiasNoConsumibles,
           festivosExcluidos: desglose.fechasFestivas,
           finesSemanaExcluidos: desglose.fechasFinesSemana,
-          motivo: l.motivo || 'Asignación registrada en auditoría oficial',
+          motivo: l.motivo || 'Asignación registrada en auditoría',
           estado: 'APROBADA',
           fechaSolicitud: l.timestamp || new Date().toISOString(),
           fechaResolucion: l.timestamp || new Date().toISOString(),
-          adminResolucionNombre: l.adminNombre || 'Administrador Oficial',
-          documentoOficialEntregado: true,
+          adminResolucionNombre: l.adminNombre || 'Administrador',
+          documentoJustificativoEntregado: true,
         };
 
         recuperadasMap.set(solAudit.id, solAudit);
@@ -734,7 +734,7 @@ export const solicitarAusenciaUS = async (params: {
       if (!esValidaHoy) {
         return {
           success: false,
-          message: `El plazo oficial para solicitar permisos/vacaciones para ${mesSolicitadoNombre} finalizó el ${fechaLimiteFormateada} (antes de confeccionar el cuadrante mensual). Si necesitas un día de A.P. o Permiso, contacta con el Administrador para solicitar un cambio por un día de presente.`,
+          message: `El plazo para solicitar permisos/vacaciones para ${mesSolicitadoNombre} finalizó el ${fechaLimiteFormateada} (antes de confeccionar el cuadrante mensual). Si necesitas un día de A.P. o Permiso, contacta con el Administrador para solicitar un cambio por un día de presente.`,
         };
       }
     }
@@ -752,7 +752,7 @@ export const solicitarAusenciaUS = async (params: {
       if (conteo.total >= cupoMaximo) {
         return {
           success: false,
-          message: `El cupo para el día ${f} está lleno. Ya hay ${conteo.total} personas que han solicitado o tienen aprobado este día (${conteo.personasNombres.join(', ')}). El cupo máximo permitido es de ${cupoMaximo} efectivos.`,
+          message: `El cupo para el día ${f} está lleno. Ya hay ${conteo.total} personas que han solicitado o tienen aprobado este día (${conteo.personasNombres.join(', ')}). El cupo máximo permitido es de ${cupoMaximo} usuarios.`,
         };
       }
     }
@@ -767,7 +767,7 @@ export const solicitarAusenciaUS = async (params: {
     }
   }
 
-  // 3. Desglose exhaustivo del periodo según calendario oficial U.S.
+  // 3. Desglose exhaustivo del periodo según calendario U.S.
   const desglose = desglosarPeriodoPermisoUS(fechas, tipoAusencia);
 
   // 4. Validar disponibilidad de saldo (si no es asignado forzosamente por Administrador)
@@ -814,7 +814,7 @@ export const solicitarAusenciaUS = async (params: {
     fechaSolicitud: now,
     fechaResolucion: forzarPorAdmin ? now : undefined,
     adminResolucionNombre: forzarPorAdmin ? adminInfo?.nombre.trim() : undefined,
-    documentoOficialEntregado: forzarPorAdmin ? true : false,
+    documentoJustificativoEntregado: forzarPorAdmin ? true : false,
   };
 
   memoryAusenciasUS.unshift(nuevaSolicitud);
@@ -846,7 +846,7 @@ export const solicitarAusenciaUS = async (params: {
 
   const tipoLabel = tipoAusencia === 'VACACIONES' ? 'Vacaciones' : tipoAusencia === 'PERMISO' ? 'Permiso' : 'Asuntos Propios (A.P.)';
 
-  // Emitir notificación al administrador si proviene de un usuario efectivo
+  // Emitir notificación al administrador si proviene de un usuario
   if (!forzarPorAdmin) {
     try {
       await crearNotificacion({
@@ -866,8 +866,8 @@ export const solicitarAusenciaUS = async (params: {
   const mensajeExito = forzarPorAdmin
     ? `${tipoLabel} asignadas y aprobadas correctamente para ${persona.nombre}${detalleExcluidosTxt}.`
     : desglose.totalDiasNoConsumibles > 0
-    ? `Solicitud de ${tipoLabel} registrada exitosamente (${desglose.totalDiasConsumibles} días computables a descontar, ${desglose.totalDiasNoConsumibles} días no computables). Recuerda entregar el documento oficial en mano a la Administración.`
-    : `Solicitud de ${tipoLabel} registrada exitosamente (${fechas.length} días). Recuerda que debes entregar el documento oficial en mano a la Administración.`;
+    ? `Solicitud de ${tipoLabel} registrada exitosamente (${desglose.totalDiasConsumibles} días computables a descontar, ${desglose.totalDiasNoConsumibles} días no computables). Recuerda entregar el documento justificativo en mano a la Administración.`
+    : `Solicitud de ${tipoLabel} registrada exitosamente (${fechas.length} días). Recuerda que debes entregar el documento justificativo en mano a la Administración.`;
 
   return {
     success: true,
@@ -937,13 +937,13 @@ export const resolverSolicitudAusenciaUS = async (params: {
   }
 
   const desglose = desglosarPeriodoPermisoUS(sol.fechasAfectadas, sol.tipoAusencia);
-  const diasConsumiblesEfectivos =
+  const diasConsumiblesFinales =
     typeof sol.diasConsumibles === 'number' ? sol.diasConsumibles : desglose.totalDiasConsumibles;
-  const diasNoConsumiblesEfectivos =
+  const diasNoConsumiblesFinales =
     typeof sol.diasNoConsumibles === 'number' ? sol.diasNoConsumibles : desglose.totalDiasNoConsumibles;
 
   const infoCómputo = aprobada
-    ? ` [${diasConsumiblesEfectivos} días computables de saldo${diasNoConsumiblesEfectivos > 0 ? `, ${diasNoConsumiblesEfectivos} no computable(s) excluido(s)` : ''}]`
+    ? ` [${diasConsumiblesFinales} días computables de saldo${diasNoConsumiblesFinales > 0 ? `, ${diasNoConsumiblesFinales} no computable(s) excluido(s)` : ''}]`
     : '';
 
   await registrarAuditLog({
@@ -955,7 +955,7 @@ export const resolverSolicitudAusenciaUS = async (params: {
     detalles: `${aprobada ? 'Autorización' : 'Denegación'} de solicitud [ID: ${sol.id}] de ${sol.tipoAusencia} (${sol.fechaInicio} a ${sol.fechaFin}) para ${sol.personaNombre} por ${nombreAdminLimpio} (UID: ${adminInfo.uid}).${!aprobada && sol.motivoRechazo ? ` Motivo: ${sol.motivoRechazo}.` : ''}${infoCómputo}`,
   });
 
-  // Notificar al efectivo sobre la resolución con el nombre real del administrador
+  // Notificar al usuario sobre la resolución con el nombre real del administrador
   try {
     const tLabel =
       sol.tipoAusencia === 'VACACIONES'
@@ -993,7 +993,7 @@ export const resolverSolicitudAusenciaUS = async (params: {
  * - Permite corregir fechas, tipo de ausencia y motivo.
  * - Recalcula días computables, días no computables y festivos excluidos.
  * - Sincroniza automáticamente los cuadrantes publicados existentes.
- * - Actualiza bolsas y saldos del efectivo de forma inmediata.
+ * - Actualiza bolsas y saldos del usuario de forma inmediata.
  */
 export const modificarSolicitudAusenciaUS = async (params: {
   solicitudId: string;

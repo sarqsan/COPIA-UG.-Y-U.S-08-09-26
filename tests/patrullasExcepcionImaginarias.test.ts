@@ -31,7 +31,7 @@ const mockStorage: Record<string, string> = {};
 };
 
 import {
-  obtenerEfectivosEnServicioOImaginaria,
+  obtenerPersonalEnServicioOImaginaria,
   setMemoryServiciosTest,
   setMemoryCuadrantesTest,
   clearMemoryServiciosTest,
@@ -62,7 +62,7 @@ function assert(condition: boolean, mensaje: string) {
   }
 }
 
-// Plantilla de efectivos
+// Plantilla de personal
 const crearPersona = (params: {
   id: string;
   nombre: string;
@@ -76,25 +76,24 @@ const crearPersona = (params: {
   grupo: params.grupo || 'U.G.',
   tipoServicio: (params.grupo || 'U.G.') === 'U.G.' ? 'GUARDIA' : 'US',
   activo: params.activo !== undefined ? params.activo : true,
-  dni: `${params.id.substring(0, 8)}A`,
   telefono: '600000000',
   fechaCreacion: '2026-01-01',
   fechaActualizacion: '2026-01-01',
 });
 
 // Personal de Rol 2 (Alcance Exclusivo de Patrullas)
-const pR2TitularAyer = crearPersona({ id: 'r2-tit-ayer', nombre: 'Cabo Titular Ayer', empleo: 'ROL 2' });
-const pR2ImaginariaAyer = crearPersona({ id: 'r2-imag-ayer', nombre: 'Cabo Imaginaria Ayer', empleo: 'ROL 2' });
-const pR2LibreAyerHoy = crearPersona({ id: 'r2-libre', nombre: 'Cabo Libre Ayer y Hoy', empleo: 'ROL 2' });
-const pR2TitularHoy = crearPersona({ id: 'r2-tit-hoy', nombre: 'Cabo Titular Hoy', empleo: 'ROL 2' });
-const pR2ImaginariaHoy = crearPersona({ id: 'r2-imag-hoy', nombre: 'Cabo Imaginaria Hoy', empleo: 'ROL 2' });
-const pR2ImaginariaManana = crearPersona({ id: 'r2-imag-manana', nombre: 'Cabo Imaginaria Mañana', empleo: 'ROL 2' });
-const pR2Inactivo = crearPersona({ id: 'r2-inactivo', nombre: 'Cabo Inactivo', empleo: 'ROL 2', activo: false });
-const pR2OtraUnidadUS = crearPersona({ id: 'r2-us', nombre: 'Cabo Unidad US', empleo: 'ROL 2', grupo: 'US_SEGURIDAD' });
+const pR2TitularAyer = crearPersona({ id: 'r2-tit-ayer', nombre: 'Usuario R2 Titular Ayer', empleo: 'ROL 2' });
+const pR2ImaginariaAyer = crearPersona({ id: 'r2-imag-ayer', nombre: 'Usuario R2 Imaginaria Ayer', empleo: 'ROL 2' });
+const pR2LibreAyerHoy = crearPersona({ id: 'r2-libre', nombre: 'Usuario R2 Libre Ayer y Hoy', empleo: 'ROL 2' });
+const pR2TitularHoy = crearPersona({ id: 'r2-tit-hoy', nombre: 'Usuario R2 Titular Hoy', empleo: 'ROL 2' });
+const pR2ImaginariaHoy = crearPersona({ id: 'r2-imag-hoy', nombre: 'Usuario R2 Imaginaria Hoy', empleo: 'ROL 2' });
+const pR2ImaginariaManana = crearPersona({ id: 'r2-imag-manana', nombre: 'Usuario R2 Imaginaria Mañana', empleo: 'ROL 2' });
+const pR2Inactivo = crearPersona({ id: 'r2-inactivo', nombre: 'Usuario R2 Inactivo', empleo: 'ROL 2', activo: false });
+const pR2OtraUnidadUS = crearPersona({ id: 'r2-us', nombre: 'Usuario R2 Unidad US', empleo: 'ROL 2', grupo: 'US_SEGURIDAD' });
 
 // Personal de Rol 1 (No debe ser nombrado en patrullas)
-const pR1Sargento = crearPersona({ id: 'r1-sargento', nombre: 'Sargento Primero', empleo: 'ROL 1' });
-const pR1ImaginariaAyer = crearPersona({ id: 'r1-imag-ayer', nombre: 'Sargento Imaginaria Ayer', empleo: 'ROL 1' });
+const pR1Titular = crearPersona({ id: 'r1-titular', nombre: 'Usuario R1 Titular', empleo: 'ROL 1' });
+const pR1ImaginariaAyer = crearPersona({ id: 'r1-imag-ayer', nombre: 'Usuario R1 Imaginaria Ayer', empleo: 'ROL 1' });
 
 const plantillaCompleta: Persona[] = [
   pR2TitularAyer,
@@ -105,7 +104,7 @@ const plantillaCompleta: Persona[] = [
   pR2ImaginariaManana,
   pR2Inactivo,
   pR2OtraUnidadUS,
-  pR1Sargento,
+  pR1Titular,
   pR1ImaginariaAyer,
 ];
 
@@ -173,7 +172,7 @@ async function runTests() {
   const srvAyer = crearServicioDia({
     fecha: fechaAyer,
     cuadranteId,
-    titularesR1: [pR1Sargento.id, 'dummy-r1-ayer'],
+    titularesR1: [pR1Titular.id, 'dummy-r1-ayer'],
     titularesR2: [pR2TitularAyer.id, 'dummy-r2-tit-ayer'],
     imaginariaR1: pR1ImaginariaAyer.id,
     imaginariaR2: pR2ImaginariaAyer.id,
@@ -203,7 +202,7 @@ async function runTests() {
   // PRUEBA 1: Imaginaria ayer (Rol 2 puede ser nombrado hoy)
   // =========================================================================
   console.log('--- 1. IMAGINARIA AYER (ROL 2) ---');
-  const excluidos = await obtenerEfectivosEnServicioOImaginaria(fechaHoy);
+  const excluidos = await obtenerPersonalEnServicioOImaginaria(fechaHoy);
 
   assert(
     !excluidos.todosExcluidosIds.includes(pR2ImaginariaAyer.id),
@@ -298,7 +297,7 @@ async function runTests() {
   // =========================================================================
   console.log('\n--- 4. SUSTITUCIÓN DE PATRULLA: sustituirPatrulla ---');
 
-  // Simular una patrulla activa hoy asignada al cabo libre
+  // Simular una patrulla activa hoy asignada al usuario libre
   const patrullaActiva: Patrulla = {
     id: 'pat-activa-001',
     numeroSecuencial: 10,
@@ -425,7 +424,7 @@ async function runTests() {
   try {
     await crearPatrullaIndividual({
       fecha: fechaHoy,
-      personaId: pR1Sargento.id,
+      personaId: pR1Titular.id,
       personas: plantillaCompleta,
       adminInfo,
     });
@@ -443,7 +442,7 @@ async function runTests() {
   try {
     await sustituirPatrulla({
       patrullaId: patrullaActiva.id,
-      nuevaPersonaId: pR1Sargento.id,
+      nuevaPersonaId: pR1Titular.id,
       motivo: 'Intento de sustitución con Rol 1',
       personas: plantillaCompleta,
       adminInfo,
@@ -470,7 +469,7 @@ async function runTests() {
     'La lista de candidatos a patrulla contiene única y exclusivamente personal de ROL 2'
   );
   assert(
-    !candidatosPatrullaRol2.some((c) => c.personaId === pR1Sargento.id || c.personaId === pR1ImaginariaAyer.id),
+    !candidatosPatrullaRol2.some((c) => c.personaId === pR1Titular.id || c.personaId === pR1ImaginariaAyer.id),
     'Ningún usuario de Rol 1 aparece entre los candidatos para patrulla'
   );
 
@@ -483,7 +482,7 @@ async function runTests() {
   const pRamos = crearPersona({ id: 'r2-ramos', nombre: 'Ramos R2', empleo: 'ROL 2' });
   const pOtro1 = crearPersona({ id: 'r2-otro1', nombre: 'Otro Titular 1', empleo: 'ROL 2' });
   const pOtro2 = crearPersona({ id: 'r2-otro2', nombre: 'Otro Titular 2', empleo: 'ROL 2' });
-  const plantillaCaso29 = [pSanchez, pRamos, pOtro1, pOtro2, pR1Sargento];
+  const plantillaCaso29 = [pSanchez, pRamos, pOtro1, pOtro2, pR1Titular];
 
   clearMemoryServiciosTest();
   setMemoryCuadrantesTest([
@@ -530,7 +529,7 @@ async function runTests() {
   const srv29Antiguo = crearServicioDia({
     fecha: '2026-11-29',
     cuadranteId: 'CUAD-UG-ANTIGUO',
-    titularesR1: [pR1Sargento.id, 'dummy-r1-b'],
+    titularesR1: [pR1Titular.id, 'dummy-r1-b'],
     titularesR2: [pOtro1.id, pOtro2.id],
     imaginariaR1: 'dummy-r1-imag',
     imaginariaR2: pRamos.id,
@@ -540,7 +539,7 @@ async function runTests() {
   const srv29Actual = crearServicioDia({
     fecha: '2026-11-29',
     cuadranteId: 'CUAD-UG-ACTUAL',
-    titularesR1: [pR1Sargento.id, 'dummy-r1-b'],
+    titularesR1: [pR1Titular.id, 'dummy-r1-b'],
     titularesR2: [pOtro1.id, pOtro2.id],
     imaginariaR1: 'dummy-r1-imag',
     imaginariaR2: pSanchez.id,
@@ -549,7 +548,7 @@ async function runTests() {
   setMemoryServiciosTest('CUAD-UG-ANTIGUO', [srv29Antiguo]);
   setMemoryServiciosTest('CUAD-UG-ACTUAL', [srv29Actual]);
 
-  const exclDia29 = await obtenerEfectivosEnServicioOImaginaria('2026-11-29');
+  const exclDia29 = await obtenerPersonalEnServicioOImaginaria('2026-11-29');
   assert(
     !exclDia29.todosExcluidosIds.includes(pRamos.id),
     'Ramos NO queda excluido por un cuadrante antiguo/duplicado tras cambiar la imaginaria en el cuadrante vigente'
@@ -571,7 +570,7 @@ async function runTests() {
     'Ramos aparece disponible para asumir la patrulla del día 29'
   );
 
-  // 7.B Admin con incluirExcluidos=true ve incluso a efectivos con incompatibilidades y puede asignar/sustituir sin restricciones
+  // 7.B Admin con incluirExcluidos=true ve incluso a usuarios con incompatibilidades y puede asignar/sustituir sin restricciones
   const candsAdminIncluidos = obtenerCandidatosOrdenados({
     rol: 'ROL 2',
     personas: plantillaCaso29,
@@ -583,8 +582,8 @@ async function runTests() {
   });
   assert(
     candsAdminIncluidos.some((c) => c.personaId === pOtro1.id && !c.disponible && Boolean(c.motivoNoDisponible)) &&
-      candsAdminIncluidos.some((c) => c.personaId === pR1Sargento.id && c.empleo === 'ROL 1'),
-    'En modo Admin con incluirExcluidos/incluirOtrosRoles se muestran todos los efectivos con su aviso normativo sin ocultarlos'
+      candsAdminIncluidos.some((c) => c.personaId === pR1Titular.id && c.empleo === 'ROL 1'),
+    'En modo Admin con incluirExcluidos/incluirOtrosRoles se muestran todas las personas con su aviso normativo sin ocultarlas'
   );
 
   const patrullaSanchez: Patrulla = {
@@ -605,7 +604,7 @@ async function runTests() {
   };
   setMemoryPatrullasTest([patrullaSanchez]);
 
-  // Sustitución forzarAdmin=true con alguien que normalmente estaría bloqueado (pOtro1 titular D o pR1Sargento ROL 1)
+  // Sustitución forzarAdmin=true con alguien que normalmente estaría bloqueado (pOtro1 titular D o pR1Titular ROL 1)
   let adminBypassSustitucionOk = false;
   try {
     await sustituirPatrulla({
@@ -633,7 +632,7 @@ async function runTests() {
   try {
     await crearPatrullaIndividual({
       fecha: '2026-11-29',
-      personaId: pR1Sargento.id,
+      personaId: pR1Titular.id,
       personas: plantillaCaso29,
       adminInfo: { ...adminInfo, rol: 'ADMIN' },
       cuenta: { rol: 'ADMIN', activo: true },

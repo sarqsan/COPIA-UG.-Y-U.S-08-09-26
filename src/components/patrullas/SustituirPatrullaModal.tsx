@@ -6,7 +6,7 @@ import {
   puedeGestionarPatrullas,
   sustituirPatrulla,
 } from '../../services/patrullaService';
-import { obtenerEfectivosEnServicioOImaginaria } from '../../services/cuadranteService';
+import { obtenerPersonalEnServicioOImaginaria } from '../../services/cuadranteService';
 import {
   X,
   Repeat,
@@ -62,7 +62,7 @@ export const SustituirPatrullaModal: React.FC<SustituirPatrullaModalProps> = ({
     let active = true;
     const fetchExcluidos = async () => {
       try {
-        const res = await obtenerEfectivosEnServicioOImaginaria(patrulla.fecha, {
+        const res = await obtenerPersonalEnServicioOImaginaria(patrulla.fecha, {
           cuadranteId: cuadranteId || patrulla.cuadranteId,
         });
         if (active) {
@@ -128,7 +128,7 @@ export const SustituirPatrullaModal: React.FC<SustituirPatrullaModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nuevaPersonaId) {
-      setError('Debes seleccionar a un efectivo sustituto.');
+      setError('Debes seleccionar a un usuario sustituto.');
       return;
     }
     if (!esAdmin && !motivo.trim()) {
@@ -207,7 +207,7 @@ export const SustituirPatrullaModal: React.FC<SustituirPatrullaModalProps> = ({
                 </span>
               </div>
               <div className="text-slate-800 dark:text-slate-200">
-                Efectivo a sustituir:{' '}
+                Usuario a sustituir:{' '}
                 <strong className="text-amber-700 dark:text-amber-400">
                   {patrulla.personaNombre}
                 </strong>{' '}
@@ -219,7 +219,7 @@ export const SustituirPatrullaModal: React.FC<SustituirPatrullaModalProps> = ({
               <div className="flex items-start gap-2 rounded-xl border border-blue-200 bg-blue-50/80 px-3 py-2 text-[11px] text-blue-900 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-blue-200">
                 <ShieldCheck className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
                 <span>
-                  <strong>Modo Administrador sin restricciones:</strong> puedes asignar directamente a cualquier efectivo de U.G., incluso si tiene avisos de guardia o imaginaria.
+                  <strong>Modo Administrador sin restricciones:</strong> puedes asignar directamente a cualquier usuario de U.G., incluso si tiene avisos de guardia o imaginaria.
                 </span>
               </div>
             )}
@@ -247,16 +247,16 @@ export const SustituirPatrullaModal: React.FC<SustituirPatrullaModalProps> = ({
               <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-[11px] text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300">
                 <ShieldAlert className="h-4 w-4 text-amber-600 shrink-0" />
                 <span>
-                  {excluidosGuardia.length} efectivos con aviso de incompatibilidad normativa (guardia 24h en D, saliente D-1 o imaginaria en D/D+1). {esAdmin ? 'Se muestran igualmente para cambio directo.' : ''}
+                  {excluidosGuardia.length} usuarios con aviso de incompatibilidad normativa (guardia 24h en D, saliente D-1 o imaginaria en D/D+1). {esAdmin ? 'Se muestran igualmente para cambio directo.' : ''}
                 </span>
               </div>
             )}
 
-            {/* Selector de Nuevo Efectivo */}
+            {/* Selector de Nuevo Usuario */}
             <div>
               <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-                  Seleccionar Efectivo Sustituto (Rol base: {rolBase})
+                  Seleccionar Usuario Sustituto (Rol base: {rolBase})
                 </label>
                 {esAdmin && (
                   <label className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 dark:text-slate-300 cursor-pointer select-none">
@@ -274,7 +274,7 @@ export const SustituirPatrullaModal: React.FC<SustituirPatrullaModalProps> = ({
               <div className="max-h-52 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800">
                 {candidatos.length === 0 ? (
                   <div className="p-4 text-center text-xs text-slate-400">
-                    No hay efectivos registrados en U.G. para sustituir.
+                    No hay usuarios registrados en U.G. para sustituir.
                   </div>
                 ) : (
                   candidatos.map((c, index) => {

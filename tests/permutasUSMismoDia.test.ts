@@ -22,12 +22,11 @@ function assert(cond: boolean, desc: string) {
 // Datos de prueba para U.S.
 const persona1: Persona = {
   id: 'us-p1',
-  nombre: 'Agente Diurno A',
+  nombre: 'Usuario Diurno A',
   empleo: 'ROL 2',
   activo: true,
   grupo: 'US_SEGURIDAD',
   tipoServicio: 'US',
-  dni: '11111111A',
   telefono: '600000001',
   fechaCreacion: '2026-01-01',
   fechaActualizacion: '2026-01-01',
@@ -35,12 +34,11 @@ const persona1: Persona = {
 
 const persona2: Persona = {
   id: 'us-p2',
-  nombre: 'Agente Nocturno B',
+  nombre: 'Usuario Nocturno B',
   empleo: 'ROL 2',
   activo: true,
   grupo: 'US_SEGURIDAD',
   tipoServicio: 'US',
-  dni: '22222222B',
   telefono: '600000002',
   fechaCreacion: '2026-01-01',
   fechaActualizacion: '2026-01-01',
@@ -48,12 +46,11 @@ const persona2: Persona = {
 
 const persona3: Persona = {
   id: 'us-p3',
-  nombre: 'Agente Fecha Distinta C',
+  nombre: 'Usuario Fecha Distinta C',
   empleo: 'ROL 2',
   activo: true,
   grupo: 'US_SEGURIDAD',
   tipoServicio: 'US',
-  dni: '33333333C',
   telefono: '600000003',
   fechaCreacion: '2026-01-01',
   fechaActualizacion: '2026-01-01',
@@ -61,12 +58,11 @@ const persona3: Persona = {
 
 const persona4Incompatible: Persona = {
   id: 'us-p4',
-  nombre: 'Agente Incompatible D',
+  nombre: 'Usuario Incompatible D',
   empleo: 'ROL 2',
   activo: true,
   grupo: 'US_SEGURIDAD',
   tipoServicio: 'US',
-  dni: '44444444D',
   telefono: '600000004',
   fechaCreacion: '2026-01-01',
   fechaActualizacion: '2026-01-01',

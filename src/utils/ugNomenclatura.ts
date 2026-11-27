@@ -1,12 +1,12 @@
 import { Persona, Empleo } from '../types';
 
 /**
- * Convierte el empleo interno ('ROL 1' | 'ROL 2') a la nomenclatura oficial visible de la U.G. ('ROL 1' | 'ROL 2').
+ * Convierte el rol interno ('ROL 1' | 'ROL 2') a la nomenclatura visible de la U.G. ('ROL 1' | 'ROL 2').
  */
 export const getRolUG = (empleo?: Empleo | string | null): 'ROL 1' | 'ROL 2' => {
   if (!empleo) return 'ROL 2';
   const emp = empleo.toString().toUpperCase();
-  if (emp === 'ROL 1' || emp === 'ROL1' || emp.includes('ROL 1') || emp.includes('CABO')) return 'ROL 1';
+  if (emp === 'ROL 1' || emp === 'ROL1' || emp.includes('ROL 1')) return 'ROL 1';
   return 'ROL 2';
 };
 
@@ -26,10 +26,10 @@ const DEFAULT_APELLIDOS_ROL2 = [
 export type PersonaLike = Persona | { nombre?: string; empleo?: Empleo | string; [key: string]: any };
 
 /**
- * Obtiene el apellido operativo del usuario para la U.G., eliminando absolutamente cualquier prefijo de empleo o rango.
+ * Obtiene el apellido operativo del usuario para la U.G., eliminando cualquier prefijo de rol.
  */
 export const getApellidoUG = (personaOrNombre?: PersonaLike | string | null): string => {
-  if (!personaOrNombre) return 'EFECTIVO';
+  if (!personaOrNombre) return 'USUARIO';
   let raw = '';
   let empHint: string | undefined;
 
@@ -46,17 +46,16 @@ export const getApellidoUG = (personaOrNombre?: PersonaLike | string | null): st
     raw = raw.split(/[—\-]/)[0].trim();
   }
 
-  // Eliminar prefijos heredados (Cabo, Soldado, Cbo, Sld, ROL 1, ROL 2, etc.)
+  // Eliminar prefijos de rol (ROL 1, ROL 2, etc.)
   let clean = raw
-    .replace(/^(cabo\s+primero|cabo\s+1[ºoª\.]?|cabo|soldado|cbo\.?|sld\.?|sdo\.?|rol\s*1\s*u\.s\.|rol\s*2\s*u\.s\.|rol\s*1|rol\s*2|r1|r2)\s+/i, '')
-    .replace(/\b(cabo\s+primero|cabo\s+1[ºoª\.]?|cabo|soldado|cbo\.?|sld\.?)\b/gi, '')
+    .replace(/^(rol\s*1\s*u\.s\.|rol\s*2\s*u\.s\.|rol\s*1|rol\s*2|r1|r2)\s+/i, '')
     .trim();
 
-  // Si solo era "1", "2", "ROL 1 1" o quedó vacío tras limpiar "CABO" o "SOLDADO"
+  // Si solo era "1", "2", "ROL 1 1" o quedó vacío tras limpiar el prefijo
   const numMatch = clean.match(/^\d+$/);
   if (numMatch || !clean) {
     const idx = numMatch ? (parseInt(numMatch[0], 10) - 1) : 0;
-    const isRol1 = empHint ? (empHint.toString().toUpperCase().includes('1') || empHint.toString().toUpperCase().includes('CBO') || empHint.toString().toUpperCase().includes('CABO')) : false;
+    const isRol1 = empHint ? empHint.toString().toUpperCase().includes('1') : false;
     if (isRol1) {
       return DEFAULT_APELLIDOS_ROL1[Math.abs(idx) % DEFAULT_APELLIDOS_ROL1.length];
     } else {
@@ -68,7 +67,7 @@ export const getApellidoUG = (personaOrNombre?: PersonaLike | string | null): st
 };
 
 /**
- * Formatea la identificación oficial reglamentaria de un usuario de la U.G.:
+ * Formatea la identificación reglamentaria de un usuario de la U.G.:
  * APELLIDO — ROL 1 / ROL 2 (Ejemplo: "ARQUERO — ROL 1")
  */
 export const formatUsuarioUG = (
@@ -77,7 +76,7 @@ export const formatUsuarioUG = (
 ): string => {
   if (!personaOrNombre) {
     const rol = getRolUG(empleo);
-    return `EFECTIVO — ${rol}`;
+    return `USUARIO — ${rol}`;
   }
   
   if (typeof personaOrNombre === 'object' && personaOrNombre !== null) {
@@ -92,7 +91,7 @@ export const formatUsuarioUG = (
 };
 
 /**
- * Denominación oficial de la grupo
+ * Denominación del grupo
  */
 export const NOMBRE_GRUPO_UG = 'U.G.';
 

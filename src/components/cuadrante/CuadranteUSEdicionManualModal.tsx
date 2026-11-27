@@ -43,7 +43,7 @@ export const CuadranteUSEdicionManualModal: FC<CuadranteUSEdicionManualModalProp
   const [nuevaAusenciaTipo, setNuevaAusenciaTipo] = useState<'V' | 'P' | 'AP'>('V');
   const [motivo, setMotivo] = useState('');
 
-  // Ordenar lista de personal de acuerdo al orden de rotación oficial (orden del archivo Excel)
+  // Ordenar lista de personal de acuerdo al orden de rotación (orden del archivo Excel)
   const personasUSOrdenadas = useMemo(() => {
     return [...personasUS].sort((a, b) => {
       const ordA = a.ordenRotacion !== undefined && a.ordenRotacion !== null ? a.ordenRotacion : 9999;
@@ -61,7 +61,7 @@ export const CuadranteUSEdicionManualModal: FC<CuadranteUSEdicionManualModalProp
   const turnosAsignados = [d1, d2, n1, n2].filter(Boolean);
   const setUnicos = new Set(turnosAsignados);
   if (setUnicos.size < turnosAsignados.length) {
-    errores.push('Un mismo efectivo no puede tener dos turnos asignados el mismo día.');
+    errores.push('Una misma persona no puede tener dos turnos asignados el mismo día.');
   }
 
   if (d1 && d2 && d1 === d2) {
@@ -238,7 +238,7 @@ export const CuadranteUSEdicionManualModal: FC<CuadranteUSEdicionManualModalProp
               Edición de Asignación U.S. (12 Horas)
             </h2>
             <p className="text-xs text-slate-500 font-mono mt-0.5">
-              Fecha: {servicio.fecha} ({servicio.esFestivo ? `Festivo Oficial${servicio.nombreFestivo ? `: ${servicio.nombreFestivo}` : ''}` : servicio.esLaborable ? 'Día Laborable' : 'Fin de Semana'})
+              Fecha: {servicio.fecha} ({servicio.esFestivo ? `Festivo${servicio.nombreFestivo ? `: ${servicio.nombreFestivo}` : ''}` : servicio.esLaborable ? 'Día Laborable' : 'Fin de Semana'})
             </p>
           </div>
           <button
@@ -274,7 +274,7 @@ export const CuadranteUSEdicionManualModal: FC<CuadranteUSEdicionManualModalProp
                 <span>Turno Diurno (07:00 a 19:00 - 12h)</span>
               </div>
               <span className="text-[10px] font-black text-blue-600 bg-blue-100 dark:bg-blue-900/60 px-2 py-0.5 rounded-md">
-                2 Efectivos
+                2 Personas
               </span>
             </div>
 
@@ -327,7 +327,7 @@ export const CuadranteUSEdicionManualModal: FC<CuadranteUSEdicionManualModalProp
                 </span>
               </div>
               <span className="text-[10px] font-black text-indigo-600 bg-indigo-100 dark:bg-indigo-900/60 px-2 py-0.5 rounded-md">
-                {servicio.esNocturnoProlongado ? '12.75h' : '12h'} (2 Efectivos)
+                {servicio.esNocturnoProlongado ? '12.75h' : '12h'} (2 Personas)
               </span>
             </div>
 
@@ -378,7 +378,7 @@ export const CuadranteUSEdicionManualModal: FC<CuadranteUSEdicionManualModalProp
                 <span>Imaginaria (24h)</span>
               </div>
               <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">
-                1 Efectivo
+                1 Persona
               </span>
             </div>
 
@@ -406,11 +406,11 @@ export const CuadranteUSEdicionManualModal: FC<CuadranteUSEdicionManualModalProp
                 <span>Personal de Presente (7h)</span>
               </div>
               <span className="text-[10px] font-black text-emerald-700 bg-emerald-100 dark:bg-emerald-900/60 px-2 py-0.5 rounded-md">
-                {presentes.length} Efectivos asignados
+                {presentes.length} Personas asignadas
               </span>
             </div>
 
-            {/* Listado de efectivos actualmente de presente con acciones directas para Administrador */}
+            {/* Listado de personas actualmente de presente con acciones directas para Administrador */}
             {presentes.length > 0 ? (
               <div className="space-y-2">
                 {presentes.map((pId) => {
@@ -466,11 +466,11 @@ export const CuadranteUSEdicionManualModal: FC<CuadranteUSEdicionManualModalProp
               </div>
             ) : (
               <p className="text-xs text-slate-500 dark:text-slate-400 italic">
-                No hay efectivos asignados de presente en esta fecha.
+                No hay personal asignado de presente en esta fecha.
               </p>
             )}
 
-            {/* Selector para añadir otro efectivo a Presente */}
+            {/* Selector para añadir otra persona a Presente */}
             <div className="flex items-center gap-2 pt-2 border-t border-emerald-200/60 dark:border-emerald-900/40">
               <select
                 id="select-agregar-presente-us"
@@ -483,7 +483,7 @@ export const CuadranteUSEdicionManualModal: FC<CuadranteUSEdicionManualModalProp
                   }
                 }}
               >
-                <option value="">Añadir efectivo a Presente...</option>
+                <option value="">Añadir persona a Presente...</option>
                 {personasUSOrdenadas
                   .filter((p) => !presentes.includes(p.id) && !turnosAsignados.includes(p.id) && imag !== p.id)
                   .map((p) => (

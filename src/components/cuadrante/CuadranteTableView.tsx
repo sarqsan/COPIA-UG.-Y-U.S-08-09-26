@@ -327,7 +327,7 @@ export const CuadranteTableView: React.FC<CuadranteTableViewProps> = ({
             }}
             className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-900 focus:border-blue-500 focus:outline-hidden dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
           >
-            <option value="">-- Filtrar por Efectivo ({personas.length}) --</option>
+            <option value="">-- Filtrar por Persona ({personas.length}) --</option>
             {personas.map((p) => (
               <option key={p.id} value={p.id}>
                 {formatUsuarioUG(p)} ({getRolUG(p.empleo)})
@@ -472,7 +472,7 @@ export const CuadranteTableView: React.FC<CuadranteTableViewProps> = ({
                     <div className="flex items-center justify-between text-[11px] font-black tracking-wider uppercase text-amber-700 dark:text-amber-400">
                       <span className="flex items-center gap-1">
                         <Clock className="h-3.5 w-3.5 text-amber-600" />
-                        Imaginarias de Retén (1 ROL 1 + 1 ROL 2)
+                        Imaginarias (1 ROL 1 + 1 ROL 2)
                       </span>
                     </div>
 

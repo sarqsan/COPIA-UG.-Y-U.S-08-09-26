@@ -274,7 +274,7 @@ const timestampMs = (iso?: string): number => {
 };
 
 /**
- * Carga el cuadrante activo oficial de U.G. (el confirmado más reciente con servicios reales),
+ * Carga el cuadrante activo de U.G. (el confirmado más reciente con servicios reales),
  * exactamente igual que al consultarlo manualmente en CuadrantesPage, evitando mezclar
  * o sobrescribir cuadrantes duplicados más antiguos.
  */
@@ -316,7 +316,7 @@ export const cargarCuadranteYServiciosUG = async (
 /**
  * Carga los cuadrantes confirmados vigentes/futuros de U.S. manteniendo cada día actualizado
  * desde el cuadrante más reciente y normalizando sus propiedades de calendario para que el
- * exportador oficial calcule cada mes de forma estrictamente independiente (sin acumular meses).
+ * exportador calcule cada mes de forma estrictamente independiente (sin acumular meses).
  */
 export const cargarCuadranteYServiciosUS = async (
   hoyIso: string
@@ -433,8 +433,8 @@ const validarBufferXlsx = (bytes: Uint8Array, unidad: 'UG' | 'US') => {
 };
 
 /**
- * Genera en el instante actual los 2 archivos Excel oficiales (.xlsx) de UG y US
- * reutilizando directamente los exportadores oficiales de la aplicación (excelCuadranteExport
+ * Genera en el instante actual los 2 archivos Excel (.xlsx) de UG y US
+ * reutilizando directamente los exportadores de la aplicación (excelCuadranteExport
  * y excelUSCuadranteExport) con los últimos datos de cuadrantes, patrullas y personal.
  */
 export const generarDosExcelsActualizados = async (): Promise<ExcelsCuadrantesGenerados> => {
@@ -488,10 +488,10 @@ export const generarDosExcelsActualizados = async (): Promise<ExcelsCuadrantesGe
   ]);
 
   if (!wbUG.worksheets.length) {
-    throw new Error('El libro Excel oficial de U.G. se generó sin hojas.');
+    throw new Error('El libro Excel de U.G. se generó sin hojas.');
   }
   if (!wbUS.worksheets.length) {
-    throw new Error('El libro Excel oficial de U.S. se generó sin hojas mensuales.');
+    throw new Error('El libro Excel de U.S. se generó sin hojas mensuales.');
   }
 
   const [rawUG, rawUS] = await Promise.all([
@@ -544,7 +544,7 @@ const utf8ToBase64 = (text: string): string => {
 
 /**
  * Construye un borrador de correo RFC 2822 (.eml con X-Unsent: 1 opcional) que incluye
- * destinatario, asunto, cuerpo UTF-8 y ambos archivos Excel (.xlsx) oficiales adjuntos en Base64.
+ * destinatario, asunto, cuerpo UTF-8 y ambos archivos Excel (.xlsx) adjuntos en Base64.
  */
 export const construirBorradorEmlConExcels = (params: {
   emisor?: string;
@@ -627,7 +627,7 @@ export interface ResultadoGmailApiCuadrantes {
 
 /**
  * Crea un borrador REAL en la cuenta Gmail del usuario (POST /gmail/v1/users/me/drafts)
- * con destinatario, asunto, cuerpo y ambos archivos .xlsx oficiales ya adjuntos.
+ * con destinatario, asunto, cuerpo y ambos archivos .xlsx ya adjuntos.
  * Funciona 100% gratis desde el navegador (Android Chrome y escritorio) sin servidor SMTP.
  */
 export const crearBorradorGmailConExcels = async (params: {
@@ -711,7 +711,7 @@ export const crearBorradorGmailConExcels = async (params: {
 
 /**
  * Envía directamente el correo a través de la API REST de Gmail (POST /gmail/v1/users/me/messages/send)
- * con ambos archivos .xlsx oficiales reales adjuntos. Requiere confirmación explícita previa del usuario.
+ * con ambos archivos .xlsx reales adjuntos. Requiere confirmación explícita previa del usuario.
  */
 export const enviarCorreoGmailConExcels = async (params: {
   accessToken: string;
@@ -993,7 +993,7 @@ export interface PaqueteCorreoCuadrantes {
 }
 
 /**
- * Prepara de forma íntegra los 2 Excel oficiales (.xlsx) + borrador .eml con ambos adjuntos reales
+ * Prepara de forma íntegra los 2 Excel (.xlsx) + borrador .eml con ambos adjuntos reales
  * incrustados en Base64 + enlace mailto opcional. NO abre mailto automáticamente ni simula adjuntos.
  */
 export const prepararCorreoDesdeAviso = async (params: {
@@ -1007,7 +1007,7 @@ export const prepararCorreoDesdeAviso = async (params: {
     params.config.cuerpoPersonalizado?.trim() ||
     CONFIG_PROGRAMACION_DEFAULT.cuerpoPersonalizado ||
     '';
-  const cuerpo = `${cuerpoBase}\n\nDestinatario configurado: ${params.config.destinatario}\nFecha de generación: ${madrid.fechaEs} ${madrid.horaMinuto} (Europe/Madrid)\nArchivos Excel oficiales: ${excels.fileNameUG} y ${excels.fileNameUS}`;
+  const cuerpo = `${cuerpoBase}\n\nDestinatario configurado: ${params.config.destinatario}\nFecha de generación: ${madrid.fechaEs} ${madrid.horaMinuto} (Europe/Madrid)\nArchivos Excel: ${excels.fileNameUG} y ${excels.fileNameUS}`;
 
   const mailtoUrl = construirMailtoUrl({
     destinatario: params.config.destinatario,

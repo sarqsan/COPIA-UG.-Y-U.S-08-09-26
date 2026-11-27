@@ -23,13 +23,13 @@ const calcularDesviacionEstandar = (numeros: number[], media: number): number =>
 /**
  * Calcula el resumen de métricas para un rol (ROL 1 o ROL 2)
  */
-const calcularResumenEmpleo = (
+const calcularResumenRol = (
   metricasPersonas: MetricasIndividuales[]
 ): MetricasResumenEmpleo => {
-  const totalEfectivos = metricasPersonas.length;
-  if (totalEfectivos === 0) {
+  const totalPersonal = metricasPersonas.length;
+  if (totalPersonal === 0) {
     return {
-      totalEfectivos: 0,
+      totalPersonal: 0,
       serviciosMin: 0,
       serviciosMax: 0,
       diferenciaServicios: 0,
@@ -56,7 +56,7 @@ const calcularResumenEmpleo = (
   const serviciosMax = Math.max(...serviciosArr);
   const diferenciaServicios = serviciosMax - serviciosMin;
   const promedioServicios =
-    serviciosArr.reduce((a, b) => a + b, 0) / totalEfectivos;
+    serviciosArr.reduce((a, b) => a + b, 0) / totalPersonal;
   const desviacionEstandarServicios = Number(
     calcularDesviacionEstandar(serviciosArr, promedioServicios).toFixed(2)
   );
@@ -65,7 +65,7 @@ const calcularResumenEmpleo = (
   const imaginariasMax = Math.max(...imaginariasArr);
   const diferenciaImaginarias = imaginariasMax - imaginariasMin;
   const promedioImaginarias =
-    imaginariasArr.reduce((a, b) => a + b, 0) / totalEfectivos;
+    imaginariasArr.reduce((a, b) => a + b, 0) / totalPersonal;
   const desviacionEstandarImaginarias = Number(
     calcularDesviacionEstandar(imaginariasArr, promedioImaginarias).toFixed(2)
   );
@@ -74,14 +74,14 @@ const calcularResumenEmpleo = (
   const puntosEspecialesMax = Math.max(...puntosEspArr);
   const diferenciaPuntosEspeciales = puntosEspecialesMax - puntosEspecialesMin;
   const promedioPuntosEspeciales = Number(
-    (puntosEspArr.reduce((a, b) => a + b, 0) / totalEfectivos).toFixed(1)
+    (puntosEspArr.reduce((a, b) => a + b, 0) / totalPersonal).toFixed(1)
   );
   const desviacionEstandarPuntosEspeciales = Number(
     calcularDesviacionEstandar(puntosEspArr, promedioPuntosEspeciales).toFixed(2)
   );
 
   return {
-    totalEfectivos,
+    totalPersonal,
     serviciosMin,
     serviciosMax,
     diferenciaServicios,
@@ -244,8 +244,8 @@ export const calcularMetricasCuadrante = (
     (m) => m.empleo === 'ROL 2'
   );
 
-  const resumenRol1 = calcularResumenEmpleo(rol1Metricas);
-  const resumenRol2 = calcularResumenEmpleo(rol2Metricas);
+  const resumenRol1 = calcularResumenRol(rol1Metricas);
+  const resumenRol2 = calcularResumenRol(rol2Metricas);
 
   // Cálculo de Puntuación Global de Equilibrio (0 a 100)
   let score = 100;

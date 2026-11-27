@@ -22,7 +22,7 @@ export const CompartirEnlaceAltaModal: React.FC<CompartirEnlaceAltaModalProps> =
   const genericAccessLink = baseUrl;
   const registrationLink = `${baseUrl}#alta?grupo=${encodeURIComponent(grupo)}`;
 
-  const mensajeWhatsApp = `📋 *PORTAL DE EFECTIVOS (U.G.)*
+  const mensajeWhatsApp = `📋 *PORTAL DE PERSONAL (U.G.)*
 Ya podéis consultar vuestros cuadrantes, guardias de 24h e imaginarias en:
 🔗 ${genericAccessLink}
 
@@ -63,7 +63,7 @@ Al entrar, el sistema os pedirá definir vuestro usuario y contraseña personal 
             <div>
               <h3 className="text-base font-bold">Enlaces de Acceso y Registro</h3>
               <p className="text-xs text-slate-400">
-                Difusión para efectivos de la plantilla y nuevas incorporaciones
+                Difusión para el personal de la plantilla y nuevas incorporaciones
               </p>
             </div>
           </div>
@@ -100,7 +100,7 @@ Al entrar, el sistema os pedirá definir vuestro usuario y contraseña personal 
             }`}
           >
             <UserPlus className="w-3.5 h-3.5" />
-            <span>Alta de Nuevos Efectivos</span>
+            <span>Alta de Nuevo Personal</span>
           </button>
         </div>
 
@@ -114,7 +114,7 @@ Al entrar, el sistema os pedirá definir vuestro usuario y contraseña personal 
                   <span>Enlace Único para Toda la Plantilla</span>
                 </div>
                 <p className="text-[11px] leading-relaxed opacity-95">
-                  Puedes enviar este enlace a todos los efectivos. Al abrirlo, se les solicitará usuario y contraseña. Para los que entran por <strong>primera vez</strong>, introducen su <code className="bg-blue-100 dark:bg-blue-900/60 px-1 py-0.5 rounded font-mono font-bold">apellido+rol</code> (ej: <span className="font-semibold">sanchezrol1</span> o <span className="font-semibold">sanchezrol2</span>) tanto en usuario como en contraseña y el sistema les requerirá definir su clave personal.
+                  Puedes enviar este enlace a todo el personal. Al abrirlo, se les solicitará usuario y contraseña. Para los que entran por <strong>primera vez</strong>, introducen su <code className="bg-blue-100 dark:bg-blue-900/60 px-1 py-0.5 rounded font-mono font-bold">apellido+rol</code> (ej: <span className="font-semibold">sanchezrol1</span> o <span className="font-semibold">sanchezrol2</span>) tanto en usuario como en contraseña y el sistema les requerirá definir su clave personal.
                 </p>
               </div>
 
@@ -185,7 +185,7 @@ Al entrar, el sistema os pedirá definir vuestro usuario y contraseña personal 
               </div>
             </>
           ) : (
-            /* TAB 2: ALTA DE NUEVOS EFECTIVOS */
+            /* TAB 2: ALTA DE NUEVO PERSONAL */
             <>
               <div className="p-3.5 bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800/60 rounded-2xl text-xs text-purple-950 dark:text-purple-200">
                 <div className="font-bold flex items-center gap-1.5 mb-1 text-purple-900 dark:text-purple-300">

@@ -23,7 +23,7 @@ export const CuentaTable: React.FC<CuentaTableProps> = ({
   const getPersonaNombre = (personaId: string | null) => {
     if (!personaId) return null;
     const p = personas.find((x) => x.id === personaId);
-    return p ? `${getApellidoUG(p)} (${getRolUG(p.empleo)})` : 'Efectivo no encontrado';
+    return p ? `${getApellidoUG(p)} (${getRolUG(p.empleo)})` : 'Persona no encontrada';
   };
 
   return (
@@ -35,7 +35,7 @@ export const CuentaTable: React.FC<CuentaTableProps> = ({
             <tr>
               <th className="px-5 py-3.5">Cuenta / Usuario</th>
               <th className="px-4 py-3.5">Rol de Acceso</th>
-              <th className="px-4 py-3.5">Efectivo Vinculado (Apellido - Rol)</th>
+              <th className="px-4 py-3.5">Personal Vinculado (Apellido - Rol)</th>
               <th className="px-4 py-3.5">Estado Cuenta</th>
               <th className="px-4 py-3.5">Último Acceso</th>
               <th className="px-5 py-3.5 text-right">Acciones</th>

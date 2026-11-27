@@ -57,12 +57,11 @@ function assert(condition: boolean, mensaje: string) {
   }
 }
 
-// Plantilla de prueba US con 16 efectivos
+// Plantilla de prueba US con 16 personas
 const plantillaUS: Persona[] = Array.from({ length: 16 }, (_, i) => ({
   id: `p-us-${i + 1}`,
-  nombre: `Guardia US ${i + 1}`,
+  nombre: `Usuario US ${i + 1}`,
   apellidos: `Apellido ${i + 1}`,
-  tip: `US-${1000 + i}`,
   rol: 'USUARIO' as any,
   tipoServicio: 'US',
   activo: true,
@@ -87,7 +86,7 @@ async function runTests() {
     nombre: 'Cuadrante US Octubre 2026',
     cicloId: 'ciclo-us-2026-10',
     creadoPorUid: 'admin-1',
-    creadoPorNombre: 'Oficial Administrador',
+    creadoPorNombre: 'Administrador',
   });
 
   const serviciosMes1 = resGenMes1.serviciosUS;
@@ -129,7 +128,7 @@ async function runTests() {
     cicloId: 'ciclo-us-2026-11',
     estadoContinuidadMesAnterior: estadoContinuidad!,
     creadoPorUid: 'admin-1',
-    creadoPorNombre: 'Oficial Administrador',
+    creadoPorNombre: 'Administrador',
   });
 
   const serviciosMes2 = resGenMes2.serviciosUS;
@@ -192,7 +191,7 @@ async function runTests() {
     {
       id: 'sol-1',
       personaId: 'p-us-1',
-      personaNombre: 'Guardia 1',
+      personaNombre: 'Usuario 1',
       tipoAusencia: 'VACACIONES',
       fechaInicio: fechaTest,
       fechaFin: fechaTest,
@@ -209,7 +208,7 @@ async function runTests() {
     {
       id: 'sol-2',
       personaId: 'p-us-2',
-      personaNombre: 'Guardia 2',
+      personaNombre: 'Usuario 2',
       tipoAusencia: 'PERMISO',
       fechaInicio: fechaTest,
       fechaFin: fechaTest,
@@ -226,7 +225,7 @@ async function runTests() {
     {
       id: 'sol-3',
       personaId: 'p-us-3',
-      personaNombre: 'Guardia 3',
+      personaNombre: 'Usuario 3',
       tipoAusencia: 'ASUNTOS_PROPIOS',
       fechaInicio: fechaTest,
       fechaFin: fechaTest,
@@ -243,7 +242,7 @@ async function runTests() {
     {
       id: 'sol-4',
       personaId: 'p-us-4',
-      personaNombre: 'Guardia 4',
+      personaNombre: 'Usuario 4',
       tipoAusencia: 'VACACIONES',
       fechaInicio: fechaTest,
       fechaFin: fechaTest,
@@ -279,9 +278,9 @@ async function runTests() {
     tipoAusencia: 'ASUNTOS_PROPIOS',
     fechaInicio: fechaTest,
     fechaFin: fechaTest,
-    motivo: 'Asignación extraordinaria autorizada por mando',
+    motivo: 'Asignación extraordinaria autorizada por administración',
     forzarPorAdmin: true,
-    adminInfo: { uid: 'admin-01', nombre: 'Oficial Administrador' },
+    adminInfo: { uid: 'admin-01', nombre: 'Administrador' },
   });
 
   assert(resAdmin.success === true, 'El Administrador PUEDE asignar una 5ª persona de ausencia en el mismo día con éxito');
@@ -291,7 +290,7 @@ async function runTests() {
   const solicitudPendiente5: SolicitudAusenciaUS = {
     id: 'sol-pendiente-6',
     personaId: 'p-us-6',
-    personaNombre: 'Guardia 6',
+    personaNombre: 'Usuario 6',
     tipoAusencia: 'PERMISO',
     fechaInicio: fechaTest,
     fechaFin: fechaTest,
@@ -313,7 +312,7 @@ async function runTests() {
   const resAprobacion = await resolverSolicitudAusenciaUS({
     solicitudId: 'sol-pendiente-6',
     aprobada: true,
-    adminInfo: { uid: 'admin-01', nombre: 'Oficial Administrador' },
+    adminInfo: { uid: 'admin-01', nombre: 'Administrador' },
   });
   console.log('  DEBUG resAprobacion:', resAprobacion);
 
@@ -323,11 +322,11 @@ async function runTests() {
   console.log('\n--- 6. Validación de Cuadrante U.S. con > 4 ausencias ---');
   const serviciosCon5Ausencias = JSON.parse(JSON.stringify(serviciosMes1));
   serviciosCon5Ausencias[10].ausencias = [
-    { personaId: 'p-us-1', personaNombre: 'Guardia 1', tipo: 'V' },
-    { personaId: 'p-us-2', personaNombre: 'Guardia 2', tipo: 'P' },
-    { personaId: 'p-us-3', personaNombre: 'Guardia 3', tipo: 'AP' },
-    { personaId: 'p-us-4', personaNombre: 'Guardia 4', tipo: 'V' },
-    { personaId: 'p-us-5', personaNombre: 'Guardia 5', tipo: 'AP' },
+    { personaId: 'p-us-1', personaNombre: 'Usuario 1', tipo: 'V' },
+    { personaId: 'p-us-2', personaNombre: 'Usuario 2', tipo: 'P' },
+    { personaId: 'p-us-3', personaNombre: 'Usuario 3', tipo: 'AP' },
+    { personaId: 'p-us-4', personaNombre: 'Usuario 4', tipo: 'V' },
+    { personaId: 'p-us-5', personaNombre: 'Usuario 5', tipo: 'AP' },
   ];
 
   const val5Ausencias = validarCuadranteUS({

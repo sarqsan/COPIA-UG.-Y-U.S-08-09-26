@@ -161,7 +161,7 @@ export const EmailPersonalConfigPanel: React.FC = () => {
               Aviso Programado de Envío — Cuadrantes UG y US (Excel .xlsx)
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Recordatorio semanal gratuito para generar ambos Excel oficiales (.xlsx) actualizados y preparar el correo manual
+              Recordatorio semanal gratuito para generar ambos Excel (.xlsx) actualizados y preparar el correo manual
             </p>
           </div>
         </div>
@@ -186,7 +186,7 @@ export const EmailPersonalConfigPanel: React.FC = () => {
           <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
           <div className="text-slate-700 dark:text-slate-300 space-y-0.5">
             <div>
-              Funcionamiento <strong>100% gratuito sin servidores externos ni facturación</strong>: al llegar el día y hora configurados (o al volver a entrar en la aplicación si estaba cerrada), verás el aviso para generar los <strong>2 archivos Excel oficiales (.xlsx) de UG y US</strong> y abrir tu aplicación de correo lista para pulsar Enviar.
+              Funcionamiento <strong>100% gratuito sin servidores externos ni facturación</strong>: al llegar el día y hora configurados (o al volver a entrar en la aplicación si estaba cerrada), verás el aviso para generar los <strong>2 archivos Excel (.xlsx) de UG y US</strong> y abrir tu aplicación de correo lista para pulsar Enviar.
             </div>
             <div className="text-[11px] text-slate-500">
               Hora actual en Madrid: <strong className="font-mono">{madridActual.diaSemanaNombre} {madridActual.fechaEs} {madridActual.horaMinuto}</strong> ({madridActual.offsetText})
@@ -309,7 +309,7 @@ export const EmailPersonalConfigPanel: React.FC = () => {
             className="w-full sm:w-auto px-4 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl transition flex items-center justify-center gap-2 cursor-pointer min-h-[44px]"
           >
             <Send className="w-4 h-4 text-blue-600" />
-            <span>Generar 2 Excel Oficiales (.xlsx) y Preparar Correo Ahora</span>
+            <span>Generar 2 Excel (.xlsx) y Preparar Correo Ahora</span>
           </button>
 
           <button

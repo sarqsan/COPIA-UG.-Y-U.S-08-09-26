@@ -61,7 +61,7 @@ export const CuadranteGeneralExcelView: React.FC<CuadranteGeneralExcelViewProps>
         setError(null);
 
         if (isUS) {
-          // Generar estrictamente el Excel oficial de la U.S.
+          // Generar estrictamente el Excel de la U.S.
           const workbook = generarWorkbookCuadranteUS(
             cuadrante,
             servicios as unknown as ServicioDiaUS[],
@@ -73,7 +73,7 @@ export const CuadranteGeneralExcelView: React.FC<CuadranteGeneralExcelViewProps>
             setActiveSheetIndex(0);
           }
         } else {
-          // Generar estrictamente el Excel oficial de la U.G.
+          // Generar estrictamente el Excel de la U.G.
           const workbook = await generarWorkbookCuadranteExcel(
             cuadrante,
             servicios,
@@ -141,7 +141,7 @@ export const CuadranteGeneralExcelView: React.FC<CuadranteGeneralExcelViewProps>
           Cargando visualización del Cuadrante General ({isUS ? 'U.S.' : 'U.G.'})...
         </h3>
         <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
-          Generando la matriz completa de turnos en formato de hoja de cálculo oficial.
+          Generando la matriz completa de turnos en formato de hoja de cálculo.
         </p>
       </div>
     );
@@ -180,7 +180,7 @@ export const CuadranteGeneralExcelView: React.FC<CuadranteGeneralExcelViewProps>
               </span>
             </div>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-              Visualización directa del documento oficial sin opción de edición ni descarga.
+              Visualización directa del documento sin opción de edición ni descarga.
             </p>
           </div>
         </div>
@@ -191,7 +191,7 @@ export const CuadranteGeneralExcelView: React.FC<CuadranteGeneralExcelViewProps>
             <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
             <input
               type="text"
-              placeholder="Buscar efectivo..."
+              placeholder="Buscar persona..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white w-40 sm:w-48 focus:outline-none focus:border-blue-500"

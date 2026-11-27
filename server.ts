@@ -208,7 +208,7 @@ app.post('/api/analizar-parte-medico', async (req, res) => {
     }
 
     const promptText = `
-Eres un asistente médico administrativo oficial militar para la lectura e interpretación de partes de baja médica e indisposiciones.
+Eres un asistente administrativo para la lectura e interpretación de partes de baja médica e indisposiciones.
 Analiza el documento médico adjunto y las observaciones facilitadas: "${textoObservaciones || 'Sin observaciones'}".
 
 REGLAS CRÍTICAS DE EXTRACCIÓN:
@@ -247,7 +247,7 @@ REGLAS CRÍTICAS DE EXTRACCIÓN:
             },
             motivoRevision: {
               type: Type.STRING,
-              description: 'Explicación del motivo en caso de requerir revisión manual por el mando.',
+              description: 'Explicación del motivo en caso de requerir revisión manual por administración.',
             },
             resumenDiagnostico: {
               type: Type.STRING,
@@ -285,10 +285,10 @@ REGLAS CRÍTICAS DE EXTRACCIÓN:
 });
 
 /**
- * Endpoint para envío seguro del Excel oficial de cambio a Personal mediante Gmail API.
+ * Endpoint para envío seguro del Excel de cambio a Personal mediante Gmail API.
  * - Emisor fijo y verificado: sarqsan2@gmail.com
  * - Token OAuth obtenido en cliente vía popup y transmitido por cabecera Authorization Bearer
- * - Adjunta el Excel oficial (Diligencia + Cuadrante del mes actualizado)
+ * - Adjunta el Excel (Diligencia + Cuadrante del mes actualizado)
  * - Retorna messageId de Gmail o diagnóstico detallado en caso de error
  */
 app.post('/api/email/enviar-documento-cambio', async (req, res) => {
@@ -449,7 +449,7 @@ app.post('/api/matriculas/ocr-frame', async (req, res) => {
                 data: cleanBase64,
               },
             },
-            'Identifica la matrícula oficial del vehículo visible en esta imagen (por ejemplo "1508 GSZ", "M 1234 AB", "PGC 1234 A"). Si la placa incluye la banda azul europea con la "E", omite la "E" del país y devuelve solo los caracteres de la matrícula. Si no ves claramente una matrícula de vehículo, devuelve: VACIO',
+            'Identifica la matrícula del vehículo visible en esta imagen (por ejemplo "1508 GSZ", "M 1234 AB", "PGC 1234 A"). Si la placa incluye la banda azul europea con la "E", omite la "E" del país y devuelve solo los caracteres de la matrícula. Si no ves claramente una matrícula de vehículo, devuelve: VACIO',
           ],
           config: {
             maxOutputTokens: 20,

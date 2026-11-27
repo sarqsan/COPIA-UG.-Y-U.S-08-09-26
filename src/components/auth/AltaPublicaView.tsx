@@ -67,7 +67,6 @@ export const AltaPublicaView: React.FC<AltaPublicaViewProps> = ({ onComplete }) 
           nombre: cleanApellido,
           empleo,
           grupo,
-          dni: `10000${numRandom}`,
           telefono: '',
           activo: true,
           ordenRotacion: existingPersonas.filter((p) => p.activo && p.empleo === empleo).length + 1,
@@ -131,7 +130,7 @@ export const AltaPublicaView: React.FC<AltaPublicaViewProps> = ({ onComplete }) 
             <ShieldCheck className="h-7 w-7" />
           </div>
           <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white sm:text-2xl">
-            Alta Operativa de Efectivo
+            Alta Operativa de Usuario
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400">
             Acceso público directo mediante enlace autorizado
@@ -217,7 +216,7 @@ export const AltaPublicaView: React.FC<AltaPublicaViewProps> = ({ onComplete }) 
                   >
                     <span className="text-xs font-black">ROL 1</span>
                     <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-                      Efectivo Operativo (Rol 1)
+                      Usuario de Rol 1
                     </span>
                   </button>
 
@@ -232,7 +231,7 @@ export const AltaPublicaView: React.FC<AltaPublicaViewProps> = ({ onComplete }) 
                   >
                     <span className="text-xs font-black">ROL 2</span>
                     <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-                      Efectivo Operativo (Rol 2)
+                      Usuario de Rol 2
                     </span>
                   </button>
                 </div>

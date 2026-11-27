@@ -32,7 +32,6 @@ const mkPersona = (id: string, nombre: string): Persona => ({
   activo: true,
   grupo: 'US_SEGURIDAD',
   tipoServicio: 'US',
-  dni: `${id}-dni`,
   telefono: '600000000',
   fechaCreacion: '2026-01-01',
   fechaActualizacion: '2026-01-01',

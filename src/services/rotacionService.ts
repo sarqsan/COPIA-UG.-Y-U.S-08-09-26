@@ -61,7 +61,7 @@ export const validarOrdenesRotacion = (personas: Persona[]): ValidacionOrdenRota
 
 /**
  * Genera automáticamente un orden de rotación intercalado cuando es posible (ROL 1, ROL 2, ROL 1, ROL 2...)
- * o secuencial por empleo si los efectivos varían.
+ * o secuencial por rol si los usuarios varían.
  */
 export const autoGenerarOrdenIntercalado = (personas: Persona[]): { id: string; ordenRotacion: number }[] => {
   const rol1 = personas.filter((p) => p.activo && p.empleo === 'ROL 1');

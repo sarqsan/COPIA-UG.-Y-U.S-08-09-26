@@ -6,7 +6,7 @@
  * - Caso B — Pendientes de ambas unidades: Coexistencia de permutas U.G. y U.S. y contador unificado.
  * - Caso C — Solicitud nueva en tiempo real: Nuevas permutas U.S. se reciben mediante suscripción sin recargar.
  * - Caso D — Registros antiguos: Solicitudes sin 'tipoServicio' identificables por grupo o slots U.S. no desaparecen.
- * - Caso E — Acceso a la firma: Consulta individual y preparación de datos para revisión de Mando.
+ * - Caso E — Acceso a la firma: Consulta individual y preparación de datos para revisión de Administración.
  * - Caso F — Aprobación: Tramitación de solicitud U.S. en su cuadrante propio (turnos 12h), registrando diligencia.
  * - Caso G — Rechazo: Denegación formal de solicitud U.S. preservando estado y motivo sin alterar cuadrante.
  * - Caso H — Sin duplicados: Sincronización sin duplicación de identificadores ni contadores.
@@ -80,7 +80,6 @@ const personasPrueba: Persona[] = [
     grupo: 'U.G.',
     tipoServicio: 'GUARDIA',
     activo: true,
-    dni: '11111111A',
     telefono: '600111111',
     fechaCreacion: '2026-01-01',
     fechaActualizacion: '2026-01-01',
@@ -92,7 +91,6 @@ const personasPrueba: Persona[] = [
     grupo: 'U.G.',
     tipoServicio: 'GUARDIA',
     activo: true,
-    dni: '22222222B',
     telefono: '600222222',
     fechaCreacion: '2026-01-01',
     fechaActualizacion: '2026-01-01',
@@ -105,7 +103,6 @@ const personasPrueba: Persona[] = [
     grupo: 'US_SEGURIDAD',
     tipoServicio: 'US',
     activo: true,
-    dni: '33333333C',
     telefono: '600333333',
     fechaCreacion: '2026-01-01',
     fechaActualizacion: '2026-01-01',
@@ -117,7 +114,6 @@ const personasPrueba: Persona[] = [
     grupo: 'US_SEGURIDAD',
     tipoServicio: 'US',
     activo: true,
-    dni: '44444444D',
     telefono: '600444444',
     fechaCreacion: '2026-01-01',
     fechaActualizacion: '2026-01-01',
@@ -126,7 +122,7 @@ const personasPrueba: Persona[] = [
 
 const adminInfoPrueba = {
   uid: 'admin-001',
-  nombre: 'Capitán Jefe de Unidad',
+  nombre: 'Administrador Principal',
   rol: 'ADMIN',
 };
 
@@ -248,7 +244,7 @@ async function ejecutarPruebas() {
     assert(recuperadas.length === 4, `Recuperadas las 4 solicitudes históricas de la U.S. (obtenidas: ${recuperadas.length})`);
 
     const pendientes = recuperadas.filter((s) => s.estado === 'PENDIENTE_ADMIN');
-    assert(pendientes.length === 4, `Todas las 4 solicitudes están en PENDIENTE_ADMIN y listas para Mando (obtenidas: ${pendientes.length})`);
+    assert(pendientes.length === 4, `Todas las 4 solicitudes están en PENDIENTE_ADMIN y listas para Administración (obtenidas: ${pendientes.length})`);
     assert(pendientes[0].id === 'cambio-us-hist-4', 'El orden temporal descendente sitúa la más reciente primero');
   }
 
@@ -508,7 +504,7 @@ async function ejecutarPruebas() {
       destinatarioNombre: 'Fernández Soto, Marta',
       destinatarioEmpleo: 'ROL 2',
       destinatarioGrupo: 'US_SEGURIDAD',
-      motivo: 'Permuta turno diurno autorizada por Mando',
+      motivo: 'Permuta turno diurno autorizada por Administración',
       fechaSolicitud: '2026-10-25T15:00:00.000Z',
       estado: 'PENDIENTE_ADMIN',
       esValido: true,
@@ -525,11 +521,11 @@ async function ejecutarPruebas() {
     });
 
     assert(resAprobacion.success === true, `Aprobación completada con éxito: ${resAprobacion.message}`);
-    assert(Boolean(resAprobacion.documentoId), `Generado documento firmado oficial: ${resAprobacion.documentoId}`);
+    assert(Boolean(resAprobacion.documentoId), `Generado documento firmado: ${resAprobacion.documentoId}`);
 
     const solActualizada = await getSolicitudCambioById('cambio-us-aprobar-1');
     assert(solActualizada?.estado === 'APROBADA_ADMIN', 'La solicitud pasó a APROBADA_ADMIN');
-    assert(solActualizada?.adminResolucionNombre === 'Capitán Jefe de Unidad', 'Registrado nombre del administrador firmante');
+    assert(solActualizada?.adminResolucionNombre === 'Administrador Principal', 'Registrado nombre del administrador firmante');
 
     // Comprobar que en el cuadrante U.S. se aplicó el cambio: personaIdReal de diurno[0] pasa a persona-us-2
     const srvMod = serviciosUS[0];
@@ -546,7 +542,7 @@ async function ejecutarPruebas() {
   // -------------------------------------------------------------------------
   // CASO G — RECHAZO CON TRAZABILIDAD
   // -------------------------------------------------------------------------
-  console.log('\n--- CASO G: Rechazo Formal por Mando ---');
+  console.log('\n--- CASO G: Rechazo Formal por Administración ---');
   {
     const solUSRechazar: SolicitudCambio = {
       id: 'cambio-us-rechazar-1',
@@ -587,7 +583,7 @@ async function ejecutarPruebas() {
     assert(solRechazada?.estado === 'RECHAZADA_ADMIN', 'El estado cambió a RECHAZADA_ADMIN');
     assert(
       solRechazada?.motivoRechazoAdmin === 'Denegado por necesidades del servicio en control de accesos',
-      'Motivo reglamentario almacenado para consulta de los efectivos'
+      'Motivo reglamentario almacenado para consulta de los usuarios'
     );
   }
 

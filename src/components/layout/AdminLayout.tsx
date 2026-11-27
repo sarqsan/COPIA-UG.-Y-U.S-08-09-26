@@ -387,7 +387,7 @@ export const AdminLayout: React.FC = () => {
         {/* Dynamic Body Content */}
         <main className="flex-1 overflow-y-auto p-4 pb-24 sm:p-6 lg:p-8 md:pb-8">
           <div className="mx-auto max-w-6xl space-y-4">
-            {/* SELECTOR DE GRUPO OPERATIVO (Mando) */}
+            {/* SELECTOR DE GRUPO OPERATIVO (Administración) */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs">
               <div className="flex items-center gap-3">
                 <div className={`p-2 rounded-xl text-white ${grupoActiva === 'GUARDIA' ? 'bg-blue-600' : 'bg-indigo-600'}`}>
@@ -602,7 +602,7 @@ export const AdminLayout: React.FC = () => {
                   <Shield className="h-5 w-5" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-white leading-tight">Mando U.G.</h3>
+                  <h3 className="text-sm font-bold text-white leading-tight">Administración U.G.</h3>
                   <p className="text-[10px] text-slate-400">Navegación general</p>
                 </div>
               </div>
@@ -622,8 +622,8 @@ export const AdminLayout: React.FC = () => {
                 { id: 'inicio', label: 'Panel Principal', icon: LayoutDashboard, desc: 'Métricas y guardias' },
                 { id: 'cuadrantes', label: 'Cuadrante Maestro', icon: CalendarDays, desc: 'Generación y 24h' },
                 { id: 'patrullas', label: 'Patrullas U.G.', icon: Shield, desc: 'Capa independiente • 0h' },
-                { id: 'documentos', label: 'Diligencias de Cambio', icon: FileCheck, desc: 'Documentos oficiales' },
-                { id: 'personal', label: 'Personal & Efectivos', icon: Users, desc: 'Gestión de efectivos' },
+                { id: 'documentos', label: 'Diligencias de Cambio', icon: FileCheck, desc: 'Documentos y diligencias' },
+                { id: 'personal', label: 'Personal y Usuarios', icon: Users, desc: 'Gestión de personal' },
                 { id: 'chat', label: 'Chat Interno', icon: MessageSquare, desc: 'Canal de comunicación' },
                 { id: 'cuentas', label: 'Cuentas de Acceso', icon: KeyRound, desc: 'Roles y credenciales' },
                 { id: 'historial', label: 'Trazabilidad & Auditoría', icon: History, desc: 'Registro inmutable' },
@@ -671,7 +671,7 @@ export const AdminLayout: React.FC = () => {
 
             {/* Footer */}
             <div className="p-3 border-t border-slate-800 bg-slate-950/60 text-[10px] text-slate-400 text-center">
-              Sistema Operativo de Mando • v3.0
+              Sistema de Gestión Operativa • v3.0
             </div>
           </div>
         </div>

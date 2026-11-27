@@ -81,7 +81,7 @@ export const ConfiguracionPage: React.FC<ConfiguracionPageProps> = ({
       await cargarCiclos();
       await onRefreshAllData();
       setMessage(
-        `✓ Base de datos reinicializada con éxito. Se crearon ${res.personasCount} efectivos (11 ROL 1 + 11 ROL 2) y cuentas de acceso de prueba.`
+        `✓ Base de datos reinicializada con éxito. Se crearon ${res.personasCount} personas (11 ROL 1 + 11 ROL 2) y cuentas de acceso de prueba.`
       );
     } catch (err: any) {
       setMessage(`Error al inicializar: ${err.message || 'Error desconocido'}`);

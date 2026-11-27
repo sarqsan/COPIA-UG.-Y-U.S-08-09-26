@@ -111,7 +111,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginComplete }) => {
 
       const cuenta = res.cuenta;
 
-      // Si es un efectivo y es su primer acceso (requiere cambio de credenciales)
+      // Si es un usuario y es su primer acceso (requiere cambio de credenciales)
       if (cuenta.rol !== 'ADMIN' && cuenta.requiereCambioCredenciales !== false) {
         let persona = personas.find((p) => p.id === cuenta.personaId) || null;
         if (!persona && cuenta.personaId) {
@@ -190,7 +190,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginComplete }) => {
             UG
           </div>
           <h1 className="text-2xl font-black tracking-tight text-white">
-            Portal de Efectivos (UG)
+            Portal de Personal (UG)
           </h1>
           <p className="text-xs text-slate-400">
             Acceso a Cuadrantes, Servicios de Guardia (24h) e Imaginarias
@@ -215,7 +215,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginComplete }) => {
               {personaAutenticada && (
                 <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800 flex items-center justify-between">
                   <div>
-                    <span className="text-[10px] uppercase font-bold text-slate-400">Efectivo:</span>
+                    <span className="text-[10px] uppercase font-bold text-slate-400">Usuario:</span>
                     <p className="text-xs font-bold text-white">{personaAutenticada.nombre}</p>
                   </div>
                   <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-blue-500/20 text-blue-300">

@@ -1,7 +1,7 @@
 import { CuadranteMaestro, ServicioDia, Persona } from '../types';
 
 /**
- * Servicio para el envío seguro del cuadrante oficial maquetado en A4 por correo electrónico.
+ * Servicio para el envío seguro del cuadrante maquetado en A4 por correo electrónico.
  * Conforme a las directrices de privacidad de la U.G.:
  * - La dirección de correo se introduce de forma puntual por el usuario.
  * - NO se almacena el correo en la base de datos ni en el perfil del usuario.
@@ -28,7 +28,7 @@ export const enviarCuadrantePorCorreoElectronico = async (params: {
 
   return {
     success: true,
-    message: `El cuadrante oficial maquetado en formato A4 (${nombreCuadrante}) ha sido enviado satisfactoriamente a: ${destinatarioEmail}. La dirección de correo no ha sido almacenada en el sistema.`,
+    message: `El cuadrante maquetado en formato A4 (${nombreCuadrante}) ha sido enviado satisfactoriamente a: ${destinatarioEmail}. La dirección de correo no ha sido almacenada en el sistema.`,
   };
 };
 

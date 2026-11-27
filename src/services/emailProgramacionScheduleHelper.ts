@@ -81,7 +81,7 @@ export const CONFIG_PROGRAMACION_DEFAULT: EmailProgramacionConfig = {
   activo: false,
   asuntoPersonalizado: 'CUADRANTES UG Y US – ACTUALIZACIÓN {FECHA}',
   cuerpoPersonalizado:
-    'Buenos días:\n\nSe remiten adjuntos los cuadrantes oficiales actualizados de UG y US en formato Excel (.xlsx), generados en el momento del envío desde los datos más recientes del sistema.\n\nDocumentos adjuntos:\n1. Cuadrante actualizado de UG (.xlsx)\n2. Cuadrante actualizado de US (.xlsx)\n\nUn saludo.',
+    'Buenos días:\n\nSe remiten adjuntos los cuadrantes actualizados de UG y US en formato Excel (.xlsx), generados en el momento del envío desde los datos más recientes del sistema.\n\nDocumentos adjuntos:\n1. Cuadrante actualizado de UG (.xlsx)\n2. Cuadrante actualizado de US (.xlsx)\n\nUn saludo.',
 };
 
 /**

@@ -23,7 +23,7 @@ const permisosOriginales: PermisoDef[] = [
     tipoAusencia: 'PERMISO',
     fechaInicio: '2026-11-02',
     fechaFin: '2026-11-19',
-    motivo: 'Asignación oficial de PERMISO',
+    motivo: 'Asignación administrativa de PERMISO',
     fechaSolicitud: '2026-09-22T12:45:00.000Z',
   },
   {
@@ -33,7 +33,7 @@ const permisosOriginales: PermisoDef[] = [
     tipoAusencia: 'VACACIONES',
     fechaInicio: '2026-11-02',
     fechaFin: '2026-11-20',
-    motivo: 'Asignación oficial de VACACIONES',
+    motivo: 'Asignación administrativa de VACACIONES',
     fechaSolicitud: '2026-09-22T12:50:00.000Z',
   },
   {
@@ -43,7 +43,7 @@ const permisosOriginales: PermisoDef[] = [
     tipoAusencia: 'ASUNTOS_PROPIOS',
     fechaInicio: '2026-11-23',
     fechaFin: '2026-11-30',
-    motivo: 'Asignación oficial de ASUNTOS PROPIOS',
+    motivo: 'Asignación administrativa de ASUNTOS PROPIOS',
     fechaSolicitud: '2026-09-22T12:53:00.000Z',
   },
   {
@@ -53,7 +53,7 @@ const permisosOriginales: PermisoDef[] = [
     tipoAusencia: 'VACACIONES',
     fechaInicio: '2026-11-01',
     fechaFin: '2026-11-02',
-    motivo: 'Asignación oficial de VACACIONES',
+    motivo: 'Asignación administrativa de VACACIONES',
     fechaSolicitud: '2026-09-22T13:20:00.000Z',
   },
   {
@@ -63,7 +63,7 @@ const permisosOriginales: PermisoDef[] = [
     tipoAusencia: 'VACACIONES',
     fechaInicio: '2026-11-03',
     fechaFin: '2026-11-18',
-    motivo: 'Asignación oficial de VACACIONES',
+    motivo: 'Asignación administrativa de VACACIONES',
     fechaSolicitud: '2026-09-23T10:30:00.000Z',
   },
   {
@@ -73,7 +73,7 @@ const permisosOriginales: PermisoDef[] = [
     tipoAusencia: 'ASUNTOS_PROPIOS',
     fechaInicio: '2026-11-19',
     fechaFin: '2026-11-27',
-    motivo: 'Asignación oficial de ASUNTOS PROPIOS',
+    motivo: 'Asignación administrativa de ASUNTOS PROPIOS',
     fechaSolicitud: '2026-09-23T10:31:00.000Z',
   },
   {
@@ -83,7 +83,7 @@ const permisosOriginales: PermisoDef[] = [
     tipoAusencia: 'ASUNTOS_PROPIOS',
     fechaInicio: '2026-11-03',
     fechaFin: '2026-11-11',
-    motivo: 'Asignación oficial de ASUNTOS PROPIOS',
+    motivo: 'Asignación administrativa de ASUNTOS PROPIOS',
     fechaSolicitud: '2026-09-28T09:35:00.000Z',
   },
   {
@@ -93,7 +93,7 @@ const permisosOriginales: PermisoDef[] = [
     tipoAusencia: 'VACACIONES',
     fechaInicio: '2026-11-18',
     fechaFin: '2026-12-02',
-    motivo: 'Asignación oficial de VACACIONES',
+    motivo: 'Asignación administrativa de VACACIONES',
     fechaSolicitud: '2026-09-28T09:35:30.000Z',
   },
   {
@@ -103,7 +103,7 @@ const permisosOriginales: PermisoDef[] = [
     tipoAusencia: 'PERMISO',
     fechaInicio: '2026-11-30',
     fechaFin: '2027-01-29',
-    motivo: 'Asignación oficial de PERMISO',
+    motivo: 'Asignación administrativa de PERMISO',
     fechaSolicitud: '2026-09-30T09:11:00.000Z',
   },
   {
@@ -113,7 +113,7 @@ const permisosOriginales: PermisoDef[] = [
     tipoAusencia: 'VACACIONES',
     fechaInicio: '2026-11-16',
     fechaFin: '2026-11-27',
-    motivo: 'Asignación oficial de VACACIONES',
+    motivo: 'Asignación administrativa de VACACIONES',
     fechaSolicitud: '2026-09-30T09:14:00.000Z',
   },
 ];
@@ -142,7 +142,7 @@ async function main() {
       estado: 'APROBADA',
       fechaSolicitud: item.fechaSolicitud,
       fechaResolucion: item.fechaSolicitud,
-      adminResolucionNombre: 'Administrador Oficial',
+      adminResolucionNombre: 'Administración',
     };
 
     const docRef = doc(db, 'ausencias_us', item.id);
