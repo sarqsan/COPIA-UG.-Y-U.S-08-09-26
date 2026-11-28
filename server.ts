@@ -44,6 +44,8 @@ import {
 } from './server/authMiddleware';
 import {
   createDefaultServerStore,
+  DistributedRateLimitUnavailableError,
+  EmergencyBackupError,
   PartialRestoreError,
   sanitizeAccountForClient,
   type ServerDataStore,
@@ -313,15 +315,31 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         },
       });
 
-  // I-04 + 3.G: Limitador distribuido contra enumeración abusiva en verificación de comprobantes CSV.
-  // Respaldado por transacciones atómicas en Firestore (/rate_limits_servidor) en producción/serverless
-  // para compartir el contador entre instancias sin servicios de pago externos, y por el store local en dev/test.
+  // I-04 + 3.G + 2.1: Limitador distribuido contra enumeración abusiva en verificación de comprobantes CSV.
+  // - En producción (y Preview sin ALLOW_PREVIEW_ISOLATED_MODE=true) depende EXCLUSIVAMENTE de Firestore
+  //   distribuido (/rate_limits_servidor): si el almacén no está disponible o falla una transacción,
+  //   bloquea de forma segura (fail-closed -> HTTP 503 genérico sin detalles internos, nunca llama a next()).
+  // - En entornos locales de desarrollo/pruebas (o Preview con modo aislado explícito) usa el almacén local en memoria.
   const DOCUMENTO_VERIFY_WINDOW_MS = 15 * 60 * 1000;
   const documentoVerifyMax = options.documentoVerifyMaxRequests ?? 30;
+  const sendRateLimitUnavailable = (res: Response) => {
+    res.setHeader('Retry-After', '60');
+    return res.status(503).json({
+      valido: false,
+      code: 'SERVICE_TEMPORARILY_UNAVAILABLE',
+      error: 'Servicio de verificación temporalmente no disponible. Inténtalo de nuevo más tarde.',
+    });
+  };
   const documentoVerifyLimiter = options.disableRateLimit
     ? noopLimiter
     : async (req: Request, res: Response, next: NextFunction) => {
         try {
+          if (isStrictProductionEnv() && !store.isFirebaseAdminReady) {
+            console.error(
+              '[DocumentoVerifyLimiter] Almacén distribuido Firestore no disponible en entorno estricto; solicitud bloqueada (fail-closed).'
+            );
+            return sendRateLimitUnavailable(res);
+          }
           const clientKey = getClientIp(req) || 'unknown-client';
           const rl = await store.consumeDistributedRateLimit(
             'documentos_verificar',
@@ -329,6 +347,12 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
             DOCUMENTO_VERIFY_WINDOW_MS,
             documentoVerifyMax
           );
+          if (isStrictProductionEnv() && rl.storeMode !== 'firestore-distributed') {
+            console.error(
+              '[DocumentoVerifyLimiter] Respuesta no distribuida detectada en entorno estricto; solicitud bloqueada (fail-closed).'
+            );
+            return sendRateLimitUnavailable(res);
+          }
           const resetSeconds = Math.max(1, Math.ceil((rl.resetAtMs - Date.now()) / 1000));
           res.setHeader('RateLimit-Limit', String(documentoVerifyMax));
           res.setHeader('RateLimit-Remaining', String(rl.remaining));
@@ -343,8 +367,16 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
           }
           return next();
         } catch (err: any) {
-          console.warn('[DocumentoVerifyLimiter] Error inesperado evaluando límite:', err?.message || err);
-          return next();
+          const isStoreUnavailable =
+            err instanceof DistributedRateLimitUnavailableError ||
+            err?.code === 'RATE_LIMIT_STORE_UNAVAILABLE';
+          console.error(
+            isStoreUnavailable
+              ? '[DocumentoVerifyLimiter] Fallo de almacén distribuido Firestore; bloqueando petición (fail-closed).'
+              : '[DocumentoVerifyLimiter] Error inesperado evaluando límite; bloqueando petición (fail-closed):',
+            err?.message || 'Error interno'
+          );
+          return sendRateLimitUnavailable(res);
         }
       };
 
@@ -2732,6 +2764,27 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
 
         return res.status(200).json(result);
       } catch (err: any) {
+        if (err instanceof EmergencyBackupError || err?.code === 'EMERGENCY_BACKUP_FAILED') {
+          recordSecurityAudit(
+            req,
+            {
+              event: 'RESTAURAR_RESPALDO_ABORTADO_EMERGENCIA',
+              outcome: 'DENIED',
+              detail: `Restauración detenida antes de borrar o sobrescribir datos: no se pudo almacenar o verificar el respaldo de emergencia (${err.backupEmergenciaId}).`,
+            },
+            persistAudit
+          );
+          return res.status(503).json({
+            success: false,
+            code: 'EMERGENCY_BACKUP_FAILED',
+            datosModificados: false,
+            backupId: err.backupId,
+            backupEmergenciaId: err.backupEmergenciaId,
+            tipoServicio: err.tipoServicio,
+            error:
+              'Restauración detenida antes de modificar datos: no se pudo almacenar o verificar el respaldo previo de emergencia.',
+          });
+        }
         if (err instanceof PartialRestoreError || err?.code === 'RESTORE_PARTIAL_FAILURE') {
           recordSecurityAudit(
             req,

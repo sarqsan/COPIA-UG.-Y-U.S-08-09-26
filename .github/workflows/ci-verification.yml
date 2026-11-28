@@ -56,18 +56,18 @@ jobs:
       - name: Suite de pruebas unitarias e integración (npm test)
         run: npm test
 
-      - name: Suite oficial del Emulador Firestore Rules (npm run test:rules:emulator)
+      - name: Suite oficial del Emulador Firestore (Rules + Distribuido + Respaldo >1 MiB)
         run: |
           set +e
           npm run test:rules:emulator 2>&1 | tee /tmp/emulator-test.log
           EC=${PIPESTATUS[0]}
           if [ "$EC" -ne 0 ]; then
-            FAIL_LINES=$(grep -E '\[CHECK|\[FAIL|Error:|PERMISSION_DENIED.*evaluation error' /tmp/emulator-test.log | tail -n 15 | tr '\n' ' | ' | sed 's/%/%25/g')
+            FAIL_LINES=$(grep -E '\[CHECK|\[FAIL|Error:|AssertionError|PERMISSION_DENIED.*evaluation error' /tmp/emulator-test.log | tail -n 15 | tr '\n' ' | ' | sed 's/%/%25/g')
             if [ -z "$FAIL_LINES" ]; then
               FAIL_LINES=$(tail -n 20 /tmp/emulator-test.log | tr '\n' ' | ' | sed 's/%/%25/g')
             fi
             echo "::error title=Firestore Emulator Failure::${FAIL_LINES}"
             exit "$EC"
           fi
-          SUMMARY=$(grep -E '^\[PASS\]' /tmp/emulator-test.log | tail -n 5 | tr '\n' ' ')
+          SUMMARY=$(grep -E '^\[PASS\]' /tmp/emulator-test.log | tail -n 10 | tr '\n' ' | ')
           echo "::notice title=Firestore Emulator Summary::$SUMMARY"

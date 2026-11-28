@@ -31,8 +31,12 @@ import {
   createInMemoryServerStore,
   createDefaultServerStore,
   chunkOperations,
+  DistributedRateLimitUnavailableError,
+  EmergencyBackupError,
   FIRESTORE_SAFE_BATCH_LIMIT,
   PartialRestoreError,
+  sha256Utf8,
+  splitUtf8StringByMaxBytes,
 } from '../server/firebaseAdminStore';
 import {
   ProductionConfigError,
@@ -1029,9 +1033,138 @@ async function runSuite() {
     });
 
     // -----------------------------------------------------------------------
-    // 3.G: Limitador de verificación documental distribuido entre instancias
+    // 3.E (Complementario): Respaldo de emergencia fragmentado (> umbral inline),
+    // aborto seguro sin borrado ante fallo y preservación de procedencia U.S.
+    // (imaginarias_activadas_us vs compensacion_imaginarias_us)
     // -----------------------------------------------------------------------
-    await test('3.G: documentoVerifyLimiter comparte el contador entre dos instancias Express independientes sobre el mismo store', async () => {
+    await test('3.E-fragmented: respaldo de emergencia fragmentado, aborto pre-borrado sin pérdida y procedencia U.S. preservada', async () => {
+      // Verificar splitUtf8StringByMaxBytes con caracteres UTF-8 multibyte (acentos/emojis)
+      const sampleUtf8 = 'Cuadrante U.S. Español ñáéíóú — '.repeat(400);
+      const parts = splitUtf8StringByMaxBytes(sampleUtf8, 2048);
+      assert.ok(parts.length >= 4);
+      for (const p of parts) {
+        assert.ok(Buffer.byteLength(p, 'utf8') <= 2048, 'Ningún fragmento UTF-8 debe superar maxBytes');
+      }
+      assert.equal(parts.join(''), sampleUtf8, 'Reensamblaje UTF-8 exacto sin pérdida ni corrupción');
+
+      const largeNote = 'DETALLE_OPERATIVO_US_'.repeat(300); // ~6.3 KiB por servicio
+      const servicesInit: any[] = [];
+      for (let i = 0; i < 40; i++) {
+        servicesInit.push({ id: `srv-frag-${i}`, fecha: '2026-11-12', detalle: `${largeNote}#${i}` });
+      }
+      const fragStore = createInMemoryServerStore({
+        cuadrantes: [
+          { id: 'cuad-us-frag', nombre: 'Cuadrante US Grande', tipoServicio: 'US', grupo: 'US_SEGURIDAD' },
+          { id: 'cuad-ug-keep-f', nombre: 'Cuadrante UG Intacto', tipoServicio: 'GUARDIA', grupo: 'U.G.' },
+        ],
+        serviciosPorCuadrante: {
+          'cuad-us-frag': servicesInit,
+          'cuad-ug-keep-f': [{ id: 'srv-ug-f1', fecha: '2026-11-12' }],
+        },
+        compensacionesImaginarias: [
+          { id: 'IMAG-ACT-UNIT-1', personaId: 'p-us-1', fechaImaginariaActivada: '2026-11-01', compensada: false },
+        ],
+        compensacionesImaginariasLegacy: [
+          { id: 'COMP-LEG-UNIT-1', personaId: 'p-us-1', fechaImaginariaActivada: '2025-07-01', compensada: true },
+        ],
+        backups: [
+          {
+            id: 'bkp-us-dest-frag',
+            tipoServicio: 'US',
+            datos: {
+              tipoServicio: 'US',
+              cuadrantes: [{ id: 'cuad-us-small-dest', nombre: 'Destino Pequeño', tipoServicio: 'US', grupo: 'US_SEGURIDAD' }],
+              serviciosPorCuadrante: { 'cuad-us-small-dest': [{ id: 'srv-dest-1', fecha: '2026-10-01' }] },
+              personas: [],
+              ausenciasIncidencias: [],
+              compensacionesImaginarias: [],
+              compensacionesImaginariasLegacy: [],
+              solicitudesCambio: [],
+            },
+          },
+        ],
+      });
+
+      // 1. Fallo al guardar el respaldo de emergencia -> aborta con EmergencyBackupError y 0 borrados
+      let aborted = false;
+      try {
+        await fragStore.restoreBackupByUnitAdmin(
+          'bkp-us-dest-frag',
+          { uid: 'admin-1', nombre: 'Admin' },
+          {
+            maxInlineDocBytes: 40_000,
+            chunkMaxBytes: 30_000,
+            onBeforeEmergencyBackupWrite: async () => {
+              throw new Error('Fallo simulado de almacenamiento');
+            },
+          }
+        );
+      } catch (err: any) {
+        aborted = err instanceof EmergencyBackupError && err.code === 'EMERGENCY_BACKUP_FAILED';
+      }
+      assert.equal(aborted, true, 'Debe abortar con EmergencyBackupError');
+      const stateAfterAbort = fragStore.__inspectMemoryState!();
+      assert.equal(stateAfterAbort.cuadrantes.has('cuad-us-frag'), true, 'Cuadrante U.S. no borrado');
+      assert.equal(stateAfterAbort.serviciosPorCuadrante.get('cuad-us-frag')?.size, 40, '40 servicios intactos tras aborto');
+
+      // 2. Ejecución normal con umbral 40 KiB -> crea respaldo de emergencia FRAGMENTADO + checksum verificado
+      const resFrag = await fragStore.restoreBackupByUnitAdmin(
+        'bkp-us-dest-frag',
+        { uid: 'admin-1', nombre: 'Admin' },
+        { maxInlineDocBytes: 40_000, chunkMaxBytes: 30_000 }
+      );
+      assert.equal(resFrag.backupEmergenciaAlmacenamiento, 'FRAGMENTADO');
+      assert.ok((resFrag.backupEmergenciaFragmentos || 0) >= 4, 'Debe fragmentar el respaldo en varias partes');
+      assert.ok(resFrag.backupEmergenciaChecksumSha256 && /^[a-f0-9]{64}$/.test(resFrag.backupEmergenciaChecksumSha256));
+
+      const midState = fragStore.__inspectMemoryState!();
+      const savedFrags = midState.backupFragments.get(resFrag.backupEmergenciaId);
+      assert.equal(savedFrags?.size, resFrag.backupEmergenciaFragmentos);
+      const reassembled = Array.from(savedFrags!.values())
+        .sort((a, b) => a.indice - b.indice)
+        .map((f) => f.contenido)
+        .join('');
+      assert.equal(sha256Utf8(reassembled), resFrag.backupEmergenciaChecksumSha256);
+
+      // 3. Recuperación íntegra desde el respaldo de emergencia fragmentado -> preserva procedencia exacta
+      const resRec = await fragStore.restoreBackupByUnitAdmin(
+        resFrag.backupEmergenciaId,
+        { uid: 'admin-1', nombre: 'Admin' },
+        { maxInlineDocBytes: 40_000, chunkMaxBytes: 30_000 }
+      );
+      assert.equal(resRec.serviciosRestaurados, 40);
+      assert.equal(resRec.compensacionesRestauradas, 1);
+      assert.equal(resRec.compensacionesLegacyRestauradas, 1);
+
+      const finalFragState = fragStore.__inspectMemoryState!();
+      assert.equal(finalFragState.cuadrantes.has('cuad-ug-keep-f'), true, 'U.G. intacta');
+      assert.equal(finalFragState.serviciosPorCuadrante.get('cuad-us-frag')?.size, 40, '40 servicios recuperados con IDs exactos');
+      assert.deepEqual(
+        Array.from(finalFragState.compensacionesImaginarias.keys()),
+        ['IMAG-ACT-UNIT-1'],
+        'imaginarias_activadas_us solo contiene sus registros originales'
+      );
+      assert.deepEqual(
+        Array.from(finalFragState.compensacionesImaginariasLegacy.keys()),
+        ['COMP-LEG-UNIT-1'],
+        'compensacion_imaginarias_us mantiene su registro original sin moverlo ni duplicarlo'
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // 3.G (Unitaria en memoria — complementaria a la prueba distribuida REAL
+    //      en Emulador Oficial tests/firestore.distributed.emulator.test.ts)
+    // -----------------------------------------------------------------------
+    await test('3.G [Unitaria memoria]: documentoVerifyLimiter comparte contador en memoria, falla fail-closed (503) sin fallback local y limpia expirados', async () => {
+      // 0. Comprobación estática: adminLocalRateLimitFallback ha sido eliminado por completo
+      const storeSrc = fs.readFileSync(path.join(repoRoot, 'server/firebaseAdminStore.ts'), 'utf8');
+      assert.equal(
+        storeSrc.includes('adminLocalRateLimitFallback'),
+        false,
+        'server/firebaseAdminStore.ts no debe contener ningún fallback local en memoria para el limitador distribuido'
+      );
+
+      // 1. Prueba unitaria en memoria entre 2 instancias Express sobre store compartido (desarrollo/test)
       const sharedStore = createInMemoryServerStore();
       const { app: appA } = await createServerApp({
         store: sharedStore,
@@ -1054,20 +1187,54 @@ async function runSuite() {
         const urlA = `http://127.0.0.1:${(srvA.address() as any).port}`;
         const urlB = `http://127.0.0.1:${(srvB.address() as any).port}`;
 
-        // 2 peticiones a instancia A + 2 peticiones a instancia B = 4 permitidas
         assert.equal((await httpJson(urlA, 'GET', '/api/documentos/verificar/CSV-AAAAAAAAAAAA-BBBBBBBBBBBB')).status, 404);
         assert.equal((await httpJson(urlA, 'GET', '/api/documentos/verificar/CSV-AAAAAAAAAAAA-BBBBBBBBBBBB')).status, 404);
         assert.equal((await httpJson(urlB, 'GET', '/api/documentos/verificar/CSV-AAAAAAAAAAAA-BBBBBBBBBBBB')).status, 404);
         assert.equal((await httpJson(urlB, 'GET', '/api/documentos/verificar/CSV-AAAAAAAAAAAA-BBBBBBBBBBBB')).status, 404);
 
-        // 5ª petición a instancia A debe recibir 429 porque el contador es compartido
         const r5 = await httpJson(urlA, 'GET', '/api/documentos/verificar/CSV-AAAAAAAAAAAA-BBBBBBBBBBBB');
-        assert.equal(r5.status, 429, 'La 5ª petición cross-instancia debe quedar limitada con 429');
+        assert.equal(r5.status, 429, 'La 5ª petición debe quedar limitada con 429');
         assert.equal(r5.json.code, 'RATE_LIMITED');
       } finally {
         await new Promise<void>((resolve) => srvA.close(() => resolve()));
         await new Promise<void>((resolve) => srvB.close(() => resolve()));
       }
+
+      // 2. Fail-closed HTTP 503 cuando consumeDistributedRateLimit falla (nunca llama a next() ni filtra detalles)
+      const brokenStore = createInMemoryServerStore();
+      brokenStore.consumeDistributedRateLimit = async () => {
+        throw new DistributedRateLimitUnavailableError('Detalle interno secreto que NO debe salir al cliente');
+      };
+      const { app: failApp } = await createServerApp({
+        store: brokenStore,
+        enableFrontendMiddleware: false,
+        documentoVerifyMaxRequests: 10,
+      });
+      const failSrv = await new Promise<http.Server>((resolve) => {
+        const s = failApp.listen(0, '127.0.0.1', () => resolve(s));
+      });
+      try {
+        const failUrl = `http://127.0.0.1:${(failSrv.address() as any).port}`;
+        const rFail = await httpJson(failUrl, 'GET', '/api/documentos/verificar/CSV-AAAAAAAAAAAA-BBBBBBBBBBBB');
+        assert.equal(rFail.status, 503, 'Ante fallo del limitador distribuido debe responder 503 (fail-closed)');
+        assert.equal(rFail.json.code, 'SERVICE_TEMPORARILY_UNAVAILABLE');
+        assert.equal(rFail.json.valido, false);
+        assert.equal(rFail.text.includes('Detalle interno secreto'), false, '503 no debe filtrar detalles internos');
+      } finally {
+        await new Promise<void>((resolve) => failSrv.close(() => resolve()));
+      }
+
+      // 3. Limpieza segura cleanupExpiredRateLimits en memoria (expirados > gracia borrados, vigentes conservados)
+      const cleanupStore = createInMemoryServerStore();
+      await cleanupStore.consumeDistributedRateLimit('documentos_verificar', 'ip-exp-1', 1000, 10);
+      await cleanupStore.consumeDistributedRateLimit('documentos_verificar', 'ip-active-1', 600_000, 10);
+      const cleanRes = await cleanupStore.cleanupExpiredRateLimits({
+        nowMs: Date.now() + 120_000,
+        graceMs: 60_000,
+        maxDelete: 25,
+      });
+      assert.equal(cleanRes.deleted, 1, 'Debe eliminar solo el contador expirado > margen de gracia');
+      assert.equal(cleanRes.skippedActive, 1, 'Debe conservar intacto el contador activo');
     });
 
     // -----------------------------------------------------------------------

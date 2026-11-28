@@ -136,29 +136,33 @@ export const capturarSnapshotOperativo = async (
   // 3. Ausencias, Compensaciones de Imaginarias e Incidencias según unidad
   let ausenciasIncidencias: any[] = [];
   let compensacionesImaginarias: any[] = [];
+  let compensacionesImaginariasLegacy: any[] = [];
   try {
     if (tipoServicio === 'US') {
       const colUS = collection(db, 'ausencias_us');
       const snapUS = await getDocs(colUS);
       snapUS.forEach((d) => {
-        ausenciasIncidencias.push(d.data());
+        ausenciasIncidencias.push({ ...d.data(), id: String(d.data()?.id || d.id) });
       });
-      // Compensaciones / imaginarias activadas U.S. (C-04 / I-06: ambas colecciones sin pérdida)
-      const compSeenIds = new Set<string>();
-      for (const colName of ['imaginarias_activadas_us', 'compensacion_imaginarias_us']) {
-        try {
-          const snapComp = await getDocs(collection(db, colName));
-          snapComp.forEach((d) => {
-            const item = d.data();
-            const itemId = String(item?.id || d.id);
-            if (!compSeenIds.has(itemId)) {
-              compSeenIds.add(itemId);
-              compensacionesImaginarias.push({ ...item, id: itemId });
-            }
-          });
-        } catch {
-          // Continuar si la colección complementaria está vacía o inaccesible
-        }
+      // Compensaciones / imaginarias activadas U.S. manteniendo separada la colección de procedencia
+      // (imaginarias_activadas_us vs compensacion_imaginarias_us) para no mezclar ni duplicar al restaurar
+      try {
+        const snapActivas = await getDocs(collection(db, 'imaginarias_activadas_us'));
+        snapActivas.forEach((d) => {
+          const item = d.data();
+          compensacionesImaginarias.push({ ...item, id: d.id });
+        });
+      } catch {
+        // Continuar si la colección está vacía o no disponible
+      }
+      try {
+        const snapLegacy = await getDocs(collection(db, 'compensacion_imaginarias_us'));
+        snapLegacy.forEach((d) => {
+          const item = d.data();
+          compensacionesImaginariasLegacy.push({ ...item, id: d.id });
+        });
+      } catch {
+        // Continuar si la colección histórica complementaria está vacía
       }
     } else {
       const colInc = collection(db, 'incidencias_ausencia');
@@ -210,6 +214,9 @@ export const capturarSnapshotOperativo = async (
     personas: personasUnidad,
     ausenciasIncidencias,
     compensacionesImaginarias: tipoServicio === 'US' ? compensacionesImaginarias : undefined,
+    ...(tipoServicio === 'US' && compensacionesImaginariasLegacy.length > 0
+      ? { compensacionesImaginariasLegacy }
+      : {}),
     solicitudesCambio,
     patrullas: tipoServicio === 'GUARDIA' ? patrullas : undefined,
   };
@@ -780,6 +787,11 @@ export const restaurarRespaldo = async (
       for (const [compId, comp] of compMap.entries()) {
         const compRef = doc(db, 'imaginarias_activadas_us', compId);
         await setDoc(compRef, sanitizeForFirestore(comp), { merge: true });
+      }
+      for (const compLeg of datosARestaurar.compensacionesImaginariasLegacy || []) {
+        if (!compLeg?.id) continue;
+        const compLegRef = doc(db, 'compensacion_imaginarias_us', String(compLeg.id));
+        await setDoc(compLegRef, sanitizeForFirestore(compLeg), { merge: true });
       }
     } else if (tipoServicio === 'GUARDIA' && datosARestaurar.ausenciasIncidencias) {
       for (const inc of datosARestaurar.ausenciasIncidencias) {

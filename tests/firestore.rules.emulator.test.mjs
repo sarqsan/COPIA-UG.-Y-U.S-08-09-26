@@ -135,6 +135,13 @@ async function main() {
       await db.doc('matriculas_autorizadas/mat-1').set({ id: 'mat-1', matricula: '1234BBB' });
       await db.doc('patrullas/pat-1').set({ id: 'pat-1', personaId: 'pers-ug-1' });
       await db.doc('respaldos_sistema/bkp-1').set({ id: 'bkp-1', tipoServicio: 'GUARDIA', tipo: 'MANUAL' });
+      await db.doc('respaldos_sistema/bkp-1/fragmentos/chunk-0000').set({
+        backupId: 'bkp-1',
+        indice: 0,
+        totalFragmentos: 1,
+        contenido: '{}',
+        bytes: 2,
+      });
       await db.doc('notificaciones/notif-us-all').set({
         id: 'notif-us-all',
         esParaTodos: true,
@@ -360,6 +367,19 @@ async function main() {
     );
     await assertFails(adminDb.doc('respaldos_sistema/bkp-1').delete());
     await assertFails(ugDb.doc('respaldos_sistema/bkp-1').get());
+    // Subcolección de fragmentos de respaldos >1 MiB: solo lectura ADMIN, cero escrituras desde cliente (solo Admin SDK)
+    await assertSucceeds(adminDb.doc('respaldos_sistema/bkp-1/fragmentos/chunk-0000').get());
+    await assertFails(
+      adminDb.doc('respaldos_sistema/bkp-1/fragmentos/chunk-0001').set({
+        backupId: 'bkp-1',
+        indice: 1,
+        contenido: '{}',
+      })
+    );
+    await assertFails(adminDb.doc('respaldos_sistema/bkp-1/fragmentos/chunk-0000').delete());
+    await assertFails(ugDb.doc('respaldos_sistema/bkp-1/fragmentos/chunk-0000').get());
+    await assertFails(usDb.doc('respaldos_sistema/bkp-1/fragmentos/chunk-0000').get());
+    await assertFails(anonDb.doc('respaldos_sistema/bkp-1/fragmentos/chunk-0000').get());
 
     // 6. NC-03/04: notificaciones operativas activas, rechazo notificaciones heredadas de chat, incidencias y fcmTokens
     section('6. notificaciones-chat-fcm');

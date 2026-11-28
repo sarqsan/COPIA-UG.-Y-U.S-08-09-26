@@ -601,6 +601,12 @@ service cloud.firestore {
         'tipo' in request.resource.data &&
         request.resource.data.tipo in ['AUTOMATICO', 'MANUAL', 'EMERGENCIA_PRE_RESTAURACION'];
       allow update, delete: if false;
+
+      // Fragmentos inmutables de respaldos de emergencia > límite de documento (escritura exclusiva Admin SDK)
+      match /fragmentos/{chunkId} {
+        allow read: if isAdmin();
+        allow write: if false;
+      }
     }
 
     // ------------------------------------------------------------------------

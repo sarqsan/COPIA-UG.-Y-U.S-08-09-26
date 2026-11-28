@@ -29,6 +29,58 @@ export function chunkOperations<T>(items: T[], chunkSize: number = FIRESTORE_SAF
   return chunks;
 }
 
+export const FIRESTORE_DOCUMENT_MAX_BYTES = 1048576; // 1 MiB límite oficial de Firestore por documento
+export const FIRESTORE_SAFE_BACKUP_DOC_BYTES = 700 * 1024; // 700 KiB: margen >300 KiB frente al overhead de Firestore
+export const FIRESTORE_BACKUP_CHUNK_BYTES = 600 * 1024; // 600 KiB por fragmento UTF-8 en subcolección /fragmentos
+export const RATE_LIMIT_CLEANUP_GRACE_MS = 60 * 1000; // 60 s tras expiración antes de ser elegible para borrado
+export const RATE_LIMIT_CLEANUP_INTERVAL_MS = 10 * 60 * 1000; // Barrido oportunista acotado cada 10 min por instancia
+export const RATE_LIMIT_CLEANUP_BATCH_LIMIT = 25;
+
+export function sha256Utf8(text: string): string {
+  return crypto.createHash('sha256').update(text, 'utf8').digest('hex');
+}
+
+export function measureApproxJsonBytes(value: unknown): number {
+  return Buffer.byteLength(JSON.stringify(value), 'utf8');
+}
+
+/**
+ * Divide una cadena UTF-8 en fragmentos cuya longitud en bytes no supera `maxBytes`,
+ * sin cortar nunca caracteres multibyte ni pares sustitutos UTF-16.
+ */
+export function splitUtf8StringByMaxBytes(text: string, maxBytes: number): string[] {
+  const safeMax = Math.max(1024, Math.floor(maxBytes));
+  if (Buffer.byteLength(text, 'utf8') <= safeMax) {
+    return [text];
+  }
+  const chunks: string[] = [];
+  let start = 0;
+  while (start < text.length) {
+    // Estimación inicial conservadora (1 char >= 1 byte; nunca cortamos pares sustitutos)
+    let end = Math.min(text.length, start + safeMax);
+    if (end < text.length) {
+      const code = text.charCodeAt(end - 1);
+      if (code >= 0xd800 && code <= 0xdbff) {
+        end -= 1;
+      }
+    }
+    while (end > start && Buffer.byteLength(text.slice(start, end), 'utf8') > safeMax) {
+      const excess = Buffer.byteLength(text.slice(start, end), 'utf8') - safeMax;
+      const stepBack = Math.max(1, Math.ceil(excess / 3));
+      end = Math.max(start + 1, end - stepBack);
+      if (end > start && end < text.length) {
+        const code = text.charCodeAt(end - 1);
+        if (code >= 0xd800 && code <= 0xdbff) {
+          end -= 1;
+        }
+      }
+    }
+    chunks.push(text.slice(start, end));
+    start = end;
+  }
+  return chunks;
+}
+
 export function isCompensacionImaginariaRecord(item: any): boolean {
   if (!item || typeof item !== 'object') return false;
   return Boolean(
@@ -70,6 +122,47 @@ export interface AdminBackupRestoreOptions {
     opsCount: number;
     backupEmergenciaId: string;
   }) => void | Promise<void>;
+  /** Gancho opcional exclusivo para pruebas aisladas de fallo antes de persistir el respaldo de emergencia */
+  onBeforeEmergencyBackupWrite?: (ctx: {
+    backupEmergenciaId: string;
+    totalBytes: number;
+    fragmented: boolean;
+  }) => void | Promise<void>;
+  /** Límite máximo de bytes para almacenamiento inline (por defecto FIRESTORE_SAFE_BACKUP_DOC_BYTES) */
+  maxInlineDocBytes?: number;
+  /** Tamaño máximo por fragmento en bytes (por defecto FIRESTORE_BACKUP_CHUNK_BYTES) */
+  chunkMaxBytes?: number;
+}
+
+export class DistributedRateLimitUnavailableError extends Error {
+  readonly code = 'RATE_LIMIT_STORE_UNAVAILABLE' as const;
+
+  constructor(message = 'Almacén distribuido de control de tasa temporalmente no disponible.') {
+    super(message);
+    this.name = 'DistributedRateLimitUnavailableError';
+  }
+}
+
+export class EmergencyBackupError extends Error {
+  readonly code = 'EMERGENCY_BACKUP_FAILED' as const;
+  readonly backupId: string;
+  readonly backupEmergenciaId: string;
+  readonly tipoServicio: 'GUARDIA' | 'US';
+
+  constructor(params: {
+    backupId: string;
+    backupEmergenciaId: string;
+    tipoServicio: 'GUARDIA' | 'US';
+    causeMessage: string;
+  }) {
+    super(
+      `Restauración detenida antes de modificar datos: no se pudo almacenar o verificar la integridad del respaldo de emergencia "${params.backupEmergenciaId}" para "${params.backupId}" (${params.causeMessage}).`
+    );
+    this.name = 'EmergencyBackupError';
+    this.backupId = params.backupId;
+    this.backupEmergenciaId = params.backupEmergenciaId;
+    this.tipoServicio = params.tipoServicio;
+  }
 }
 
 export class PartialRestoreError extends Error {
@@ -123,6 +216,10 @@ export interface AdminBackupRestoreResult {
   success: boolean;
   backupId: string;
   backupEmergenciaId: string;
+  backupEmergenciaAlmacenamiento?: 'INLINE' | 'FRAGMENTADO';
+  backupEmergenciaFragmentos?: number;
+  backupEmergenciaBytes?: number;
+  backupEmergenciaChecksumSha256?: string;
   tipoServicio: 'GUARDIA' | 'US';
   cuadrantesRestaurados: number;
   serviciosRestaurados: number;
@@ -131,6 +228,7 @@ export interface AdminBackupRestoreResult {
   patrullasRestauradas?: number;
   solicitudesCambioRestauradas?: number;
   compensacionesRestauradas: number;
+  compensacionesLegacyRestauradas?: number;
   batchesEjecutados?: number;
   maxOpsPorBatch?: number;
   coleccionesResguardadasEmergencia?: string[];
@@ -231,6 +329,12 @@ export interface ServerDataStore extends PersistentLockoutStore {
     windowMs: number,
     maxRequests: number
   ): Promise<DistributedRateLimitResult>;
+  // 2.3: Limpieza segura y atómica de contadores expirados en rate_limits_servidor
+  cleanupExpiredRateLimits(options?: {
+    nowMs?: number;
+    graceMs?: number;
+    maxDelete?: number;
+  }): Promise<{ scanned: number; deleted: number; skippedActive: number }>;
   // C-02: Lectura proyectada de ausencias U.S. para validación de cupo sin exponer datos de terceros
   listAusenciasUSOperativas(): Promise<Record<string, any>[]>;
   // I-03: Resolución autoritativa de tokens FCM en servidor (impide tokens arbitrarios desde cliente)
@@ -363,6 +467,7 @@ export function createInMemoryServerStore(initial?: {
   cuadrantes?: Record<string, any>[];
   serviciosPorCuadrante?: Record<string, any[]>;
   compensacionesImaginarias?: Record<string, any>[];
+  compensacionesImaginariasLegacy?: Record<string, any>[];
   fcmTokensByUid?: Record<string, string[]>;
   sendFcmMock?: ServerDataStore['sendFcmV1Multicast'];
 }): ServerDataStore & {
@@ -370,11 +475,13 @@ export function createInMemoryServerStore(initial?: {
     cuadrantes: Map<string, Record<string, any>>;
     serviciosPorCuadrante: Map<string, Map<string, Record<string, any>>>;
     compensacionesImaginarias: Map<string, Record<string, any>>;
+    compensacionesImaginariasLegacy: Map<string, Record<string, any>>;
     ausenciasUS: Map<string, Record<string, any>>;
     incidenciasAusencia: Map<string, Record<string, any>>;
     patrullas: Map<string, Record<string, any>>;
     solicitudesCambio: Map<string, Record<string, any>>;
     backups: Map<string, Record<string, any>>;
+    backupFragments: Map<string, Map<string, Record<string, any>>>;
     personas: Map<string, Persona>;
     auditLogs: SecurityAuditEntry[];
   };
@@ -394,6 +501,7 @@ export function createInMemoryServerStore(initial?: {
   const aliasDecisions = new Map<string, AliasDecisionRecord>();
   const aliasDecisionHistory = new Map<string, AliasDecisionRecord[]>();
   const backups = new Map<string, Record<string, any>>();
+  const backupFragments = new Map<string, Map<string, Record<string, any>>>();
   const matriculas = new Map<string, Record<string, any>>();
   const ausenciasUS = new Map<string, Record<string, any>>();
   const incidenciasAusencia = new Map<string, Record<string, any>>();
@@ -402,6 +510,7 @@ export function createInMemoryServerStore(initial?: {
   const cuadrantes = new Map<string, Record<string, any>>();
   const serviciosPorCuadrante = new Map<string, Map<string, Record<string, any>>>();
   const compensacionesImaginarias = new Map<string, Record<string, any>>();
+  const compensacionesImaginariasLegacy = new Map<string, Record<string, any>>();
   const fcmTokensByUid = new Map<string, string[]>();
   const auditLogs: SecurityAuditEntry[] = [];
 
@@ -447,6 +556,9 @@ export function createInMemoryServerStore(initial?: {
   });
   (initial?.compensacionesImaginarias || []).forEach((comp) => {
     if (comp?.id) compensacionesImaginarias.set(String(comp.id), { ...comp });
+  });
+  (initial?.compensacionesImaginariasLegacy || []).forEach((comp) => {
+    if (comp?.id) compensacionesImaginariasLegacy.set(String(comp.id), { ...comp });
   });
   Object.entries(initial?.fcmTokensByUid || {}).forEach(([uid, toks]) => {
     fcmTokensByUid.set(uid, Array.from(new Set((toks || []).filter(Boolean))));
@@ -772,7 +884,34 @@ export function createInMemoryServerStore(initial?: {
         throw new Error(`Respaldo no encontrado: ${backupId}`);
       }
       const tipoServicio: 'GUARDIA' | 'US' = respaldo.tipoServicio === 'US' ? 'US' : 'GUARDIA';
-      const datos = respaldo.datos || {};
+
+      // Reconstruir payload si el respaldo origen estaba almacenado de forma fragmentada
+      let datos: Record<string, any> = respaldo.datos || {};
+      if (respaldo.almacenamiento === 'FRAGMENTADO') {
+        const fragMap = backupFragments.get(backupId);
+        const totalEsperado = Number(respaldo.totalFragmentos || 0);
+        if (!fragMap || totalEsperado <= 0 || fragMap.size !== totalEsperado) {
+          throw new Error(
+            `Respaldo fragmentado incompleto o corrupto (${backupId}): esperados ${totalEsperado} fragmentos, encontrados ${fragMap?.size || 0}.`
+          );
+        }
+        const ordered = Array.from(fragMap.values()).sort((a, b) => Number(a.indice) - Number(b.indice));
+        let assembled = '';
+        for (let i = 0; i < totalEsperado; i++) {
+          const frag = ordered[i];
+          if (!frag || Number(frag.indice) !== i || typeof frag.contenido !== 'string') {
+            throw new Error(`Fragmento #${i} inválido o ausente en respaldo "${backupId}".`);
+          }
+          if (frag.chunkSha256 && sha256Utf8(frag.contenido) !== frag.chunkSha256) {
+            throw new Error(`Checksum de fragmento #${i} inválido en respaldo "${backupId}".`);
+          }
+          assembled += frag.contenido;
+        }
+        if (respaldo.checksumSha256 && sha256Utf8(assembled) !== respaldo.checksumSha256) {
+          throw new Error(`Checksum global SHA-256 inválido al reensamblar respaldo "${backupId}".`);
+        }
+        datos = JSON.parse(assembled);
+      }
 
       // 1. 3.E: Resguardo automático previo COMPLETO de TODAS las colecciones modificables de la unidad
       //    antes de comenzar cualquier borrado o sobrescritura.
@@ -807,6 +946,10 @@ export function createInMemoryServerStore(initial?: {
         tipoServicio === 'US'
           ? Array.from(compensacionesImaginarias.values()).map((comp) => ({ ...comp }))
           : [];
+      const compensacionesLegacyPrevias =
+        tipoServicio === 'US'
+          ? Array.from(compensacionesImaginariasLegacy.values()).map((comp) => ({ ...comp }))
+          : [];
 
       const coleccionesIncluidas =
         tipoServicio === 'US'
@@ -816,6 +959,7 @@ export function createInMemoryServerStore(initial?: {
               'personas',
               'ausencias_us',
               'imaginarias_activadas_us',
+              ...(compensacionesLegacyPrevias.length > 0 ? ['compensacion_imaginarias_us'] : []),
               'solicitudes_cambio',
             ]
           : [
@@ -835,6 +979,9 @@ export function createInMemoryServerStore(initial?: {
               personas: personasPrevias.length,
               ausencias_us: ausenciasIncidenciasPrevias.length,
               imaginarias_activadas_us: compensacionesPrevias.length,
+              ...(compensacionesLegacyPrevias.length > 0
+                ? { compensacion_imaginarias_us: compensacionesLegacyPrevias.length }
+                : {}),
               solicitudes_cambio: solicitudesPrevias.length,
             }
           : {
@@ -854,6 +1001,9 @@ export function createInMemoryServerStore(initial?: {
               personas: personasPrevias.map((p) => String(p.id)),
               ausencias_us: ausenciasIncidenciasPrevias.map((a) => String(a.id)),
               imaginarias_activadas_us: compensacionesPrevias.map((c) => String(c.id)),
+              ...(compensacionesLegacyPrevias.length > 0
+                ? { compensacion_imaginarias_us: compensacionesLegacyPrevias.map((c) => String(c.id)) }
+                : {}),
               solicitudes_cambio: solicitudesPrevias.map((s) => String(s.id)),
             }
           : {
@@ -865,8 +1015,31 @@ export function createInMemoryServerStore(initial?: {
               solicitudes_cambio: solicitudesPrevias.map((s) => String(s.id)),
             };
 
+      const emergencyDatos: Record<string, any> = {
+        tipoServicio,
+        cuadrantes: cuadrantesPrevios,
+        serviciosPorCuadrante: serviciosPrevios,
+        personas: personasPrevias,
+        ausenciasIncidencias: ausenciasIncidenciasPrevias,
+        solicitudesCambio: solicitudesPrevias,
+        ...(tipoServicio === 'US'
+          ? {
+              compensacionesImaginarias: compensacionesPrevias,
+              ...(compensacionesLegacyPrevias.length > 0
+                ? { compensacionesImaginariasLegacy: compensacionesLegacyPrevias }
+                : {}),
+            }
+          : { patrullas: patrullasPrevias }),
+      };
+
       const backupEmergenciaId = `backup-emerg-${tipoServicio.toLowerCase()}-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`;
-      backups.set(backupEmergenciaId, {
+      const snapshotJson = JSON.stringify(emergencyDatos);
+      const backupEmergenciaChecksumSha256 = sha256Utf8(snapshotJson);
+      const backupEmergenciaBytes = Buffer.byteLength(snapshotJson, 'utf8');
+      const maxInlineDocBytes = options?.maxInlineDocBytes ?? FIRESTORE_SAFE_BACKUP_DOC_BYTES;
+      const chunkMaxBytes = options?.chunkMaxBytes ?? FIRESTORE_BACKUP_CHUNK_BYTES;
+
+      const baseEmergencyMeta = {
         id: backupEmergenciaId,
         tipoServicio,
         tipo: 'EMERGENCIA_PRE_RESTAURACION',
@@ -878,18 +1051,80 @@ export function createInMemoryServerStore(initial?: {
         coleccionesIncluidas,
         conteoPorColeccion,
         documentosIdsPorColeccion,
-        datos: {
+        checksumSha256: backupEmergenciaChecksumSha256,
+        tamanoAproxBytes: backupEmergenciaBytes,
+      };
+      const inlineBytes = measureApproxJsonBytes({ ...baseEmergencyMeta, datos: emergencyDatos });
+      const needsFragmentation = inlineBytes > maxInlineDocBytes;
+      let backupEmergenciaFragmentos = 0;
+
+      try {
+        if (options?.onBeforeEmergencyBackupWrite) {
+          await options.onBeforeEmergencyBackupWrite({
+            backupEmergenciaId,
+            totalBytes: inlineBytes,
+            fragmented: needsFragmentation,
+          });
+        }
+        if (!needsFragmentation) {
+          backups.set(backupEmergenciaId, {
+            ...baseEmergencyMeta,
+            almacenamiento: 'INLINE',
+            totalFragmentos: 0,
+            datos: emergencyDatos,
+          });
+        } else {
+          const parts = splitUtf8StringByMaxBytes(snapshotJson, chunkMaxBytes);
+          const fragMap = new Map<string, Record<string, any>>();
+          parts.forEach((contenido, indice) => {
+            const chunkId = `chunk-${String(indice).padStart(4, '0')}`;
+            fragMap.set(chunkId, {
+              backupId: backupEmergenciaId,
+              indice,
+              totalFragmentos: parts.length,
+              contenido,
+              bytes: Buffer.byteLength(contenido, 'utf8'),
+              chunkSha256: sha256Utf8(contenido),
+            });
+          });
+          backupFragments.set(backupEmergenciaId, fragMap);
+          backupEmergenciaFragmentos = parts.length;
+          backups.set(backupEmergenciaId, {
+            ...baseEmergencyMeta,
+            almacenamiento: 'FRAGMENTADO',
+            totalFragmentos: parts.length,
+            datos: null,
+          });
+        }
+
+        // Verificación obligatoria de integridad del respaldo de emergencia ANTES de borrar nada
+        const persisted = backups.get(backupEmergenciaId);
+        if (!persisted || persisted.estado !== 'COMPLETADO_PRE_RESTAURACION') {
+          throw new Error('Documento manifiesto de emergencia no confirmado.');
+        }
+        if (persisted.almacenamiento === 'FRAGMENTADO') {
+          const savedFrags = backupFragments.get(backupEmergenciaId);
+          if (!savedFrags || savedFrags.size !== persisted.totalFragmentos) {
+            throw new Error('Conteo de fragmentos persistidos no coincide.');
+          }
+          const verifyJson = Array.from(savedFrags.values())
+            .sort((a, b) => Number(a.indice) - Number(b.indice))
+            .map((f) => String(f.contenido))
+            .join('');
+          if (sha256Utf8(verifyJson) !== backupEmergenciaChecksumSha256) {
+            throw new Error('Checksum de verificación pre-borrado no coincide.');
+          }
+        } else if (sha256Utf8(JSON.stringify(persisted.datos)) !== backupEmergenciaChecksumSha256) {
+          throw new Error('Checksum de verificación inline pre-borrado no coincide.');
+        }
+      } catch (err: any) {
+        throw new EmergencyBackupError({
+          backupId,
+          backupEmergenciaId,
           tipoServicio,
-          cuadrantes: cuadrantesPrevios,
-          serviciosPorCuadrante: serviciosPrevios,
-          personas: personasPrevias,
-          ausenciasIncidencias: ausenciasIncidenciasPrevias,
-          solicitudesCambio: solicitudesPrevias,
-          ...(tipoServicio === 'US'
-            ? { compensacionesImaginarias: compensacionesPrevias }
-            : { patrullas: patrullasPrevias }),
-        },
-      });
+          causeMessage: err?.message || String(err),
+        });
+      }
 
       let batchesEjecutados = 0;
       let maxOpsPorBatch = 0;
@@ -962,6 +1197,7 @@ export function createInMemoryServerStore(initial?: {
       let patrullasRestauradas = 0;
       let solicitudesCambioRestauradas = 0;
       let compensacionesRestauradas = 0;
+      let compensacionesLegacyRestauradas = 0;
 
       const writeOps: Array<() => void> = [];
       for (const c of datos.cuadrantes || []) {
@@ -1035,6 +1271,16 @@ export function createInMemoryServerStore(initial?: {
           });
           compensacionesRestauradas++;
         }
+        // Procedencia preservada: documentos originados en compensacion_imaginarias_us vuelven SOLO a esa colección
+        for (const compLeg of datos.compensacionesImaginariasLegacy || []) {
+          if (!compLeg?.id) continue;
+          const compLegId = String(compLeg.id);
+          writeOps.push(() => {
+            const prev = compensacionesImaginariasLegacy.get(compLegId);
+            compensacionesImaginariasLegacy.set(compLegId, { ...(prev || {}), ...compLeg });
+          });
+          compensacionesLegacyRestauradas++;
+        }
       } else if (tipoServicio === 'GUARDIA' && Array.isArray(datos.ausenciasIncidencias)) {
         for (const inc of datos.ausenciasIncidencias) {
           if (!inc?.id) continue;
@@ -1102,6 +1348,10 @@ export function createInMemoryServerStore(initial?: {
         success: true,
         backupId,
         backupEmergenciaId,
+        backupEmergenciaAlmacenamiento: needsFragmentation ? 'FRAGMENTADO' : 'INLINE',
+        backupEmergenciaFragmentos,
+        backupEmergenciaBytes,
+        backupEmergenciaChecksumSha256,
         tipoServicio,
         cuadrantesRestaurados,
         serviciosRestaurados,
@@ -1110,11 +1360,12 @@ export function createInMemoryServerStore(initial?: {
         patrullasRestauradas,
         solicitudesCambioRestauradas,
         compensacionesRestauradas,
+        compensacionesLegacyRestauradas,
         batchesEjecutados,
         maxOpsPorBatch,
         coleccionesResguardadasEmergencia: coleccionesIncluidas,
         conteoResguardoEmergencia: conteoPorColeccion,
-        mensaje: `Restauración administrativa completada para ${tipoServicio === 'US' ? 'U.S.' : 'U.G.'} (${cuadrantesRestaurados} cuadrantes, ${serviciosRestaurados} servicios, ${personasRestauradas} personas, ${ausenciasIncidenciasRestauradas} ausencias/incidencias, ${compensacionesRestauradas} compensaciones). Resguardo previo completo: ${backupEmergenciaId}.`,
+        mensaje: `Restauración administrativa completada para ${tipoServicio === 'US' ? 'U.S.' : 'U.G.'} (${cuadrantesRestaurados} cuadrantes, ${serviciosRestaurados} servicios, ${personasRestauradas} personas, ${ausenciasIncidenciasRestauradas} ausencias/incidencias, ${compensacionesRestauradas} compensaciones activas, ${compensacionesLegacyRestauradas} compensaciones legacy). Resguardo previo completo (${needsFragmentation ? `fragmentado en ${backupEmergenciaFragmentos} partes` : 'inline'}): ${backupEmergenciaId}.`,
       };
     },
 
@@ -1142,6 +1393,27 @@ export function createInMemoryServerStore(initial?: {
         resetAtMs: current.resetAtMs,
         storeMode: 'memory-local',
       };
+    },
+
+    async cleanupExpiredRateLimits(options) {
+      const nowMs = options?.nowMs ?? Date.now();
+      const graceMs = Math.max(0, options?.graceMs ?? RATE_LIMIT_CLEANUP_GRACE_MS);
+      const maxDelete = Math.max(1, options?.maxDelete ?? RATE_LIMIT_CLEANUP_BATCH_LIMIT);
+      const cutoffMs = nowMs - graceMs;
+      let scanned = 0;
+      let deleted = 0;
+      let skippedActive = 0;
+      for (const [k, v] of Array.from(rateLimits.entries())) {
+        scanned++;
+        if (v.resetAtMs <= cutoffMs) {
+          rateLimits.delete(k);
+          deleted++;
+          if (deleted >= maxDelete) break;
+        } else {
+          skippedActive++;
+        }
+      }
+      return { scanned, deleted, skippedActive };
     },
 
     async listAusenciasUSOperativas() {
@@ -1233,11 +1505,13 @@ export function createInMemoryServerStore(initial?: {
         cuadrantes,
         serviciosPorCuadrante,
         compensacionesImaginarias,
+        compensacionesImaginariasLegacy,
         ausenciasUS,
         incidenciasAusencia,
         patrullas,
         solicitudesCambio,
         backups,
+        backupFragments,
         personas,
         auditLogs,
       };
@@ -1245,64 +1519,188 @@ export function createInMemoryServerStore(initial?: {
   };
 }
 
+export interface FirebaseAdminStoreOptions {
+  /** Nombre único de la app Firebase Admin (permite múltiples clientes independientes en pruebas de emulador) */
+  appName?: string;
+  /** Project ID explícito para entorno de emulador */
+  projectId?: string;
+  /** Database ID explícito ('(default)' para emulador) */
+  databaseId?: string;
+  /** Conecta explícitamente al Emulador Oficial de Firestore (requiere FIRESTORE_EMULATOR_HOST) */
+  useEmulator?: boolean;
+  /** Gancho exclusivo para pruebas que simulan fallo de transacción del limitador distribuido */
+  onBeforeRateLimitTransaction?: (ctx: { bucket: string; docId: string }) => void | Promise<void>;
+}
+
 /**
- * Inicializa el store conectado a Firebase Admin SDK si existen credenciales de cuenta de servicio;
- * en producción (NODE_ENV=production o VERCEL_ENV=production) bloquea cualquier fallback silencioso
- * a memoria (I-02).
+ * Crea una instancia independiente del almacén del servidor respaldado por Firebase Admin SDK.
+ * - En producción/serverless usa credenciales de cuenta de servicio o ADC.
+ * - En pruebas con Emulador Oficial (`useEmulator: true` y `FIRESTORE_EMULATOR_HOST`), permite crear
+ *   múltiples instancias independientes (`appName` distinto) conectadas a la misma base del emulador.
+ * - En `consumeDistributedRateLimit` NO existe fallback local a memoria: ante error de Firestore
+ *   lanza `DistributedRateLimitUnavailableError` (fail-closed).
  */
-export async function createDefaultServerStore(): Promise<ServerDataStore> {
+export async function createFirebaseAdminServerStore(
+  adminOptions?: FirebaseAdminStoreOptions
+): Promise<ServerDataStore> {
   const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
   const hasAdc = Boolean(process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim());
+  const useEmulator = Boolean(adminOptions?.useEmulator && process.env.FIRESTORE_EMULATOR_HOST?.trim());
 
-  if (!serviceAccountJson && !hasAdc) {
-    if (isStrictProductionEnv()) {
-      throw new ProductionConfigError(
-        'Configuración de producción incompleta: faltan credenciales de Firebase Admin SDK (FIREBASE_SERVICE_ACCOUNT_JSON o GOOGLE_APPLICATION_CREDENTIALS). No se permite operar con almacén en memoria en producción.',
-        ['FIREBASE_SERVICE_ACCOUNT_JSON|GOOGLE_APPLICATION_CREDENTIALS']
-      );
-    }
-    console.warn(
-      '[FirebaseAdminStore] Credenciales Firebase Admin no configuradas (FIREBASE_SERVICE_ACCOUNT_JSON / GOOGLE_APPLICATION_CREDENTIALS). Operando en modo local de desarrollo/pruebas sin Admin SDK.'
+  if (!useEmulator && !serviceAccountJson && !hasAdc) {
+    throw new ProductionConfigError(
+      'Configuración de producción incompleta: faltan credenciales de Firebase Admin SDK (FIREBASE_SERVICE_ACCOUNT_JSON o GOOGLE_APPLICATION_CREDENTIALS). No se permite operar con almacén en memoria en producción.',
+      ['FIREBASE_SERVICE_ACCOUNT_JSON|GOOGLE_APPLICATION_CREDENTIALS']
     );
-    return createInMemoryServerStore();
   }
 
-  try {
-    const adminMod = await import('firebase-admin/app');
-    const firestoreMod = await import('firebase-admin/firestore');
-    const authMod = await import('firebase-admin/auth');
-    const messagingMod = await import('firebase-admin/messaging');
+  const adminMod = await import('firebase-admin/app');
+  const firestoreMod = await import('firebase-admin/firestore');
+  const authMod = await import('firebase-admin/auth');
+  const messagingMod = await import('firebase-admin/messaging');
 
-    let adminApp;
-    if (adminMod.getApps().length > 0) {
-      adminApp = adminMod.getApps()[0];
+  let adminApp;
+  const appName = adminOptions?.appName;
+  if (appName) {
+    const existing = adminMod.getApps().find((a) => a.name === appName);
+    if (existing) {
+      adminApp = existing;
+    } else if (useEmulator) {
+      adminApp = adminMod.initializeApp(
+        { projectId: adminOptions?.projectId || process.env.GCLOUD_PROJECT || 'demo-ug-us-rules-test' },
+        appName
+      );
     } else if (serviceAccountJson) {
-      const parsedCred = JSON.parse(serviceAccountJson);
-      adminApp = adminMod.initializeApp({
-        credential: adminMod.cert(parsedCred),
-      });
+      adminApp = adminMod.initializeApp({ credential: adminMod.cert(JSON.parse(serviceAccountJson)) }, appName);
     } else {
-      adminApp = adminMod.initializeApp({
-        credential: adminMod.applicationDefault(),
-      });
+      adminApp = adminMod.initializeApp({ credential: adminMod.applicationDefault() }, appName);
+    }
+  } else if (adminMod.getApps().length > 0) {
+    adminApp = adminMod.getApps()[0];
+  } else if (useEmulator) {
+    adminApp = adminMod.initializeApp({
+      projectId: adminOptions?.projectId || process.env.GCLOUD_PROJECT || 'demo-ug-us-rules-test',
+    });
+  } else if (serviceAccountJson) {
+    const parsedCred = JSON.parse(serviceAccountJson);
+    adminApp = adminMod.initializeApp({
+      credential: adminMod.cert(parsedCred),
+    });
+  } else {
+    adminApp = adminMod.initializeApp({
+      credential: adminMod.applicationDefault(),
+    });
+  }
+
+  const dbId = adminOptions?.databaseId ?? (useEmulator ? '(default)' : readConfiguredDatabaseId());
+  const adminDb =
+    dbId && dbId !== '(default)'
+      ? firestoreMod.getFirestore(adminApp, dbId)
+      : firestoreMod.getFirestore(adminApp);
+  const adminAuth = authMod.getAuth(adminApp);
+  const adminMessaging = messagingMod.getMessaging(adminApp);
+  let lastRateLimitCleanupMs = 0;
+
+  const normalize = (v?: string) => (v || '').trim().toLowerCase();
+
+  // Helper compartido para reconstruir un respaldo almacenado inline o fragmentado
+  const readBackupPayloadWithIntegrity = async (
+    targetBackupId: string
+  ): Promise<{ respaldo: Record<string, any>; datos: Record<string, any> }> => {
+    const respaldoSnap = await adminDb.collection('respaldos_sistema').doc(targetBackupId).get();
+    if (!respaldoSnap.exists) {
+      throw new Error(`Respaldo no encontrado: ${targetBackupId}`);
+    }
+    const respaldo = respaldoSnap.data() as Record<string, any>;
+    if (respaldo.almacenamiento !== 'FRAGMENTADO') {
+      const datosInline = respaldo.datos || {};
+      if (respaldo.checksumSha256 && sha256Utf8(JSON.stringify(datosInline)) !== respaldo.checksumSha256) {
+        throw new Error(`Checksum SHA-256 inválido en respaldo inline "${targetBackupId}".`);
+      }
+      return { respaldo, datos: datosInline };
     }
 
-    const dbId = readConfiguredDatabaseId();
-    const adminDb =
-      dbId && dbId !== '(default)'
-        ? firestoreMod.getFirestore(adminApp, dbId)
-        : firestoreMod.getFirestore(adminApp);
-    const adminAuth = authMod.getAuth(adminApp);
-    const adminMessaging = messagingMod.getMessaging(adminApp);
-    const adminLocalRateLimitFallback = new Map<string, { count: number; resetAtMs: number }>();
+    const totalEsperado = Number(respaldo.totalFragmentos || 0);
+    if (totalEsperado <= 0) {
+      throw new Error(`Manifiesto fragmentado inválido en respaldo "${targetBackupId}" (totalFragmentos=${totalEsperado}).`);
+    }
+    const fragsSnap = await adminDb
+      .collection('respaldos_sistema')
+      .doc(targetBackupId)
+      .collection('fragmentos')
+      .get();
+    if (fragsSnap.size !== totalEsperado) {
+      throw new Error(
+        `Respaldo fragmentado incompleto "${targetBackupId}": esperados ${totalEsperado} fragmentos, encontrados ${fragsSnap.size}.`
+      );
+    }
+    const ordered = fragsSnap.docs
+      .map((d) => d.data() as Record<string, any>)
+      .sort((a, b) => Number(a.indice) - Number(b.indice));
+    let assembled = '';
+    for (let i = 0; i < totalEsperado; i++) {
+      const frag = ordered[i];
+      if (!frag || Number(frag.indice) !== i || typeof frag.contenido !== 'string') {
+        throw new Error(`Fragmento #${i} ausente o inválido en respaldo "${targetBackupId}".`);
+      }
+      if (frag.chunkSha256 && sha256Utf8(frag.contenido) !== frag.chunkSha256) {
+        throw new Error(`Checksum de fragmento #${i} corrupto en respaldo "${targetBackupId}".`);
+      }
+      assembled += frag.contenido;
+    }
+    if (respaldo.checksumSha256 && sha256Utf8(assembled) !== respaldo.checksumSha256) {
+      throw new Error(`Checksum global SHA-256 inválido al reensamblar respaldo "${targetBackupId}".`);
+    }
+    return { respaldo, datos: JSON.parse(assembled) };
+  };
 
-    const normalize = (v?: string) => (v || '').trim().toLowerCase();
+  // Helper de limpieza segura y atómica de contadores expirados en rate_limits_servidor
+  const runSafeRateLimitCleanup = async (cleanupOpts?: {
+    nowMs?: number;
+    graceMs?: number;
+    maxDelete?: number;
+  }): Promise<{ scanned: number; deleted: number; skippedActive: number }> => {
+    const nowMs = cleanupOpts?.nowMs ?? Date.now();
+    const graceMs = Math.max(0, cleanupOpts?.graceMs ?? RATE_LIMIT_CLEANUP_GRACE_MS);
+    const maxDelete = Math.max(1, cleanupOpts?.maxDelete ?? RATE_LIMIT_CLEANUP_BATCH_LIMIT);
+    const cutoffMs = nowMs - graceMs;
 
-    return {
-      isFirebaseAdminReady: true,
+    const expiredSnap = await adminDb
+      .collection('rate_limits_servidor')
+      .where('resetAtMs', '<=', cutoffMs)
+      .orderBy('resetAtMs', 'asc')
+      .limit(maxDelete)
+      .get();
 
-      async findAccountByIdentifier(identifier: string) {
-        const clean = normalize(identifier);
+    let scanned = 0;
+    let deleted = 0;
+    let skippedActive = 0;
+
+    for (const candidate of expiredSnap.docs) {
+      scanned++;
+      // Re-verificación atómica en transacción: impide eliminar un contador renovado/activo concurrentemente
+      const wasDeleted = await adminDb.runTransaction(async (tx) => {
+        const fresh = await tx.get(candidate.ref);
+        if (!fresh.exists) return false;
+        const freshReset = Number(fresh.data()?.resetAtMs || 0);
+        if (freshReset > cutoffMs) {
+          return false;
+        }
+        tx.delete(candidate.ref);
+        return true;
+      });
+      if (wasDeleted) deleted++;
+      else skippedActive++;
+    }
+
+    return { scanned, deleted, skippedActive };
+  };
+
+  return {
+    isFirebaseAdminReady: true,
+
+    async findAccountByIdentifier(identifier: string) {
+      const clean = normalize(identifier);
         if (!clean) return null;
 
         const byUser = await adminDb
@@ -1749,16 +2147,12 @@ export async function createDefaultServerStore(): Promise<ServerDataStore> {
       },
 
       // NC-10 + I-06 + 3.E: Restauración privilegiada por unidad vía Firebase Admin SDK
-      // con resguardo previo completo de todas las colecciones modificables, lotes seguros <= 400 ops,
-      // detección/documentación de fallos parciales y recuperación coherente desde backupEmergenciaId
+      // con resguardo previo completo (inline o fragmentado si excede el umbral seguro <1 MiB),
+      // verificación obligatoria de integridad antes de borrar datos, preservación estricta de procedencia
+      // entre imaginarias_activadas_us y compensacion_imaginarias_us, lotes <= 400 ops y recuperación
       async restoreBackupByUnitAdmin(backupId, actor, options) {
-        const respaldoSnap = await adminDb.collection('respaldos_sistema').doc(backupId).get();
-        if (!respaldoSnap.exists) {
-          throw new Error(`Respaldo no encontrado: ${backupId}`);
-        }
-        const respaldo = respaldoSnap.data() as Record<string, any>;
+        const { respaldo, datos } = await readBackupPayloadWithIntegrity(backupId);
         const tipoServicio: 'GUARDIA' | 'US' = respaldo.tipoServicio === 'US' ? 'US' : 'GUARDIA';
-        const datos = respaldo.datos || {};
 
         let batchesEjecutados = 0;
         let maxOpsPorBatch = 0;
@@ -1778,7 +2172,7 @@ export async function createDefaultServerStore(): Promise<ServerDataStore> {
             .doc(cDoc.id)
             .collection('servicios')
             .get();
-          const srvs = sSnap.docs.map((sd) => ({ id: sd.id, ...sd.data() }));
+          const srvs = sSnap.docs.map((sd) => ({ ...sd.data(), id: sd.id }));
           serviciosPrevios[cDoc.id] = srvs;
           totalServiciosPrevios += srvs.length;
           srvs.forEach((s) => serviciosPreviosIds.push(`${cDoc.id}/${s.id}`));
@@ -1788,39 +2182,35 @@ export async function createDefaultServerStore(): Promise<ServerDataStore> {
 
         const personasSnap = await adminDb.collection('personas').get();
         const personasPrevias = personasSnap.docs
-          .map((d) => ({ id: d.id, ...d.data() }))
+          .map((d) => ({ ...d.data(), id: d.id }))
           .filter((p) => pertenecePersonaAUnidadServer(p, tipoServicio));
 
         const solicitudesSnap = await adminDb.collection('solicitudes_cambio').get();
         const solicitudesPrevias = solicitudesSnap.docs
-          .map((d) => ({ id: d.id, ...d.data() }))
+          .map((d) => ({ ...d.data(), id: d.id }))
           .filter((s) => perteneceSolicitudAUnidadServer(s, tipoServicio));
 
         let ausenciasIncidenciasPrevias: any[] = [];
         let patrullasPrevias: any[] = [];
         let compensacionesPrevias: any[] = [];
+        let compensacionesLegacyPrevias: any[] = [];
 
         if (tipoServicio === 'US') {
           const ausSnap = await adminDb.collection('ausencias_us').get();
-          ausenciasIncidenciasPrevias = ausSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+          ausenciasIncidenciasPrevias = ausSnap.docs.map((d) => ({ ...d.data(), id: d.id }));
 
-          const compSeen = new Set<string>();
-          for (const colName of ['imaginarias_activadas_us', 'compensacion_imaginarias_us']) {
-            const compSnap = await adminDb.collection(colName).get();
-            for (const cd of compSnap.docs) {
-              const cid = String(cd.data()?.id || cd.id);
-              if (!compSeen.has(cid)) {
-                compSeen.add(cid);
-                compensacionesPrevias.push({ id: cid, ...cd.data() });
-              }
-            }
-          }
+          // Preservar estrictamente la colección de origen: imaginarias_activadas_us vs compensacion_imaginarias_us
+          const activasSnap = await adminDb.collection('imaginarias_activadas_us').get();
+          compensacionesPrevias = activasSnap.docs.map((cd) => ({ ...cd.data(), id: cd.id }));
+
+          const legacySnap = await adminDb.collection('compensacion_imaginarias_us').get();
+          compensacionesLegacyPrevias = legacySnap.docs.map((cd) => ({ ...cd.data(), id: cd.id }));
         } else {
           const incSnap = await adminDb.collection('incidencias_ausencia').get();
-          ausenciasIncidenciasPrevias = incSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+          ausenciasIncidenciasPrevias = incSnap.docs.map((d) => ({ ...d.data(), id: d.id }));
 
           const patSnap = await adminDb.collection('patrullas').get();
-          patrullasPrevias = patSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+          patrullasPrevias = patSnap.docs.map((d) => ({ ...d.data(), id: d.id }));
         }
 
         const coleccionesIncluidas =
@@ -1831,6 +2221,7 @@ export async function createDefaultServerStore(): Promise<ServerDataStore> {
                 'personas',
                 'ausencias_us',
                 'imaginarias_activadas_us',
+                ...(compensacionesLegacyPrevias.length > 0 ? ['compensacion_imaginarias_us'] : []),
                 'solicitudes_cambio',
               ]
             : [
@@ -1850,6 +2241,9 @@ export async function createDefaultServerStore(): Promise<ServerDataStore> {
                 personas: personasPrevias.length,
                 ausencias_us: ausenciasIncidenciasPrevias.length,
                 imaginarias_activadas_us: compensacionesPrevias.length,
+                ...(compensacionesLegacyPrevias.length > 0
+                  ? { compensacion_imaginarias_us: compensacionesLegacyPrevias.length }
+                  : {}),
                 solicitudes_cambio: solicitudesPrevias.length,
               }
             : {
@@ -1869,6 +2263,9 @@ export async function createDefaultServerStore(): Promise<ServerDataStore> {
                 personas: personasPrevias.map((p) => String(p.id)),
                 ausencias_us: ausenciasIncidenciasPrevias.map((a) => String(a.id)),
                 imaginarias_activadas_us: compensacionesPrevias.map((c) => String(c.id)),
+                ...(compensacionesLegacyPrevias.length > 0
+                  ? { compensacion_imaginarias_us: compensacionesLegacyPrevias.map((c) => String(c.id)) }
+                  : {}),
                 solicitudes_cambio: solicitudesPrevias.map((s) => String(s.id)),
               }
             : {
@@ -1880,8 +2277,31 @@ export async function createDefaultServerStore(): Promise<ServerDataStore> {
                 solicitudes_cambio: solicitudesPrevias.map((s) => String(s.id)),
               };
 
+        const emergencyDatos: Record<string, any> = {
+          tipoServicio,
+          cuadrantes: cuadrantesUnidadActuales.map((d) => ({ ...d.data(), id: d.id })),
+          serviciosPorCuadrante: serviciosPrevios,
+          personas: personasPrevias,
+          ausenciasIncidencias: ausenciasIncidenciasPrevias,
+          solicitudesCambio: solicitudesPrevias,
+          ...(tipoServicio === 'US'
+            ? {
+                compensacionesImaginarias: compensacionesPrevias,
+                ...(compensacionesLegacyPrevias.length > 0
+                  ? { compensacionesImaginariasLegacy: compensacionesLegacyPrevias }
+                  : {}),
+              }
+            : { patrullas: patrullasPrevias }),
+        };
+
         const backupEmergenciaId = `backup-emerg-${tipoServicio.toLowerCase()}-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`;
-        await adminDb.collection('respaldos_sistema').doc(backupEmergenciaId).create({
+        const snapshotJson = JSON.stringify(emergencyDatos);
+        const backupEmergenciaChecksumSha256 = sha256Utf8(snapshotJson);
+        const backupEmergenciaBytes = Buffer.byteLength(snapshotJson, 'utf8');
+        const maxInlineDocBytes = options?.maxInlineDocBytes ?? FIRESTORE_SAFE_BACKUP_DOC_BYTES;
+        const chunkMaxBytes = options?.chunkMaxBytes ?? FIRESTORE_BACKUP_CHUNK_BYTES;
+
+        const baseEmergencyMeta = {
           id: backupEmergenciaId,
           tipoServicio,
           tipo: 'EMERGENCIA_PRE_RESTAURACION',
@@ -1894,18 +2314,85 @@ export async function createDefaultServerStore(): Promise<ServerDataStore> {
           coleccionesIncluidas,
           conteoPorColeccion,
           documentosIdsPorColeccion,
-          datos: {
+          checksumSha256: backupEmergenciaChecksumSha256,
+          tamanoAproxBytes: backupEmergenciaBytes,
+        };
+
+        const inlineBytes = measureApproxJsonBytes({ ...baseEmergencyMeta, datos: emergencyDatos });
+        const needsFragmentation = inlineBytes > maxInlineDocBytes;
+        let backupEmergenciaFragmentos = 0;
+
+        try {
+          if (options?.onBeforeEmergencyBackupWrite) {
+            await options.onBeforeEmergencyBackupWrite({
+              backupEmergenciaId,
+              totalBytes: inlineBytes,
+              fragmented: needsFragmentation,
+            });
+          }
+
+          const emergRef = adminDb.collection('respaldos_sistema').doc(backupEmergenciaId);
+          if (!needsFragmentation) {
+            await emergRef.create({
+              ...baseEmergencyMeta,
+              almacenamiento: 'INLINE',
+              totalFragmentos: 0,
+              datos: emergencyDatos,
+            });
+          } else {
+            // Almacenamiento fragmentado: escribir TODOS los fragmentos antes del manifiesto padre
+            const parts = splitUtf8StringByMaxBytes(snapshotJson, chunkMaxBytes);
+            backupEmergenciaFragmentos = parts.length;
+            const fragDocs = parts.map((contenido, indice) => ({
+              ref: emergRef.collection('fragmentos').doc(`chunk-${String(indice).padStart(4, '0')}`),
+              data: {
+                backupId: backupEmergenciaId,
+                indice,
+                totalFragmentos: parts.length,
+                contenido,
+                bytes: Buffer.byteLength(contenido, 'utf8'),
+                chunkSha256: sha256Utf8(contenido),
+              },
+            }));
+            const fragBatches = chunkOperations(fragDocs, FIRESTORE_SAFE_BATCH_LIMIT);
+            for (const fChunk of fragBatches) {
+              const fb = adminDb.batch();
+              for (const item of fChunk) {
+                fb.create(item.ref, item.data);
+              }
+              await fb.commit();
+            }
+
+            // En manifiestos muy grandes evitamos sobrepasar 1 MiB con listas masivas de IDs en el padre
+            const metaForParent: Record<string, any> = {
+              ...baseEmergencyMeta,
+              almacenamiento: 'FRAGMENTADO',
+              totalFragmentos: parts.length,
+              datos: null,
+            };
+            if (measureApproxJsonBytes(metaForParent) > maxInlineDocBytes) {
+              delete metaForParent.documentosIdsPorColeccion;
+              metaForParent.documentosIdsOmitidosEnManifiestoPorTamano = true;
+            }
+            await emergRef.create(metaForParent);
+          }
+
+          // Confirmar integridad real leyendo el respaldo recién persistido ANTES de iniciar cualquier borrado
+          const verified = await readBackupPayloadWithIntegrity(backupEmergenciaId);
+          if (verified.respaldo.estado !== 'COMPLETADO_PRE_RESTAURACION') {
+            throw new Error('Estado de respaldo de emergencia no confirmado.');
+          }
+          if (sha256Utf8(JSON.stringify(verified.datos)) !== backupEmergenciaChecksumSha256) {
+            throw new Error('Checksum de verificación post-escritura no coincide.');
+          }
+        } catch (err: any) {
+          throw new EmergencyBackupError({
+            backupId,
+            backupEmergenciaId,
             tipoServicio,
-            cuadrantes: cuadrantesUnidadActuales.map((d) => ({ id: d.id, ...d.data() })),
-            serviciosPorCuadrante: serviciosPrevios,
-            personas: personasPrevias,
-            ausenciasIncidencias: ausenciasIncidenciasPrevias,
-            solicitudesCambio: solicitudesPrevias,
-            ...(tipoServicio === 'US'
-              ? { compensacionesImaginarias: compensacionesPrevias }
-              : { patrullas: patrullasPrevias }),
-          },
-        });
+            causeMessage: err?.message || String(err),
+          });
+        }
 
         const recordPartialFailureAudit = async (
           fase: 'DELETE' | 'WRITE',
@@ -1968,6 +2455,7 @@ export async function createDefaultServerStore(): Promise<ServerDataStore> {
         let patrullasRestauradas = 0;
         let solicitudesCambioRestauradas = 0;
         let compensacionesRestauradas = 0;
+        let compensacionesLegacyRestauradas = 0;
 
         const writeOps: Array<{
           ref: FirebaseFirestore.DocumentReference;
@@ -2045,6 +2533,17 @@ export async function createDefaultServerStore(): Promise<ServerDataStore> {
             });
             compensacionesRestauradas++;
           }
+          // Procedencia preservada: documentos originados en compensacion_imaginarias_us vuelven SOLO a esa colección
+          for (const compLeg of datos.compensacionesImaginariasLegacy || []) {
+            if (!compLeg?.id) continue;
+            const compLegId = String(compLeg.id);
+            writeOps.push({
+              ref: adminDb.collection('compensacion_imaginarias_us').doc(compLegId),
+              data: compLeg,
+              merge: true,
+            });
+            compensacionesLegacyRestauradas++;
+          }
         } else if (tipoServicio === 'GUARDIA' && Array.isArray(datos.ausenciasIncidencias)) {
           for (const inc of datos.ausenciasIncidencias) {
             if (!inc?.id) continue;
@@ -2110,6 +2609,10 @@ export async function createDefaultServerStore(): Promise<ServerDataStore> {
           success: true,
           backupId,
           backupEmergenciaId,
+          backupEmergenciaAlmacenamiento: needsFragmentation ? 'FRAGMENTADO' : 'INLINE',
+          backupEmergenciaFragmentos,
+          backupEmergenciaBytes,
+          backupEmergenciaChecksumSha256,
           tipoServicio,
           cuadrantesRestaurados,
           serviciosRestaurados,
@@ -2118,21 +2621,29 @@ export async function createDefaultServerStore(): Promise<ServerDataStore> {
           patrullasRestauradas,
           solicitudesCambioRestauradas,
           compensacionesRestauradas,
+          compensacionesLegacyRestauradas,
           batchesEjecutados,
           maxOpsPorBatch,
           coleccionesResguardadasEmergencia: coleccionesIncluidas,
           conteoResguardoEmergencia: conteoPorColeccion,
-          mensaje: `Restauración administrativa completada para ${tipoServicio === 'US' ? 'U.S.' : 'U.G.'} (${cuadrantesRestaurados} cuadrantes, ${serviciosRestaurados} servicios, ${personasRestauradas} personas, ${ausenciasIncidenciasRestauradas} ausencias/incidencias, ${compensacionesRestauradas} compensaciones). Resguardo previo completo: ${backupEmergenciaId}.`,
+          mensaje: `Restauración administrativa completada para ${tipoServicio === 'US' ? 'U.S.' : 'U.G.'} (${cuadrantesRestaurados} cuadrantes, ${serviciosRestaurados} servicios, ${personasRestauradas} personas, ${ausenciasIncidenciasRestauradas} ausencias/incidencias, ${compensacionesRestauradas} compensaciones activas, ${compensacionesLegacyRestauradas} compensaciones legacy). Resguardo previo completo (${needsFragmentation ? `fragmentado en ${backupEmergenciaFragmentos} partes` : 'inline'}): ${backupEmergenciaId}.`,
         };
       },
 
-      // 3.G: Limitador de tasa distribuido respaldado por transacción atómica en Firestore
-      //      (colección interna /rate_limits_servidor bloqueada desde cliente en firestore.rules)
+      // 3.G + 2.1: Limitador de tasa estrictamente distribuido respaldado por transacción atómica en Firestore
+      //            (colección interna /rate_limits_servidor). SIN fallback a memoria local: ante cualquier
+      //            error de Firestore lanza DistributedRateLimitUnavailableError (fail-closed -> HTTP 503).
+      //            Operaciones Firestore: 1 lectura + 1 escritura por transacción de verificación,
+      //            más barrido periódico acotado de expirados (<=25 docs cada >=10 min con margen de 60 s).
       async consumeDistributedRateLimit(bucket, key, windowMs, maxRequests) {
         const docId = `${bucket.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 32)}_${hashLockKey(key)}`;
         const ref = adminDb.collection('rate_limits_servidor').doc(docId);
         const now = Date.now();
         try {
+          if (adminOptions?.onBeforeRateLimitTransaction) {
+            await adminOptions.onBeforeRateLimitTransaction({ bucket, docId });
+          }
+
           const result = await adminDb.runTransaction(async (tx) => {
             const snap = await tx.get(ref);
             const data = snap.exists ? (snap.data() as any) : null;
@@ -2145,6 +2656,7 @@ export async function createDefaultServerStore(): Promise<ServerDataStore> {
                 bucket,
                 count: 1,
                 resetAtMs,
+                expiresAt: firestoreMod.Timestamp.fromMillis(resetAtMs),
                 updatedAt: new Date(now).toISOString(),
               });
               return { count: 1, resetAtMs };
@@ -2157,12 +2669,21 @@ export async function createDefaultServerStore(): Promise<ServerDataStore> {
                 bucket,
                 count: nextCount,
                 resetAtMs: existingReset,
+                expiresAt: firestoreMod.Timestamp.fromMillis(existingReset),
                 updatedAt: new Date(now).toISOString(),
               },
               { merge: true }
             );
             return { count: nextCount, resetAtMs: existingReset };
           });
+
+          // Limpieza oportunista no bloqueante de contadores expirados hace >60 s (como máximo cada 10 min)
+          if (now - lastRateLimitCleanupMs >= RATE_LIMIT_CLEANUP_INTERVAL_MS) {
+            lastRateLimitCleanupMs = now;
+            void runSafeRateLimitCleanup({ nowMs: now }).catch((cleanupErr: any) => {
+              console.warn('[RateLimitCleanup] Limpieza diferida omitida:', cleanupErr?.message || 'error');
+            });
+          }
 
           return {
             allowed: result.count <= maxRequests,
@@ -2172,33 +2693,16 @@ export async function createDefaultServerStore(): Promise<ServerDataStore> {
             storeMode: 'firestore-distributed',
           };
         } catch (err: any) {
-          console.warn(
-            '[RateLimit] Error transitorio en almacén distribuido Firestore; aplicando respaldo local defensivo:',
-            err?.message || err
+          console.error(
+            '[RateLimit] Fallo en almacén distribuido Firestore (bloqueo seguro sin fallback local):',
+            err?.message || 'Error desconocido'
           );
-          const fallbackKey = `${bucket}:${hashLockKey(key)}`;
-          const prev = adminLocalRateLimitFallback.get(fallbackKey);
-          if (!prev || now >= prev.resetAtMs) {
-            const next = { count: 1, resetAtMs: now + windowMs };
-            adminLocalRateLimitFallback.set(fallbackKey, next);
-            return {
-              allowed: next.count <= maxRequests,
-              count: next.count,
-              remaining: Math.max(0, maxRequests - next.count),
-              resetAtMs: next.resetAtMs,
-              storeMode: 'memory-local',
-            };
-          }
-          prev.count += 1;
-          adminLocalRateLimitFallback.set(fallbackKey, prev);
-          return {
-            allowed: prev.count <= maxRequests,
-            count: prev.count,
-            remaining: Math.max(0, maxRequests - prev.count),
-            resetAtMs: prev.resetAtMs,
-            storeMode: 'memory-local',
-          };
+          throw new DistributedRateLimitUnavailableError();
         }
+      },
+
+      async cleanupExpiredRateLimits(cleanupOpts) {
+        return runSafeRateLimitCleanup(cleanupOpts);
       },
 
       async listAusenciasUSOperativas() {
@@ -2321,6 +2825,9 @@ export async function createDefaultServerStore(): Promise<ServerDataStore> {
       },
 
       async createFirebaseCustomToken(uid, claims) {
+        if (useEmulator && !process.env.FIREBASE_AUTH_EMULATOR_HOST) {
+          return null;
+        }
         return adminAuth.createCustomToken(uid, claims);
       },
 
@@ -2379,6 +2886,32 @@ export async function createDefaultServerStore(): Promise<ServerDataStore> {
         };
       },
     };
+}
+
+/**
+ * Inicializa el store conectado a Firebase Admin SDK si existen credenciales de cuenta de servicio;
+ * en producción estricta (y en Preview salvo ALLOW_PREVIEW_ISOLATED_MODE=true) bloquea cualquier
+ * fallback silencioso a memoria (I-02 / 3.H / 2.1).
+ */
+export async function createDefaultServerStore(): Promise<ServerDataStore> {
+  const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
+  const hasAdc = Boolean(process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim());
+
+  if (!serviceAccountJson && !hasAdc) {
+    if (isStrictProductionEnv()) {
+      throw new ProductionConfigError(
+        'Configuración de producción incompleta: faltan credenciales de Firebase Admin SDK (FIREBASE_SERVICE_ACCOUNT_JSON o GOOGLE_APPLICATION_CREDENTIALS). No se permite operar con almacén en memoria en producción.',
+        ['FIREBASE_SERVICE_ACCOUNT_JSON|GOOGLE_APPLICATION_CREDENTIALS']
+      );
+    }
+    console.warn(
+      '[FirebaseAdminStore] Credenciales Firebase Admin no configuradas (FIREBASE_SERVICE_ACCOUNT_JSON / GOOGLE_APPLICATION_CREDENTIALS). Operando en modo local de desarrollo/pruebas sin Admin SDK.'
+    );
+    return createInMemoryServerStore();
+  }
+
+  try {
+    return await createFirebaseAdminServerStore();
   } catch (err: any) {
     console.error('[FirebaseAdminStore] Error inicializando Firebase Admin SDK:', err?.message || 'Error de inicialización');
     if (isStrictProductionEnv()) {

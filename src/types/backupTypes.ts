@@ -24,7 +24,8 @@ export interface SnapshotDatosOperativos {
   serviciosPorCuadrante: Record<string, (ServicioDia | ServicioDiaUS)[]>;
   personas: Persona[];
   ausenciasIncidencias: any[];
-  compensacionesImaginarias?: any[]; // Solo para U.S. (imaginarias_activadas_us / compensacion_imaginarias_us)
+  compensacionesImaginarias?: any[]; // Solo para U.S. — colección activa imaginarias_activadas_us
+  compensacionesImaginariasLegacy?: any[]; // Solo para U.S. — colección histórica/complementaria compensacion_imaginarias_us (sin mezclar procedencia)
   solicitudesCambio: SolicitudCambio[];
   patrullas?: Patrulla[]; // Solo para U.G.
 }
