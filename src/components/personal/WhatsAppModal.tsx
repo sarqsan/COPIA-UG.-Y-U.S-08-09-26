@@ -68,13 +68,8 @@ export const WhatsAppModal: React.FC<WhatsAppModalProps> = ({
   };
 
   const handleCopyPass = async () => {
-    try {
-      await navigator.clipboard.writeText(cuenta?.password || creds.passwordInicial);
-      setCopiedPass(true);
-      setTimeout(() => setCopiedPass(false), 2000);
-    } catch (e) {
-      console.warn('Error copiando contraseña:', e);
-    }
+    // Remediación R-13: prohibido exponer o copiar contraseñas predecibles
+    setCopiedPass(false);
   };
 
   const handleOpenWhatsApp = () => {
@@ -83,11 +78,11 @@ export const WhatsAppModal: React.FC<WhatsAppModalProps> = ({
     const url = cleanPhone.length >= 9
       ? `https://wa.me/34${cleanPhone}?text=${encodedText}`
       : `https://wa.me/?text=${encodedText}`;
-    window.open(url, '_blank');
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   const handleTestAccess = () => {
-    window.location.hash = `#acceso?p=${encodeURIComponent(persona.id)}`;
+    window.location.hash = '';
     onClose();
   };
 
@@ -169,24 +164,15 @@ export const WhatsAppModal: React.FC<WhatsAppModalProps> = ({
 
           <div>
             <span className="text-[11px] font-bold text-blue-900 dark:text-blue-300 flex items-center gap-1">
-              <KeyRound className="w-3.5 h-3.5" /> Contraseña Inicial:
+              <KeyRound className="w-3.5 h-3.5" /> Contraseña:
             </span>
-            <div className="mt-1 flex items-center justify-between bg-white dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-blue-200 dark:border-blue-800">
-              <code className="text-xs font-bold font-mono text-blue-950 dark:text-blue-200">
-                {cuenta?.password || creds.passwordInicial}
-              </code>
-              <button
-                onClick={handleCopyPass}
-                className="text-slate-400 hover:text-blue-600 p-1"
-                title="Copiar contraseña"
-              >
-                {copiedPass ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-              </button>
+            <div className="mt-1 bg-white dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-blue-200 dark:border-blue-800 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
+              Privada (no se comparte por WhatsApp)
             </div>
           </div>
 
           <div className="col-span-2 text-[11px] text-blue-800 dark:text-blue-300">
-            Formato: <strong>apellido + rol</strong> en minúsculas y sin espacios (ej: <code>{creds.usernameInicial}</code>). Al entrar por primera vez, el usuario personalizará su usuario y clave.
+            Por protección de acceso, el mensaje nunca incluye contraseñas en claro ni patrones predecibles. Para altas nuevas genera una invitación única desde el panel de enlaces.
           </div>
         </div>
 

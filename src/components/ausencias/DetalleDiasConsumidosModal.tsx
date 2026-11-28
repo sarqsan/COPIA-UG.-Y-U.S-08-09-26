@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Persona } from '../../types';
+import { getApprovedAliasUS } from '../../utils/aliasHelper';
 import { SolicitudAusenciaUS, TipoAusenciaUS } from '../../types/usTypes';
 import {
   calcularBalanceDiasPersona,
@@ -96,7 +97,7 @@ export const DetalleDiasConsumidosModal: React.FC<DetalleDiasConsumidosModalProp
                 </span>
               </div>
               <p className="text-[10px] sm:text-xs text-slate-500 font-mono mt-0.5 truncate">
-                <strong className="text-slate-700 dark:text-slate-300">{persona.nombre}</strong> ({persona.empleo}) • Año {balance.anio}
+                <strong className="text-slate-700 dark:text-slate-300">{getApprovedAliasUS(persona)}</strong> ({persona.empleo}) • Año {balance.anio}
               </p>
             </div>
           </div>
@@ -286,7 +287,7 @@ export const DetalleDiasConsumidosModal: React.FC<DetalleDiasConsumidosModalProp
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                 <h3 className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                   <FileText className="w-3.5 h-3.5 text-teal-600" />
-                  <span>Permisos y Solicitudes de {persona.nombre} ({solicitudesPersona.length})</span>
+                  <span>Permisos y Solicitudes de {getApprovedAliasUS(persona)} ({solicitudesPersona.length})</span>
                 </h3>
                 {isAdmin && (
                   <span className="text-[10px] text-teal-600 dark:text-teal-400 font-semibold">

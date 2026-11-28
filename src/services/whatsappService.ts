@@ -10,15 +10,16 @@ export interface WhatsAppInviteResult {
 }
 
 /**
- * Servicio de generación de mensajes y enlaces de acceso para personal del Grupo
- * FASE: Generación directa con credenciales iniciales normalizadas (apellido+rol)
- * y cambio obligatorio de usuario y contraseña en primer acceso.
+ * Generación de enlace WhatsApp seguro (Remediación R-13).
+ * - NUNCA incluye contraseñas en claro ni patrones predecibles (<apellido><rol>) en el texto o la URL.
+ * - Si se aporta un inviteToken de un solo uso emitido por el servidor, genera el enlace temporal de activación.
  */
 export const generarEnlaceActivacionWhatsApp = (
   persona: Persona,
-  cuenta?: Cuenta | null
+  cuenta?: Cuenta | null,
+  inviteToken?: string
 ): WhatsAppInviteResult => {
-  const creds = getCredencialesParaPersona(persona, cuenta);
+  const creds = getCredencialesParaPersona(persona, cuenta, inviteToken);
   const rawPhone = (persona.telefono || '').replace(/[^0-9+]/g, '');
 
   const encodedMessage = encodeURIComponent(creds.mensajeWhatsApp);
@@ -28,7 +29,9 @@ export const generarEnlaceActivacionWhatsApp = (
 
   return {
     success: true,
-    message: 'Enlace generado correctamente con credenciales normalizadas (apellido+rol).',
+    message: inviteToken
+      ? 'Enlace de invitación de un solo uso generado de forma segura (sin contraseñas en URL).'
+      : 'Enlace de acceso al portal generado sin exponer credenciales.',
     url: waUrl,
     textPayload: creds.mensajeWhatsApp,
     isConfigured: true,

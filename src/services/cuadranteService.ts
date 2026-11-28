@@ -23,6 +23,7 @@ import { registrarDocumentoFirmadoDirecto } from './cambiosService';
 import { CuadranteSimulacionUSResult, ServicioDiaUS } from '../types/usTypes';
 import { registrarAuditLog } from './auditService';
 import { validarCuadrante } from './cuadranteValidatorService';
+import { assertNotImpersonating } from '../utils/impersonationGuard';
 import { calcularMetricasCuadrante } from './cuadranteMetricsService';
 import { calcularMetricasCuadranteUS } from './cuadranteUSMetricsService';
 import { generarSimulacionCuadrante } from './cuadranteGeneratorService';
@@ -171,8 +172,10 @@ export const getCuadrantes = async (options?: { tipoServicio?: TipoServicio }): 
     const snapshot = await getDocs(q);
     const todosCuadrantes: CuadranteMaestro[] = [];
     snapshot.forEach((docSnap) => {
-      const item = docSnap.data() as CuadranteMaestro;
-      todosCuadrantes.push(normalizeCuadrante(item));
+      const item = docSnap.data() as CuadranteMaestro & { eliminadoLogico?: boolean };
+      if (!item.eliminadoLogico) {
+        todosCuadrantes.push(normalizeCuadrante(item));
+      }
     });
     
     if (todosCuadrantes.length > 0) {
@@ -540,7 +543,8 @@ export const confirmarCuadrante = async (
   simulacion: CuadranteSimulacionResult | CuadranteSimulacionUSResult | any,
   adminInfo: { uid: string; nombre: string }
 ): Promise<{ success: boolean; cuadranteId?: string; message: string }> => {
-  // Validación previa de seguridad
+  assertNotImpersonating('confirmarCuadrante');
+  // Validación previa operativa
   if (!simulacion.validacion.valido) {
     return {
       success: false,
@@ -637,6 +641,7 @@ export const eliminarCuadrante = async (
   cuadranteId: string,
   adminInfo: { uid: string; nombre: string }
 ): Promise<{ success: boolean; message: string }> => {
+  assertNotImpersonating('eliminarCuadrante');
   const target = memoryCuadrantesCache.find((c) => c.id === cuadranteId);
   const nombre = target?.nombre || cuadranteId;
 
@@ -646,20 +651,21 @@ export const eliminarCuadrante = async (
   localStorage.setItem('cuadrantes_manually_cleared', 'true');
   saveLocalCache();
 
-  // 2. Eliminar documento y servicios en Firestore
+  // 2. NC-10: Baja lógica en Firestore (alineada con allow delete: if false)
   try {
     const docRef = doc(db, CUADRANTES_COLLECTION, cuadranteId);
-    const batch = writeBatch(db);
-    batch.delete(docRef);
-
-    // Obtener y borrar servicios de la subcolección
-    const srvCol = collection(db, CUADRANTES_COLLECTION, cuadranteId, 'servicios');
-    const srvSnap = await getDocs(srvCol);
-    srvSnap.forEach((d) => batch.delete(d.ref));
-
-    await batch.commit();
+    await setDoc(
+      docRef,
+      {
+        eliminadoLogico: true,
+        estado: 'ARCHIVADO',
+        eliminadoEn: new Date().toISOString(),
+        eliminadoPorUid: adminInfo.uid,
+      },
+      { merge: true }
+    );
   } catch (err: any) {
-    console.warn('Eliminación Firestore diferida (usando memoria):', err.message || err);
+    console.warn('Baja lógica Firestore diferida (usando memoria):', err.message || err);
   }
 
   // 3. Registrar en auditoría
@@ -684,6 +690,7 @@ export const eliminarTodosCuadrantes = async (
   adminInfo: { uid: string; nombre: string },
   tipoServicio?: TipoServicio
 ): Promise<{ success: boolean; message: string }> => {
+  assertNotImpersonating('eliminarTodosCuadrantes');
   let cuadrantesAEliminar: CuadranteMaestro[] = [];
   if (tipoServicio) {
     cuadrantesAEliminar = memoryCuadrantesCache.filter(
@@ -704,22 +711,29 @@ export const eliminarTodosCuadrantes = async (
   try {
     const colRef = collection(db, CUADRANTES_COLLECTION);
     const snap = await getDocs(colRef);
+    const now = new Date().toISOString();
     for (const d of snap.docs) {
       const data = d.data() as CuadranteMaestro;
       const dataTipo = data.tipoServicio || 'GUARDIA';
       if (!tipoServicio || dataTipo === tipoServicio) {
-        const batch = writeBatch(db);
-        batch.delete(d.ref);
-        const srvSnap = await getDocs(collection(db, CUADRANTES_COLLECTION, d.id, 'servicios'));
-        srvSnap.forEach((s) => batch.delete(s.ref));
-        await batch.commit();
+        // NC-10: Baja lógica alineada con firestore.rules (allow delete: if false)
+        await setDoc(
+          d.ref,
+          {
+            eliminadoLogico: true,
+            estado: 'ARCHIVADO',
+            eliminadoEn: now,
+            eliminadoPorUid: adminInfo.uid,
+          },
+          { merge: true }
+        );
       }
     }
   } catch (err: any) {
-    console.warn('Eliminación masiva Firestore diferida:', err.message || err);
+    console.warn('Baja lógica masiva Firestore diferida:', err.message || err);
   }
 
-  const nombreUnidad = tipoServicio === 'US' ? 'la Unidad de Seguridad (U.S.)' : tipoServicio === 'GUARDIA' ? 'la Unidad de Guardia (U.G.)' : 'todas las unidades';
+  const nombreUnidad = tipoServicio === 'US' ? 'U.S.' : tipoServicio === 'GUARDIA' ? 'U.G.' : 'todas las unidades';
   await registrarAuditLog({
     adminUid: adminInfo.uid,
     adminNombre: adminInfo.nombre,
@@ -747,6 +761,7 @@ export const modificarServicioManual = async (params: {
   personas: Persona[];
   adminInfo: { uid: string; nombre: string; rol?: string };
 }): Promise<{ success: boolean; message: string; servicioActualizado?: ServicioDia }> => {
+  assertNotImpersonating('modificarServicioManual');
   const {
     cuadranteId,
     servicioId,
@@ -1006,6 +1021,7 @@ export const permutarServicioImaginariaAdmin = async (params: {
   message: string;
   servicioActualizado?: ServicioDia;
 }> => {
+  assertNotImpersonating('permutarServicioImaginariaAdmin');
   const {
     cuadranteId,
     servicioId,
@@ -1293,7 +1309,7 @@ export const permutarServicioImaginariaAdmin = async (params: {
 export const permutarServicioImaginariaRol2Admin = permutarServicioImaginariaAdmin;
 
 /**
- * Guarda y propaga una modificación manual sobre un servicio diario de la Unidad de Seguridad (U.S.).
+ * Guarda y propaga una modificación manual sobre un servicio diario de U.S..
  * Actualiza el servicio, recalcula métricas de equilibrio US, sincroniza la caché local y persiste en Firestore.
  */
 export const modificarServicioUSManual = async (params: {
@@ -1307,6 +1323,7 @@ export const modificarServicioUSManual = async (params: {
   message: string;
   servicioActualizado: any;
 }> => {
+  assertNotImpersonating('modificarServicioUSManual');
   const { cuadranteId, servicioActualizado, motivo = 'Modificación manual U.S.', personasUS, adminInfo } = params;
 
   // 1. Verificación de autorización de Administrador
@@ -1397,7 +1414,7 @@ export const modificarServicioUSManual = async (params: {
       fechaAfectada: servicioActualizado.fecha,
       personaIdOriginal: '',
       personaIdReal: '',
-      personaNombre: 'Unidad de Seguridad',
+      personaNombre: 'U.S.',
       motivo,
       detalles: `Modificación manual del servicio U.S. en fecha ${servicioActualizado.fecha}. ${motivo}`,
       cambios: [],
@@ -1406,16 +1423,18 @@ export const modificarServicioUSManual = async (params: {
     console.warn('Audit log diferido:', e);
   }
 
-  // Notificación por correo a Personal con Excel del cambio (mismo flujo que UG)
+  // Notificación por correo a Personal con Excel del cambio (sellado criptográfico SHA-256 — R-05)
   try {
-    const codigoVerificacion = `US-MOD-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-    const documentoId = `doc-mod-us-${Date.now()}`;
+    const { computeDocumentContentHash, generateSecureRandomHex } = await import('../utils/cryptoHelper');
+    const { sealDocumentoViaServer, getAuthSessionToken } = await import('./authClientService');
+    const nonce = generateSecureRandomHex(6).toUpperCase();
+    const documentoId = `doc-mod-us-${Date.now()}-${nonce.slice(0, 6)}`;
     const nowIso = new Date().toISOString();
 
-    const docModUS: DocumentoCambioFirmado = {
+    let docModUS: DocumentoCambioFirmado = {
       id: documentoId,
       solicitudId: `mod-us-${servicioActualizado.fecha}`,
-      codigoVerificacion,
+      codigoVerificacion: '',
       tipoCambio: 'SERVICIO',
       tipoServicio: 'US',
       slotTipoA: 'diurno_1',
@@ -1441,13 +1460,38 @@ export const modificarServicioUSManual = async (params: {
       autorizacionAdmin: {
         adminUid: adminInfo.uid,
         adminNombre: adminInfo.nombre,
-        firma: 'FIRMA_ADMINISTRADOR',
+        firma: `AUTORIZACION_ADMIN_${adminInfo.uid}_${nowIso}`,
         fechaAutorizacion: nowIso,
         resolucion: 'AUTORIZADO',
       },
       detalles: `Modificación del cuadrante U.S. en fecha ${servicioActualizado.fecha}. ${motivo || 'Ajuste operativo autorizado por administración.'}`,
       motivo: motivo || 'Modificación del servicio U.S.',
+      versionDocumento: 2,
+      nivelFirmaLegal: 'ACEPTACION_ELECTRONICA_INTERNA_NO_CUALIFICADA_EIDAS',
     };
+
+    const sha256Mod = await computeDocumentContentHash({
+      ...docModUS,
+      personaA: { ...docModUS.personaA, firma: docModUS.personaA.firma || '' },
+      personaB: { ...docModUS.personaB, firma: docModUS.personaB.firma || '' },
+      autorizacionAdmin: { ...docModUS.autorizacionAdmin, firma: docModUS.autorizacionAdmin.firma || '' },
+      motivo: docModUS.motivo || '',
+    });
+
+    let sealed = false;
+    if (getAuthSessionToken()) {
+      const serverSeal = await sealDocumentoViaServer(docModUS, 'US-CSV');
+      if (serverSeal.success && serverSeal.documento) {
+        docModUS = serverSeal.documento;
+        sealed = true;
+      }
+    }
+    if (!sealed) {
+      docModUS.sha256Contenido = sha256Mod;
+      docModUS.algoritmoIntegridad = 'SHA256-CANONICAL-v2';
+      docModUS.selladoEnServidor = false;
+      docModUS.codigoVerificacion = `US-CSV-${sha256Mod.slice(0, 12).toUpperCase()}-${nonce}`;
+    }
 
     await registrarDocumentoFirmadoDirecto(docModUS);
   } catch (errEmail) {
@@ -1473,6 +1517,7 @@ export const aplicarCambioServiciosAutorizado = async (params: {
   adminInfo: { uid: string; nombre: string };
   serviciosActuales?: ServicioDia[];
 }): Promise<{ success: boolean; message: string }> => {
+  assertNotImpersonating('aplicarCambioServiciosAutorizado');
   const { cuadranteId, solicitud, codigoVerificacion, personas, adminInfo, serviciosActuales } = params;
 
   let servicios = serviciosActuales || memoryServiciosCache.get(cuadranteId);
@@ -1968,8 +2013,8 @@ export const aplicarCambioServiciosAutorizado = async (params: {
 };
 
 /**
- * Aplica la activación de cobertura de imaginaria por baja del titular.
- * - Preserva personaIdOriginal con el titular indispuesto.
+ * Aplica la activación de cobertura de imaginaria por ausencia sobrevenida del titular.
+ * - Preserva personaIdOriginal con el titular ausente.
  * - Establece personaIdReal con el imaginaria aceptante.
  * - Marca estadoAsignacion = 'CUBIERTO_POR_IMAGINARIA'.
  * - Actualiza caché en memoria, localStorage y Firestore.
@@ -1982,6 +2027,7 @@ export const aplicarCoberturaBajaServicio = async (params: {
   imaginariaPersonaId: string;
   motivo: string;
 }): Promise<{ success: boolean; message: string }> => {
+  assertNotImpersonating('aplicarCoberturaBajaServicio');
   const { cuadranteId, servicioId, fechaServicio, titularPersonaId, imaginariaPersonaId, motivo } = params;
 
   let servicios = memoryServiciosCache.get(cuadranteId);
@@ -2067,6 +2113,7 @@ export const regenerarCuadranteLimpioUG = async (
   personasNuevas: Persona[],
   adminInfo: { uid: string; nombre: string }
 ): Promise<{ success: boolean; cuadranteId?: string; message: string }> => {
+  assertNotImpersonating('regenerarCuadranteLimpioUG');
   const personasGuardia = personasNuevas.filter(
     (p) => p.activo && p.tipoServicio !== 'US' && p.grupo !== 'US_SEGURIDAD'
   );
@@ -2104,18 +2151,19 @@ export const regenerarCuadranteLimpioUG = async (
   saveLocalCache();
 
   try {
-    // Eliminar de Firestore solo los cuadrantes de GUARDIA anteriores para evitar duplicados residuales
+    // NC-10: Archivar lógicamente cuadrantes U.G. anteriores para evitar duplicados sin borrado físico
     const colRef = collection(db, CUADRANTES_COLLECTION);
     const snap = await getDocs(colRef);
+    const nowArch = new Date().toISOString();
     for (const d of snap.docs) {
       const data = d.data() as CuadranteMaestro;
       const dataTipo = data.tipoServicio || (data.id?.includes('-us-') || (data as any).configuracionUS ? 'US' : 'GUARDIA');
       if (dataTipo === 'GUARDIA' && d.id !== cuadranteGuardia.id) {
-        const batchDel = writeBatch(db);
-        batchDel.delete(d.ref);
-        const srvSnap = await getDocs(collection(db, CUADRANTES_COLLECTION, d.id, 'servicios'));
-        srvSnap.forEach((s) => batchDel.delete(s.ref));
-        await batchDel.commit();
+        await setDoc(
+          d.ref,
+          { eliminadoLogico: true, estado: 'ARCHIVADO', eliminadoEn: nowArch },
+          { merge: true }
+        );
       }
     }
 
@@ -2240,6 +2288,7 @@ export interface IncorporacionUsuarioUGResult {
 export const incorporarNuevoUsuarioEnCuadranteUG = async (
   params: IncorporacionUsuarioUGParams
 ): Promise<IncorporacionUsuarioUGResult> => {
+  assertNotImpersonating('incorporarNuevoUsuarioEnCuadranteUG');
   const { cuadranteId, nuevoUsuario, adminInfo, fechaDesde } = params;
 
   // 1. Verificación preliminar de rol
@@ -2548,6 +2597,7 @@ export const sincronizarAusenciaEnCuadrantesUS = async (params: {
   solicitudAnterior?: any;
   solicitudNueva?: any;
 }): Promise<void> => {
+  assertNotImpersonating('sincronizarAusenciaEnCuadrantesUS');
   const { tipoAccion, solicitudId, solicitudAnterior, solicitudNueva } = params;
   try {
     const cuadrantes = await getCuadrantes();

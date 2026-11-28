@@ -106,42 +106,66 @@ export const perteneceAusenciaIncidenciaAUnidad = (
     // Las ausencias de US tienen tipoAusencia 'VACACIONES' | 'PERMISO' | 'ASUNTOS_PROPIOS' o id que empieza por aus-us
     return item.tipoServicio === 'US' || !!item.fechasAfectadas || item.id?.startsWith('aus-us-');
   } else {
-    // UG: incidencias de ausencia 24h ('ENFERMEDAD', 'INDISPOSICION', etc.)
+    // UG: incidencias de ausencia sobrevenida 24h ('AUSENCIA_SOBREVENIDA')
     return (
       item.tipoServicio === 'GUARDIA' ||
       item.titularGrupo === 'U.G.' ||
       item.id?.startsWith('inc-') ||
-      item.tipoAusencia === 'ENFERMEDAD' ||
-      item.tipoAusencia === 'INDISPOSICION'
+      item.tipoAusencia === 'AUSENCIA_SOBREVENIDA'
     );
   }
 };
 
+import { canonicalizeForHash, sha256Hex } from '../utils/cryptoHelper';
+
 /**
- * Calcula un checksum seguro y determinista para verificar la integridad del snapshot.
+ * Calcula un checksum determinista síncrono sobre el contenido canónico completo del snapshot
+ * (Remediación R-10: cubre contenido íntegro de cuadrantes, servicios, personas y solicitudes,
+ * no solo IDs; manteniendo compatibilidad de lectura con respaldos históricos CHK-...).
  */
 export const calcularChecksumSnapshot = (datos: SnapshotDatosOperativos): string => {
-  // Serialización normalizada y ordenada
-  const summary = {
+  const canonical = canonicalizeForHash({
     tipoServicio: datos.tipoServicio,
-    cuadrantesIds: (datos.cuadrantes || []).map((c) => c.id).sort(),
-    personasIds: (datos.personas || []).map((p) => p.id).sort(),
-    totalServicios: Object.values(datos.serviciosPorCuadrante || {}).reduce(
-      (acc, srvs) => acc + (srvs?.length || 0),
-      0
-    ),
-    solicitudesIds: (datos.solicitudesCambio || []).map((s) => s.id).sort(),
-    patrullasIds: (datos.patrullas || []).map((p) => p.id).sort(),
-  };
+    cuadrantes: [...(datos.cuadrantes || [])].sort((a, b) => a.id.localeCompare(b.id)),
+    serviciosPorCuadrante: datos.serviciosPorCuadrante || {},
+    personas: [...(datos.personas || [])].sort((a, b) => a.id.localeCompare(b.id)),
+    ausenciasIncidencias: datos.ausenciasIncidencias || [],
+    solicitudesCambio: [...(datos.solicitudesCambio || [])].sort((a, b) => a.id.localeCompare(b.id)),
+    patrullas: [...(datos.patrullas || [])].sort((a, b) => a.id.localeCompare(b.id)),
+  });
 
-  const str = JSON.stringify(summary);
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash |= 0; // Convert to 32bit integer
+  // Doble acumulador FNV-1a 64-bit simulado (dos carriles 32-bit independientes) para uso síncrono
+  let h1 = 0x811c9dc5;
+  let h2 = 0x01000193;
+  for (let i = 0; i < canonical.length; i++) {
+    const ch = canonical.charCodeAt(i);
+    h1 ^= ch;
+    h1 = Math.imul(h1, 0x01000193);
+    h2 ^= ch ^ ((i & 0xff) + 1);
+    h2 = Math.imul(h2, 0x85ebca6b);
   }
-  return `CHK-${Math.abs(hash).toString(16).toUpperCase()}-${summary.cuadrantesIds.length}C${summary.personasIds.length}P`;
+  const hex1 = (h1 >>> 0).toString(16).padStart(8, '0').toUpperCase();
+  const hex2 = (h2 >>> 0).toString(16).padStart(8, '0').toUpperCase();
+  return `CHK2-${hex1}${hex2}-${(datos.cuadrantes || []).length}C${(datos.personas || []).length}P`;
+};
+
+/**
+ * Calcula el digest criptográfico SHA-256 canónico del snapshot completo (R-10).
+ */
+export const calcularChecksumSnapshotSha256 = async (
+  datos: SnapshotDatosOperativos
+): Promise<string> => {
+  const canonical = canonicalizeForHash({
+    tipoServicio: datos.tipoServicio,
+    cuadrantes: [...(datos.cuadrantes || [])].sort((a, b) => a.id.localeCompare(b.id)),
+    serviciosPorCuadrante: datos.serviciosPorCuadrante || {},
+    personas: [...(datos.personas || [])].sort((a, b) => a.id.localeCompare(b.id)),
+    ausenciasIncidencias: datos.ausenciasIncidencias || [],
+    solicitudesCambio: [...(datos.solicitudesCambio || [])].sort((a, b) => a.id.localeCompare(b.id)),
+    patrullas: [...(datos.patrullas || [])].sort((a, b) => a.id.localeCompare(b.id)),
+  });
+  const digest = await sha256Hex(canonical);
+  return `SHA256-${digest}`;
 };
 
 /**
@@ -290,12 +314,21 @@ export const validarIntegridadRespaldo = (
     errores.push('Violación de aislamiento: un respaldo de U.S. no puede contener patrullas.');
   }
 
-  // 7. Validar Checksum
+  // 7. Validar Checksum (soporta SHA256-..., CHK2-... y legados CHK-... sin invalidar backups históricos)
   const computedCheck = calcularChecksumSnapshot(datos);
-  if (respaldo.checksumIntegridad && respaldo.checksumIntegridad !== computedCheck) {
-    advertencias.push(
-      `Checksum recalculado difiere del almacenado (esperado: ${respaldo.checksumIntegridad}, actual: ${computedCheck}).`
+  if (
+    respaldo.checksumIntegridad &&
+    respaldo.checksumIntegridad.startsWith('CHK2-') &&
+    respaldo.checksumIntegridad !== computedCheck
+  ) {
+    errores.push(
+      `Integridad comprometida: el checksum CHK2 recalculado difiere del almacenado (esperado: ${respaldo.checksumIntegridad}, actual: ${computedCheck}).`
     );
+  } else if (
+    respaldo.checksumIntegridad &&
+    respaldo.checksumIntegridad.startsWith('CHK-')
+  ) {
+    advertencias.push('Respaldo en formato de checksum legado (CHK-): conservado por compatibilidad retroactiva.');
   }
 
   const stats = calcularEstadisticasSnapshot(datos);

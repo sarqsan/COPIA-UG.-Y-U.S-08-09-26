@@ -3,7 +3,6 @@ import {
   doc,
   getDocs,
   setDoc,
-  deleteDoc,
   writeBatch,
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
@@ -11,6 +10,7 @@ import { CicloPersonal, Persona, Grupo, Empleo } from '../types';
 import { registrarAuditLog } from './auditService';
 import { crearNotificacion } from './notificacionesService';
 import { setMemoryPersonasCache } from './personasService';
+import { assertNotImpersonating } from '../utils/impersonationGuard';
 
 const CICLOS_COLLECTION = 'ciclos';
 const CICLOS_STORAGE_KEY = 'app_cached_ciclos';
@@ -92,7 +92,10 @@ export const getCiclos = async (): Promise<CicloPersonal[]> => {
     const colRef = collection(db, CICLOS_COLLECTION);
     const snapshot = await getDocs(colRef);
     const items: CicloPersonal[] = [];
-    snapshot.forEach((docSnap) => items.push(docSnap.data() as CicloPersonal));
+    snapshot.forEach((docSnap) => {
+      const d = docSnap.data() as CicloPersonal & { eliminadoLogico?: boolean };
+      if (!d.eliminadoLogico) items.push(d);
+    });
     if (items.length > 0) {
       saveCiclosLocal(items);
       return items;
@@ -104,12 +107,13 @@ export const getCiclos = async (): Promise<CicloPersonal[]> => {
 };
 
 /**
- * Elimina un ciclo del sistema (útil para purgar ciclos de prueba)
+ * Elimina lógicamente un ciclo del sistema (NC-10: alineado con allow delete: if false)
  */
 export const eliminarCiclo = async (
   cicloId: string,
   adminInfo: { uid: string; nombre: string }
 ): Promise<{ success: boolean; message: string }> => {
+  assertNotImpersonating('eliminarCiclo');
   const currentCiclos = loadCiclosLocal();
   const target = currentCiclos.find((c) => c.id === cicloId);
   const updatedCiclos = currentCiclos.filter((c) => c.id !== cicloId);
@@ -118,9 +122,18 @@ export const eliminarCiclo = async (
 
   try {
     const docRef = doc(db, CICLOS_COLLECTION, cicloId);
-    await deleteDoc(docRef);
+    await setDoc(
+      docRef,
+      {
+        activo: false,
+        eliminadoLogico: true,
+        eliminadoEn: new Date().toISOString(),
+        eliminadoPorUid: adminInfo.uid,
+      },
+      { merge: true }
+    );
   } catch (err: any) {
-    console.warn('Eliminación de ciclo en Firestore diferida:', err.message || err);
+    console.warn('Baja lógica de ciclo en Firestore diferida:', err.message || err);
   }
 
   await registrarAuditLog({
@@ -142,6 +155,7 @@ export const eliminarCiclo = async (
 export const procesarNuevoCiclo = async (
   params: ProcesarNuevoCicloParams
 ): Promise<ResultadoProcesarNuevoCiclo> => {
+  assertNotImpersonating('procesarNuevoCiclo');
   const {
     cicloId,
     nombreCiclo,

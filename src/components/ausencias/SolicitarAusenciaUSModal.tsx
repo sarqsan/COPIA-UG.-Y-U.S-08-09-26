@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, FC } from 'react';
 import { Persona } from '../../types';
+import { getApprovedAliasUS } from '../../utils/aliasHelper';
 import {
   solicitarAusenciaUS,
   getSolicitudesAusenciaUS,
@@ -235,7 +236,7 @@ export const SolicitarAusenciaUSModal: FC<SolicitarAusenciaUSModalProps> = ({
                 Solicitud de Permiso / Vacaciones / A.P. (U.S.)
               </h2>
               <p className="text-xs text-slate-500 font-mono">
-                {persona.nombre} ({persona.empleo}) • Cómputo: {HORAS_POR_DIA_AUSENCIA_O_PRESENTE}h/día
+                {getApprovedAliasUS(persona)} ({persona.empleo}) • Cómputo: {HORAS_POR_DIA_AUSENCIA_O_PRESENTE}h/día
               </p>
             </div>
           </div>

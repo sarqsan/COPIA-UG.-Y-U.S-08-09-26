@@ -2,6 +2,7 @@ import { doc, writeBatch } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { Persona } from '../types';
 import { registrarAuditLog } from './auditService';
+import { assertNotImpersonating } from '../utils/impersonationGuard';
 
 export interface ValidacionOrdenRotacion {
   valido: boolean;
@@ -92,6 +93,7 @@ export const guardarOrdenesRotacion = async (params: {
   adminInfo: { uid: string; nombre: string };
   cicloNombre?: string;
 }): Promise<{ success: boolean; message: string; personasActualizadas: Persona[] }> => {
+  assertNotImpersonating('guardarOrdenesRotacion');
   const { ordenes, personasActuales, adminInfo, cicloNombre } = params;
 
   const ordenMap = new Map<string, number>();

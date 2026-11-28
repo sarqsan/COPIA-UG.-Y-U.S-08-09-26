@@ -4,7 +4,6 @@ import {
   getDocs,
   getDoc,
   setDoc,
-  deleteDoc,
   query,
   orderBy,
   runTransaction,
@@ -12,6 +11,7 @@ import {
 } from 'firebase/firestore';
 import { db, FIREBASE_RUNTIME_ENV } from '../firebase/config';
 import { Persona, Empleo } from '../types';
+import { assertNotImpersonating } from '../utils/impersonationGuard';
 import {
   Patrulla,
   PatrullaAuditLog,
@@ -267,6 +267,7 @@ export const consultarSiguienteNumeroSecuencial = async (): Promise<number> => {
  * Si Firestore falla, la operación lanza un error explícito: NO inventar números ni usar fallbacks locales.
  */
 export const consumirSiguienteNumeroSecuencial = async (): Promise<number> => {
+  assertNotImpersonating('consumirSiguienteNumeroSecuencial');
   const configDocRef = doc(db, PATRULLAS_CONFIG_COLLECTION, SECUENCIAL_DOC_ID);
 
   // 1. Obtener el número máximo existente actualmente en /patrullas para inicializar
@@ -488,7 +489,10 @@ export const getPatrullas = async (filtro?: {
 
     const items: Patrulla[] = [];
     snap.forEach((docSnap) => {
-      items.push(docSnap.data() as Patrulla);
+      const data = docSnap.data() as Patrulla & { eliminadoLogico?: boolean };
+      if (!data.eliminadoLogico) {
+        items.push(data);
+      }
     });
     if (
       items.length > 0 ||
@@ -533,6 +537,7 @@ export const crearPatrulla = async (params: {
   forzarAdmin?: boolean;
   cuenta?: any;
 }): Promise<Patrulla> => {
+  assertNotImpersonating('crearPatrulla');
   const persona = params.personas.find((p) => p.id === params.personaId);
   if (!persona) {
     throw new Error(`Persona con ID ${params.personaId} no encontrada.`);
@@ -752,6 +757,7 @@ export const sustituirPatrulla = async (params: {
   cuenta?: any;
   cuadranteId?: string;
 }): Promise<Patrulla> => {
+  assertNotImpersonating('sustituirPatrulla');
   const { patrullaId, nuevaPersonaId, motivo, personas, adminInfo } = params;
 
   // Buscar patrulla en memoria o recargar desde Firestore
@@ -905,6 +911,7 @@ export const cambiarEstadoPatrulla = async (params: {
   adminInfo: { uid: string; nombre: string };
   motivo?: string;
 }): Promise<Patrulla> => {
+  assertNotImpersonating('cambiarEstadoPatrulla');
   const { patrullaId, nuevoEstado, adminInfo, motivo } = params;
   let patrulla = memoryPatrullasCache.find((p) => p.id === patrullaId);
   if (!patrulla) {
@@ -985,19 +992,29 @@ export const eliminarPatrulla = async (params: {
 }): Promise<void> => {
   const { patrullaId, adminInfo, cuenta } = params;
 
-  // 1. Verificación de permisos de administrador
+  // 1. Verificación de permisos de administrador y bloqueo de suplantación
+  assertNotImpersonating('eliminarPatrulla');
   const esAdmin = puedeGestionarPatrullas(cuenta) || cuenta?.rol === 'ADMIN';
   if (!esAdmin) {
     throw new Error('Operación denegada: Solo los administradores pueden eliminar patrullas.');
   }
 
-  // 2. Localizar la patrulla a eliminar
+  // 2. Localizar la patrulla a retirar
   const patrullaAEliminar = memoryPatrullasCache.find((p) => p.id === patrullaId);
   const secuencial = patrullaAEliminar?.numeroSecuencial || 0;
 
-  // 3. Eliminar FÍSICAMENTE en Firestore (fuente de verdad)
+  // 3. NC-10: Baja lógica en Firestore (preserva trazabilidad y cumple allow delete: if false)
   const docRef = doc(db, PATRULLAS_COLLECTION, patrullaId);
-  await deleteDoc(docRef);
+  await setDoc(
+    docRef,
+    {
+      eliminadoLogico: true,
+      estado: 'CANCELADA',
+      eliminadoEn: new Date().toISOString(),
+      eliminadoPorUid: adminInfo.uid,
+    },
+    { merge: true }
+  );
 
   // 4. Actualizar memoria L1 y localStorage L2
   memoryPatrullasCache = memoryPatrullasCache.filter((p) => p.id !== patrullaId);
@@ -1038,6 +1055,7 @@ export const registrarAuditoriaPatrulla = async (params: {
   motivo?: string;
   detalles: string;
 }): Promise<PatrullaAuditLog> => {
+  assertNotImpersonating('registrarAuditoriaPatrulla');
   const auditId = `p-audit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
   const log: PatrullaAuditLog = {
     id: auditId,

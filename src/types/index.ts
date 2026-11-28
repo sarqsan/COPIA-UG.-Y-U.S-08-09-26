@@ -16,13 +16,15 @@ export type EstadoAcceso = 'SIN_CUENTA' | 'INVITACION_PENDIENTE' | 'ACTIVA' | 'D
 export interface Persona {
   id: string; // Identificador único permanente del sistema
   nombre: string;
+  alias?: string; // Único dato identificativo visible elegible y modificable libremente por el usuario
+  aliasActualizadoEn?: string; // ISO string de última actualización del alias libre
   empleo: Empleo;
   grupo: Grupo;
-  telefono: string; // Teléfono de contacto operativo para coberturas
+  telefono: string; // Teléfono de contacto operativo (no editable desde perfil ordinario)
   activo: boolean; // true = activo en el grupo actual, false = histórico/inactivo
   ordenRotacion?: number; // Posición asignada para el ciclo actual (1, 2, 3...)
   cicloId?: string; // Ciclo o promoción (ej: "2026-A", "2027-A")
-  tipoServicio?: TipoServicio; // GUARDIA (24h) | SEGURIDAD (12h)
+  tipoServicio?: TipoServicio; // GUARDIA (U.G. 24h) | US (U.S. 12h)
   notas?: string;
   // Días anuales asignados por la Administración (Bolsa de días U.S. / Cuadrantes)
   diasVacacionesAsignados?: number; // Ej: 22 días
@@ -36,10 +38,14 @@ export interface Cuenta {
   id: string;
   uid: string; // Identificador único de cuenta
   personaId: string | null; // ID de la persona vinculada (si aplica)
-  username?: string; // Nombre de usuario personalizado o inicial (apellido+rol)
+  username?: string; // Nombre de usuario técnico de acceso
+  alias?: string; // Único dato identificativo visible elegible y modificable libremente por el usuario
+  aliasActualizadoEn?: string; // ISO string de última actualización del alias libre
   password?: string; // Solo para compatibilidad temporal en runtime; NUNCA en Firestore
-  passwordHash?: string; // Hash criptográfico seguro (SHA-256)
+  passwordHash?: string; // Hash criptográfico seguro (scrypt en servidor; legacy SHA-256 solo lectura previa a migración)
   passwordSalt?: string; // Sal criptográfica única por usuario
+  hashAlgorithm?: 'legacy-sha256-v1' | 'pbkdf2-sha256' | 'scrypt-v1';
+  mfaEnabled?: boolean;
   email: string;
   nombre: string;
   rol: RolUsuario;
@@ -47,7 +53,7 @@ export interface Cuenta {
   telefono?: string;
   firma?: string; // Firma electrónica (data URL / PNG base64)
   fechaFirma?: string;
-  requiereCambioCredenciales?: boolean; // true en primer acceso (apellido+rol)
+  requiereCambioCredenciales?: boolean; // true en primer acceso
   tipoServicio?: TipoServicio;
   fechaCreacion: string;
   ultimoAcceso: string;
@@ -56,6 +62,7 @@ export interface Cuenta {
 export type TipoAccionAudit =
   | 'CREAR_PERSONA'
   | 'MODIFICAR_PERSONA'
+  | 'MODIFICAR_ALIAS'
   | 'ELIMINAR_PERSONA'
   | 'ACTIVAR_PERSONA'
   | 'DESACTIVAR_PERSONA'
@@ -90,7 +97,6 @@ export type TipoAccionAudit =
   | 'ACEPTAR_COBERTURA'
   | 'APROBAR_COBERTURA'
   | 'RECHAZAR_COBERTURA'
-  | 'ENVIAR_MENSAJE_ADMIN'
   | 'MODIFICAR_ORDEN_ROTACION'
   | 'IMPORTAR_NUEVO_CICLO'
   | 'CONFIRMAR_IMAGINARIA_RECEPCION'
@@ -101,7 +107,17 @@ export type TipoAccionAudit =
   | 'GESTION_AUSENCIAS_US'
   | 'CREAR_BACKUP'
   | 'RESTAURAR_BACKUP'
-  | 'ELIMINAR_BACKUP';
+  | 'ELIMINAR_BACKUP'
+  | 'EXPORTAR_BACKUP'
+  | 'LOGIN_FALLIDO'
+  | 'CUENTA_BLOQUEADA'
+  | 'CAMBIO_PASSWORD'
+  | 'MFA_ACTIVADO'
+  | 'INVITACION_CONSUMIDA'
+  | 'SELLO_DOCUMENTO'
+  | 'ACCESO_DENEGADO'
+  | 'MIGRACION_DATOS'
+  | 'CANCELAR_CAMBIO';
 
 export interface AuditLog {
   id: string;
@@ -388,7 +404,7 @@ export interface StatsPersonal {
 }
 
 // ----------------------------------------------------
-// TIPOS OPERATIVOS: CAMBIOS, AUSENCIAS, CHAT, NOTIFICACIONES
+// TIPOS OPERATIVOS: CAMBIOS, AUSENCIAS Y NOTIFICACIONES
 // ----------------------------------------------------
 
 export type EstadoSolicitudCambio =
@@ -465,6 +481,8 @@ export interface SolicitudCambio {
 
   motivo?: string;
   fechaSolicitud: string; // ISO
+  fechaExpiracion?: string; // ISO TTL (por defecto 72h desde solicitud)
+  motivoCancelacion?: string;
   estado: EstadoSolicitudCambio;
 
   // Respuesta del compañero
@@ -522,11 +540,20 @@ export interface DocumentoCambioFirmado {
   };
   detalles: string;
   motivo?: string;
+  // Campos criptográficos de integridad (esquema v2 — R-05; opcionales para preservar históricos v1 intactos)
+  sha256Contenido?: string;
+  selloHmac?: string;
+  algoritmoIntegridad?: string;
+  versionDocumento?: 1 | 2;
+  selladoEnServidor?: boolean;
+  fechaSelladoServidor?: string;
+  nivelFirmaLegal?: string;
+  origenColeccionLegada?: string;
 }
 
 export interface EmailConfigPersonal {
-  cuentaEmisora: string; // Fijo sarqsan2@gmail.com
-  destinatario: string; // Configurable por ADMIN, ej: 'correo-personal@empresa.es'
+  cuentaEmisora: string; // Configurable por ADMIN (configuracion_sistema / VITE_GMAIL_SENDER_EMAIL)
+  destinatario: string; // Configurable por ADMIN
   asunto: string; // Configurable con variables {ID_CAMBIO}, etc.
   cuerpo: string; // Plantilla multilínea configurable
   ultimaActualizacion?: string;
@@ -537,7 +564,7 @@ export interface RegistroEnvioEmailCambio {
   id: string;
   idCambio: string; // ID o código de verificación del cambio
   solicitudId?: string;
-  cuentaEmisora: string; // sarqsan2@gmail.com
+  cuentaEmisora: string; // Cuenta emisora configurada por ADMIN
   destinatario: string;
   asunto: string;
   cuerpo: string;
@@ -559,7 +586,7 @@ export interface ConfirmacionImaginaria {
   servicioFecha: string;
 }
 
-export type TipoAusencia = 'ENFERMEDAD' | 'INDISPOSICION' | 'OTRA_AUSENCIA';
+export type TipoAusencia = 'AUSENCIA_SOBREVENIDA';
 
 export type EstadoIncidencia =
   | 'COMUNICADA_PENDIENTE_COBERTURA'
@@ -588,7 +615,6 @@ export interface IncidenciaAusencia {
   titularTelefono?: string;
 
   tipoAusencia: TipoAusencia;
-  observaciones?: string;
   fechaComunicacion: string; // ISO timestamp
   horaExactaComunicacion: string; // HH:mm:ss o string localizado
   estadoMomentoServicio: 'ANTES_DE_INICIAR' | 'EN_CURSO' | 'MISMO_DIA' | 'DIA_SIGUIENTE';
@@ -618,51 +644,10 @@ export interface IncidenciaAusencia {
   adminResolucionNombre?: string;
   motivoRechazoAdmin?: string;
 
-  // Documento médico adjunto
-  documentoUrl?: string;
-  documentoNombre?: string;
-  documentoPath?: string;
-
-  // Análisis inteligente de parte médico con IA
-  fechaInicioBaja?: string;
-  fechaFinBaja?: string;
-  diasDuracion?: number;
-  estadoAnalisisIA?: 'PENDIENTE' | 'CONFIRMADO' | 'REVISION_MANUAL';
-  motivoRevisionIA?: string;
-  diagnosticoResumen?: string;
-
   // Alerta de servicios afectados (> 2 servicios)
   serviciosAfectadosCount?: number;
   serviciosAfectadosFechas?: string[];
   alertaMasDeDosServicios?: boolean;
-}
-
-export interface ParteMedico {
-  id: string;
-  personaId: string;
-  personaNombre: string;
-  personaEmpleo: Empleo;
-  personaGrupo: Grupo;
-  tipoServicio?: TipoServicio;
-  grupoId?: string;
-  fechaSubida: string; // ISO
-  fechaInicio: string; // YYYY-MM-DD
-  fechaFin?: string; // YYYY-MM-DD
-  diasDuracion?: number;
-  estadoAnalisisIA: 'PENDIENTE' | 'CONFIRMADO' | 'REVISION_MANUAL';
-  motivoRevisionIA?: string;
-  diagnosticoResumen?: string;
-  documentoUrl: string; // URL en Firebase Storage
-  documentoNombre: string;
-  documentoPath: string;
-  incidenciaId?: string;
-  cuadranteId?: string;
-  serviciosAfectadosFechas?: string[];
-  serviciosAfectadosCount?: number;
-  alertaMasDeDosServicios?: boolean;
-  revisadoPorAdmin?: boolean;
-  adminRevisionNombre?: string;
-  fechaRevisionAdmin?: string;
 }
 
 export type TipoNotificacion =
@@ -677,7 +662,6 @@ export type TipoNotificacion =
   | 'COBERTURA_ACEPTADA'
   | 'COBERTURA_APROBADA'
   | 'COBERTURA_RECHAZADA'
-  | 'MENSAJE_ADMINISTRATIVO'
   | 'AVISO_IMPORTANTE';
 
 export interface Notificacion {
@@ -697,40 +681,9 @@ export interface Notificacion {
   leidoPor?: string[]; // UIDs de usuarios/admins que han marcado como leída esta notificación
   fechaLeida?: string;
   linkTab?: string;
-  referenciaId?: string; // ID de solicitud, incidencia o mensaje
+  referenciaId?: string; // ID de solicitud o incidencia
   cuadranteId?: string;
   servicioId?: string;
-}
-
-export type TipoMensajeChat = 'PRIVADO' | 'GRUPO' | 'ADMINISTRATIVO';
-export type DestinoAdminMensaje = 'TODOS' | 'ROL1' | 'ROL2' | 'GRUPO' | 'INDIVIDUAL';
-
-export interface MensajeChat {
-  id: string;
-  tipo: TipoMensajeChat;
-  tipoServicio?: TipoServicio;
-  grupoId?: string;
-  conversacionId?: string; // Formato para privado: `${p1Id}_${p2Id}` ordenado alfabéticamente
-
-  autorPersonaId?: string;
-  autorUid: string;
-  autorNombre: string;
-  autorEmpleo?: Empleo;
-  autorRol: RolUsuario;
-
-  // Destinatario específico (para privado o individual)
-  destinatarioPersonaId?: string;
-  destinatarioNombre?: string;
-  destinatarioUid?: string;
-  destinatariosUids?: string[]; // Para verificar lectura y permisos
-
-  // Destino de mensaje administrativo
-  destinoAdmin?: DestinoAdminMensaje;
-  grupoDestino?: Grupo;
-
-  contenido: string;
-  fechaHora: string; // ISO
-  leidoPor: string[]; // Lista de UIDs que lo han leído
 }
 
 // ----------------------------------------------------

@@ -16,6 +16,7 @@ import { generarWorkbookCuadranteExcel } from './excelCuadranteExport';
 import { generarWorkbookCuadranteUS } from './excelUSCuadranteExport';
 import { getPatrullas } from './patrullaService';
 import { clasificarDiaUS } from './cuadranteUSCalendarHelper';
+import { assertNotImpersonating } from '../utils/impersonationGuard';
 
 export const XLSX_MIME_TYPE =
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -66,7 +67,7 @@ export const getAvisoProgramadoConfig = async (): Promise<EmailProgramacionConfi
   try {
     const raw = localStorage.getItem(STORAGE_CONFIG_KEY);
     if (raw) {
-      cachedConfig = { ...CONFIG_PROGRAMACION_DEFAULT, ...JSON.parse(raw), cuentaEmisora: 'sarqsan2@gmail.com' };
+      cachedConfig = { ...CONFIG_PROGRAMACION_DEFAULT, ...JSON.parse(raw) };
     }
   } catch {}
 
@@ -92,7 +93,10 @@ export const getAvisoProgramadoConfig = async (): Promise<EmailProgramacionConfi
         ultimaFechaCompletado: typeof data.ultimaFechaCompletado === 'string' ? data.ultimaFechaCompletado : undefined,
         ultimaActualizacion: typeof data.ultimaActualizacion === 'string' ? data.ultimaActualizacion : undefined,
         actualizadoPor: typeof data.actualizadoPor === 'string' ? data.actualizadoPor : undefined,
-        cuentaEmisora: 'sarqsan2@gmail.com',
+        cuentaEmisora:
+          typeof data.cuentaEmisora === 'string' && data.cuentaEmisora.trim()
+            ? data.cuentaEmisora.trim()
+            : CONFIG_PROGRAMACION_DEFAULT.cuentaEmisora,
       };
       if (cachedConfig.ultimoSlotCompletado) {
         addSlotCompletadoLocal(cachedConfig.ultimoSlotCompletado);
@@ -115,6 +119,7 @@ export const guardarAvisoProgramadoConfig = async (
   nuevaConfig: Partial<EmailProgramacionConfig>,
   adminUid?: string
 ): Promise<{ success: boolean; errors?: string[]; config: EmailProgramacionConfig }> => {
+  assertNotImpersonating('guardarAvisoProgramadoConfig');
   const nowIso = new Date().toISOString();
   const merged = {
     ...cachedConfig,
@@ -159,6 +164,7 @@ export const guardarAvisoProgramadoConfig = async (
 };
 
 export const registrarHistorialAviso = async (registro: RegistroEjecucionProgramada): Promise<void> => {
+  assertNotImpersonating('registrarHistorialAviso');
   const idx = cachedHistorial.findIndex((r) => r.id === registro.id);
   if (idx >= 0) cachedHistorial[idx] = registro;
   else cachedHistorial.unshift(registro);
@@ -174,7 +180,7 @@ export const registrarHistorialAviso = async (registro: RegistroEjecucionProgram
       destinatario: registro.destinatario || 'Sin definir',
       asunto: registro.asunto,
       cuerpo: '',
-      cuentaEmisora: 'sarqsan2@gmail.com',
+      cuentaEmisora: cachedConfig.cuentaEmisora || '',
       fecha: registro.fechaIso,
       estado: registro.estado === 'PREPARADO' || registro.estado === 'ENVIADO' ? 'ENVIADO' : registro.estado === 'DESCARTADO' ? 'DESCARTADO' : 'ERROR',
       nombreAdjunto: registro.adjuntos.join(' + '),
@@ -564,7 +570,7 @@ export const construirBorradorEmlConExcels = (params: {
 
   const headers = [
     `Date: ${new Date().toUTCString()}`,
-    `From: ${params.emisor || 'sarqsan2@gmail.com'}`,
+    `From: ${params.emisor || cachedConfig.cuentaEmisora || 'noreply@cuadrantes-ug-us.local'}`,
     `To: ${params.destinatario}`,
     `Subject: ${encodedSubject}`,
   ];
@@ -657,7 +663,7 @@ export const crearBorradorGmailConExcels = async (params: {
   }
 
   const mime = construirBorradorEmlConExcels({
-    emisor: params.emisor || 'sarqsan2@gmail.com',
+    emisor: params.emisor || cachedConfig.cuentaEmisora || '',
     destinatario: params.destinatario,
     asunto: params.asunto,
     cuerpo: params.cuerpo,
@@ -740,7 +746,7 @@ export const enviarCorreoGmailConExcels = async (params: {
   }
 
   const mime = construirBorradorEmlConExcels({
-    emisor: params.emisor || 'sarqsan2@gmail.com',
+    emisor: params.emisor || cachedConfig.cuentaEmisora || '',
     destinatario: params.destinatario,
     asunto: params.asunto,
     cuerpo: params.cuerpo,

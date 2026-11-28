@@ -38,7 +38,7 @@ export const normalizeGrupo = (grupo: string): Grupo | null => {
   const clean = grupo.trim().toUpperCase().replace(/\s+/g, ' ');
   
   if (clean === 'GUARDIA' || clean === 'U.G.' || clean === 'UG' || clean === 'U.G' || clean === 'GUARDIA 24H' || clean === 'U.G. (24 HORAS)') return 'U.G.';
-  if (clean === 'SEGURIDAD' || clean === 'U.S.' || clean === 'US' || clean === 'U.S' || clean === 'US_SEGURIDAD' || clean === 'SEGURIDAD 12H' || clean === 'U.S. (12 HORAS)') return 'US_SEGURIDAD';
+  if (clean === 'U.S.' || clean === 'US' || clean === 'U.S' || clean === 'US_SEGURIDAD' || clean === 'U.S. (12 HORAS)' || clean === 'US 12H') return 'US_SEGURIDAD';
 
   const exact = GRUPOS_VALIDOS.find((u) => u.toUpperCase() === clean);
   return exact || 'U.G.';

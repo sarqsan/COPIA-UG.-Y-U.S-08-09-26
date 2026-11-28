@@ -2,7 +2,7 @@ import { ServicioDiaUS, MetricasCuadranteUS } from '../types/usTypes';
 import { Persona, InformeValidacion, ValidacionItem } from '../types';
 
 /**
- * Validador exhaustivo e independiente para cuadrantes de la U.S. (Unidad de Seguridad - 12h)
+ * Validador exhaustivo e independiente para cuadrantes de U.S. (12h)
  */
 export const validarCuadranteUS = (params: {
   servicios: ServicioDiaUS[];

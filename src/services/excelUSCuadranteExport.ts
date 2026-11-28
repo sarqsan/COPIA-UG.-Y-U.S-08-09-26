@@ -5,6 +5,7 @@ import { VisualExcelSheet, VisualExcelCell, extraerDatosVisualesDesdeExcelJSWork
 import { calcularMetricasCuadranteUS } from './cuadranteUSMetricsService';
 import { clasificarDiaUS } from './cuadranteUSCalendarHelper';
 import { getFestivoInfoUS } from './festivosUSService';
+import { getApprovedAliasUS } from '../utils/aliasHelper';
 
 const BORDER_THIN_GRAY: Partial<ExcelJS.Borders> = {
   top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
@@ -81,14 +82,14 @@ export const getEstadoEnDiaUS = (
           tooltip: `Asuntos Propios (${horasAusencia}h${esLaborable ? '' : ' no laborable'})`,
         };
       }
-      if (aus.tipo === 'BAJA_MEDICA' || (aus as any).tipo === 'BAJA' || (aus as any).tipo === 'B') {
+      if ((aus as any).tipo === 'AUSENCIA_SOBREVENIDA') {
         return {
-          codigo: 'B',
+          codigo: 'AS',
           horas: 0,
           bgColor: 'FFDC2626', // Rojo 600
           textColor: 'FFFFFFFF',
           isBold: true,
-          tooltip: 'Baja Médica (0h)',
+          tooltip: 'Ausencia Sobrevenida (0h)',
         };
       }
     }
@@ -289,7 +290,7 @@ export const generarWorkbookCuadranteUS = (
   mesFiltro?: string
 ): ExcelJS.Workbook => {
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'Unidad de Seguridad (U.S.) - AI Studio';
+  workbook.creator = 'Portal U.G. / U.S.';
   workbook.created = new Date();
 
   // Ordenar personal por orden de rotación y luego por nombre
@@ -362,7 +363,7 @@ export const generarWorkbookCuadranteUS = (
     const rowTitle = ws.getRow(1);
     rowTitle.height = 28;
     const cellTitle = ws.getCell(1, 1);
-    cellTitle.value = `UNIDAD DE SEGURIDAD (U.S.) — CUADRANTE DE SERVICIOS — ${nombreMes.toUpperCase()} ${anioStr}`;
+    cellTitle.value = `U.S. — CUADRANTE DE SERVICIOS — ${nombreMes.toUpperCase()} ${anioStr}`;
     cellTitle.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FFFFFFFF' } };
     cellTitle.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F172A' } }; // Navy oscuro
     cellTitle.alignment = { vertical: 'middle', horizontal: 'center' };
@@ -498,9 +499,9 @@ export const generarWorkbookCuadranteUS = (
       cNum.alignment = { vertical: 'middle', horizontal: 'center' };
       cNum.border = BORDER_THIN_GRAY;
 
-      // 2. Apellidos y Nombre
+      // 2. Identificación visible (alias aprobado o texto neutro)
       const cNom = ws.getCell(filaActual, 2);
-      cNom.value = p.nombre;
+      cNom.value = getApprovedAliasUS(p);
       cNom.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF0F172A' } };
       cNom.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
       cNom.border = BORDER_THIN_GRAY;
@@ -656,7 +657,7 @@ export const generarWorkbookCuadranteUS = (
     filaActual += 2;
     ws.mergeCells(filaActual, 2, filaActual, 14);
     const cLeyendaH = ws.getCell(filaActual, 2);
-    cLeyendaH.value = 'LEYENDA DE TURNOS Y CÓDIGOS — UNIDAD DE SEGURIDAD (U.S.)';
+    cLeyendaH.value = 'LEYENDA DE TURNOS Y CÓDIGOS — U.S.';
     cLeyendaH.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
     cLeyendaH.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F172A' } };
     cLeyendaH.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
@@ -672,7 +673,7 @@ export const generarWorkbookCuadranteUS = (
       { codigo: 'V', nombre: 'Vacaciones', desc: '7.0h computables en días laborables (0h sábados, domingos y festivos)', bg: 'FF06B6D4', fg: 'FFFFFFFF' },
       { codigo: 'PER', nombre: 'Permiso', desc: '7.0h computables en días laborables (0h sábados, domingos y festivos)', bg: 'FFF43F5E', fg: 'FFFFFFFF' },
       { codigo: 'AP', nombre: 'Asuntos Propios', desc: '7.0h computables en días laborables (0h sábados, domingos y festivos)', bg: 'FF0D9488', fg: 'FFFFFFFF' },
-      { codigo: 'B', nombre: 'Baja Médica', desc: '0h computables (cubierto por imaginaria / reserva)', bg: 'FFDC2626', fg: 'FFFFFFFF' },
+      { codigo: 'AS', nombre: 'Ausencia Sobrevenida', desc: '0h computables (cubierto por imaginaria / reserva)', bg: 'FFDC2626', fg: 'FFFFFFFF' },
       { codigo: 'L', nombre: 'Libre / Descanso', desc: '0h computables (descanso reglamentario)', bg: 'FFFFFFFF', fg: 'FF64748B' },
     ];
 

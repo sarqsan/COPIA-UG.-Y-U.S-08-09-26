@@ -64,7 +64,7 @@ function assert(condition: boolean, mensaje: string) {
 }
 
 // Plantilla U.S. de prueba con 16 personas
-const testPrefix = `test-perm-${Date.now()}`;
+const testPrefix = `sim-perm-${Date.now()}`;
 const plantillaUS: Persona[] = Array.from({ length: 16 }, (_, i) => ({
   id: `${testPrefix}-${i + 1}`,
   nombre: `Usuario US ${i + 1}`,

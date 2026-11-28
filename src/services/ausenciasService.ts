@@ -23,7 +23,13 @@ import {
 } from './cuadranteService';
 import { registrarImaginariaActivadaUS } from './compensacionImaginariasUSService';
 import { getPersonas } from './personasService';
+import { assertNotImpersonating } from '../utils/impersonationGuard';
 import { getRolUG, getApellidoUG } from '../utils/ugNomenclatura';
+import {
+  CATEGORIA_AUSENCIA_SOBREVENIDA,
+  ETIQUETA_AUSENCIA_SOBREVENIDA,
+  validarPayloadAusenciaSobrevenida,
+} from '../utils/ausenciaSobrevenidaValidator';
 
 const INCIDENCIAS_COLLECTION = 'incidencias_ausencia';
 const INCIDENCIAS_STORAGE_KEY = 'incidencias_ausencia_cache_v2';
@@ -56,11 +62,11 @@ const saveIncidenciasLocalCache = () => {
 loadIncidenciasLocalCache();
 
 /**
- * Comunica una ausencia / indisposición por parte de un titular.
+ * Comunica una ausencia sobrevenida por parte de un titular.
+ * - Única categoría admitida: AUSENCIA_SOBREVENIDA (sin motivos ni datos médicos).
  * - Registra la hora exacta de comunicación.
  * - Alerta ÚNICAMENTE al ROL 1/ROL 2 de imaginaria (mismo rol) de ese día y a los administradores.
  * - Registra la acción en AuditLogs.
- * - NO almacena partes médicos por directriz reglamentaria de confidencialidad.
  */
 export const comunicarAusencia = async (params: {
   cuadranteId: string;
@@ -68,8 +74,7 @@ export const comunicarAusencia = async (params: {
   fechaServicio: string;
   titular: Persona;
   slotTipo: 'rol1_1' | 'rol1_2' | 'rol2_1' | 'rol2_2';
-  tipoAusencia: TipoAusencia;
-  observaciones?: string;
+  tipoAusencia?: TipoAusencia;
   servicioDia: ServicioDia;
   personas: Persona[];
   todosLosServicios?: ServicioDia[];
@@ -79,18 +84,33 @@ export const comunicarAusencia = async (params: {
   message: string;
   alertaMasDeDosServicios?: boolean;
 }> => {
+  assertNotImpersonating('comunicarAusencia');
+
+  const payloadValidacion: Record<string, unknown> = {
+    ...(params as unknown as Record<string, unknown>),
+    tipoAusencia: params.tipoAusencia ?? CATEGORIA_AUSENCIA_SOBREVENIDA,
+  };
+  const validacion = validarPayloadAusenciaSobrevenida(payloadValidacion);
+  if (!validacion.valid) {
+    return {
+      success: false,
+      message:
+        validacion.error ||
+        'Solo se admite la categoría operativa neutra AUSENCIA_SOBREVENIDA sin datos médicos.',
+    };
+  }
+
   const {
     cuadranteId,
     servicioId,
     fechaServicio,
     titular,
     slotTipo,
-    tipoAusencia,
-    observaciones,
     servicioDia,
     personas,
     todosLosServicios = [],
   } = params;
+  const tipoAusencia: TipoAusencia = CATEGORIA_AUSENCIA_SOBREVENIDA;
 
   const now = new Date();
   const nowIso = now.toISOString();
@@ -129,7 +149,7 @@ export const comunicarAusencia = async (params: {
   const titularApellido = getApellidoUG(titular);
   const titularRol = getRolUG(titular.empleo);
 
-  // Calcular servicios futuros afectados por la baja
+  // Calcular servicios futuros afectados por la ausencia sobrevenida
   const serviciosAfectados = todosLosServicios.filter((s) => {
     if (s.fecha < fechaServicio) return false;
     const esTitular =
@@ -160,7 +180,6 @@ export const comunicarAusencia = async (params: {
     titularEmpleo: titular.empleo,
     titularGrupo: titular.grupo,
     tipoAusencia,
-    observaciones: observaciones?.trim() || '',
     fechaComunicacion: nowIso,
     horaExactaComunicacion: horaExacta,
     estadoMomentoServicio: estadoMomento,
@@ -198,7 +217,7 @@ export const comunicarAusencia = async (params: {
     await crearNotificacion({
       tipo: 'SOLICITUD_COBERTURA',
       tipoServicio: 'GUARDIA',
-      titulo: `AVISO DE COBERTURA: Guardia del ${fechaServicio} asignada por baja del titular.`,
+      titulo: `AVISO DE COBERTURA: Guardia del ${fechaServicio} asignada por ausencia sobrevenida del titular.`,
       mensaje: `Debes presentarte para cubrir la guardia de 24h de ${titularApellido} (${titularRol}) el día ${fechaServicio}. Confirma la recepción en la aplicación. Recuerda: la notificación en la app no sustituye la llamada telefónica reglamentaria.`,
       destinatarioPersonaId: imagAsignada.id,
       linkTab: 'imaginarias',
@@ -211,7 +230,7 @@ export const comunicarAusencia = async (params: {
       tipo: 'AVISO_IMPORTANTE',
       tipoServicio: 'GUARDIA',
       titulo: `⚠️ SIN IMAGINARIA DE ${titRol(titular.empleo)} PARA ${fechaServicio}`,
-      mensaje: `No se encontró imaginaria de ${titularRol} asignada para cubrir la baja de ${titularApellido}. Requiere asignación manual por administración.`,
+      mensaje: `No se encontró imaginaria de ${titularRol} asignada para cubrir la ausencia sobrevenida de ${titularApellido}. Requiere asignación manual por administración.`,
       esParaAdmin: true,
       linkTab: 'cuadrantes',
       referenciaId: incidenciaId,
@@ -221,15 +240,15 @@ export const comunicarAusencia = async (params: {
   }
 
   // 2. Alertar a los administradores con el aviso de cobertura de imaginaria
-  let mensajeAdmin = `Indisposición comunicada para el servicio del ${fechaServicio} (${horaExacta}) por ${titularApellido} (${titularRol}). Alertada imaginaria: ${imagAsignadaNombre}.`;
+  let mensajeAdmin = `${ETIQUETA_AUSENCIA_SOBREVENIDA} comunicada para el servicio del ${fechaServicio} (${horaExacta}) por ${titularApellido} (${titularRol}). Alertada imaginaria: ${imagAsignadaNombre}.`;
   if (alertaMasDeDos) {
-    mensajeAdmin += ` [ALERTA: La baja continuada afecta a ${totalAfectados} servicios (> 2). Continúan cubiertos por imaginarias mientras no haya sustitución administrativa.]`;
+    mensajeAdmin += ` [ALERTA: La ausencia sobrevenida afecta a ${totalAfectados} servicios (> 2). Continúan cubiertos por imaginarias mientras no haya sustitución administrativa.]`;
   }
 
   await crearNotificacion({
     tipo: 'NUEVA_INCIDENCIA_AUSENCIA',
     tipoServicio: 'GUARDIA',
-    titulo: `ALERTA DE COBERTURA: Ausencia de ${titularApellido} (${titularRol})${alertaMasDeDos ? ' (> 2 servicios)' : ''}`,
+    titulo: `ALERTA DE COBERTURA: Ausencia sobrevenida de ${titularApellido} (${titularRol})${alertaMasDeDos ? ' (> 2 servicios)' : ''}`,
     mensaje: mensajeAdmin,
     esParaAdmin: true,
     linkTab: 'cuadrantes',
@@ -247,8 +266,8 @@ export const comunicarAusencia = async (params: {
     fechaAfectada: fechaServicio,
     personaId: titular.id,
     personaNombre: titularApellido,
-    motivo: `${tipoAusencia}: ${observaciones || 'Sin observaciones'}`,
-    detalles: `Ausencia comunicada por ${titularApellido} para guardia del ${fechaServicio} a las ${horaExacta}. ${alertaMasDeDos ? `Afecta a ${totalAfectados} servicios continuados.` : ''} Alertada imaginaria: ${imagAsignadaNombre}.`,
+    motivo: ETIQUETA_AUSENCIA_SOBREVENIDA,
+    detalles: `Ausencia sobrevenida comunicada por ${titularApellido} para guardia del ${fechaServicio} a las ${horaExacta}. ${alertaMasDeDos ? `Afecta a ${totalAfectados} servicios continuados.` : ''} Alertada imaginaria: ${imagAsignadaNombre}.`,
   });
 
   saveIncidenciasLocalCache();
@@ -257,7 +276,7 @@ export const comunicarAusencia = async (params: {
     success: true,
     incidencia: nuevaIncidencia,
     alertaMasDeDosServicios: alertaMasDeDos,
-    message: `Tu imaginaria asignada es ${imagAsignadaNombre} (${titularRol}).\n\nLa aplicación ha enviado el aviso al imaginaria y a los administradores. Recuerda remitir el parte médico a través del WhatsApp de Administración.`,
+    message: `Tu imaginaria asignada es ${imagAsignadaNombre} (${titularRol}).\n\nLa aplicación ha enviado el aviso de ausencia sobrevenida a la imaginaria y a los administradores para coordinar la cobertura.`,
   };
 };
 
@@ -266,15 +285,16 @@ function titRol(empleo: string) {
 }
 
 /**
- * La imaginaria confirma que ha RECIBIDO el aviso de indisposición/cobertura y activa la cobertura.
+ * La imaginaria confirma que ha RECIBIDO el aviso de ausencia sobrevenida/cobertura y activa la cobertura.
  * Esto actualiza de forma automática y visual el cuadrante:
- * - Titular: 'BAJA / SERVICIO CUBIERTO'
+ * - Titular: 'AUSENCIA SOBREVENIDA / SERVICIO CUBIERTO'
  * - Sustituto (Imaginaria): 'COBERTURA ACTIVADA'
  */
 export const confirmarRecepcionAvisoImaginaria = async (params: {
   incidenciaId: string;
   imaginariaPersona: Persona;
 }): Promise<{ success: boolean; message: string }> => {
+  assertNotImpersonating('confirmarRecepcionAvisoImaginaria');
   const { incidenciaId, imaginariaPersona } = params;
   const inc = memoryIncidenciasCache.find((i) => i.id === incidenciaId);
   if (!inc) {
@@ -316,7 +336,7 @@ export const confirmarRecepcionAvisoImaginaria = async (params: {
       fechaServicio: inc.fechaServicio,
       titularPersonaId: inc.titularPersonaId,
       imaginariaPersonaId: imaginariaPersona.id,
-      motivo: `COBERTURA ACTIVADA: ${imagApellido} (${imagRol}) asume la guardia por baja de ${inc.titularNombre}`,
+      motivo: `COBERTURA ACTIVADA: ${imagApellido} (${imagRol}) asume la guardia por ausencia sobrevenida de ${inc.titularNombre}`,
     });
   }
 
@@ -355,7 +375,7 @@ export const confirmarRecepcionAvisoImaginaria = async (params: {
     console.warn('Actualización de confirmación de imaginaria en Firestore diferida:', err.message || err);
   }
 
-  // 1. Notificar al titular indispuesto
+  // 1. Notificar al titular ausente
   await crearNotificacion({
     tipo: 'COBERTURA_ACEPTADA',
     titulo: 'Imaginaria Confirmó Recepción del Aviso',
@@ -384,7 +404,7 @@ export const confirmarRecepcionAvisoImaginaria = async (params: {
     fechaAfectada: inc.fechaServicio,
     personaId: imaginariaPersona.id,
     personaNombre: imagApellido,
-    detalles: `El imaginaria ${imagApellido} (${imagRol}) confirmó la recepción y activó la cobertura de guardia del ${inc.fechaServicio} por baja de ${inc.titularNombre}. Estado en cuadrante: COBERTURA ACTIVADA.`,
+    detalles: `El imaginaria ${imagApellido} (${imagRol}) confirmó la recepción y activó la cobertura de guardia del ${inc.fechaServicio} por ausencia sobrevenida de ${inc.titularNombre}. Estado en cuadrante: COBERTURA ACTIVADA.`,
   });
 
   return {
@@ -405,8 +425,10 @@ export const getIncidenciasAusencia = async (cuadranteId?: string): Promise<Inci
     const snapshot = await getDocs(q);
     const items: IncidenciaAusencia[] = [];
     snapshot.forEach((docSnap) => {
-      const d = docSnap.data() as IncidenciaAusencia;
-      items.push(d);
+      const d = docSnap.data() as IncidenciaAusencia & { eliminadoLogico?: boolean };
+      if (!d.eliminadoLogico) {
+        items.push(d);
+      }
     });
     if (items.length > 0) {
       memoryIncidenciasCache = items;
@@ -441,6 +463,7 @@ export const resolverIncidenciaAdmin = async (params: {
   adminInfo: { uid: string; nombre: string };
   personas: Persona[];
 }): Promise<{ success: boolean; message: string }> => {
+  assertNotImpersonating('resolverIncidenciaAdmin');
   const { incidenciaId, aprobada, motivoRechazo, adminInfo, personas } = params;
   loadIncidenciasLocalCache();
   const inc = memoryIncidenciasCache.find((i) => i.id === incidenciaId);
@@ -495,7 +518,7 @@ export const resolverIncidenciaAdmin = async (params: {
     servicioId: inc.servicioId,
     slotTipo: inc.slotTipo,
     nuevaPersonaId: inc.imaginariaAceptantePersonaId,
-    motivo: `Cobertura por ausencia (${inc.tipoAusencia}) de ${inc.titularNombre}. Asume el servicio el imaginaria ${inc.imaginariaAceptanteNombre}.`,
+    motivo: `Cobertura por ${ETIQUETA_AUSENCIA_SOBREVENIDA} de ${inc.titularNombre}. Asume el servicio el imaginaria ${inc.imaginariaAceptanteNombre}.`,
     personas,
     adminInfo,
   });
@@ -536,7 +559,7 @@ export const resolverIncidenciaAdmin = async (params: {
   await crearNotificacion({
     tipo: 'COBERTURA_APROBADA',
     titulo: 'Cobertura de Servicio Ratificada',
-    mensaje: `Has sido confirmado como titular del servicio del ${inc.fechaServicio} en relevo por baja de ${inc.titularNombre}.`,
+    mensaje: `Has sido confirmado como titular del servicio del ${inc.fechaServicio} en relevo por ausencia sobrevenida de ${inc.titularNombre}.`,
     destinatarioPersonaId: inc.imaginariaAceptantePersonaId,
     referenciaId: incidenciaId,
     cuadranteId: inc.cuadranteId,
@@ -654,22 +677,11 @@ export const ratificarCoberturaAdmin = async (params: {
 };
 
 /**
- * Conforme a las directrices de privacidad de la U.G.:
- * La aplicación NO almacena ni procesa partes médicos.
- * Esta función devuelve siempre un listado vacío de manera segura.
- */
-export const getPartesMedicos = async (
-  _personaId?: string,
-  _admin?: boolean
-): Promise<any[]> => {
-  return [];
-};
-
-/**
- * Limpia todas las incidencias y alertas de ausencias/bajas de U.G.
+ * Limpia todas las incidencias y alertas de ausencias sobrevenidas de U.G.
  * Utilizado al cargar una nueva plantilla de personal en limpio.
  */
 export const limpiarTodasAusenciasUG = async () => {
+  assertNotImpersonating('limpiarTodasAusenciasUG');
   loadIncidenciasLocalCache();
   memoryIncidenciasCache = memoryIncidenciasCache.filter(
     (inc) => (inc.tipoServicio || 'GUARDIA') === 'US'
@@ -679,11 +691,17 @@ export const limpiarTodasAusenciasUG = async () => {
   try {
     const snap = await getDocs(collection(db, INCIDENCIAS_COLLECTION));
     if (!snap.empty) {
+      const now = new Date().toISOString();
       const batch = writeBatch(db);
       snap.forEach((d) => {
         const data = d.data() as IncidenciaAusencia;
         if ((data.tipoServicio || 'GUARDIA') !== 'US') {
-          batch.delete(d.ref);
+          // NC-10: Baja lógica alineada con firestore.rules (allow delete: if false)
+          batch.set(
+            d.ref,
+            { eliminadoLogico: true, estado: 'ANULADA', eliminadoEn: now },
+            { merge: true }
+          );
         }
       });
       await batch.commit();

@@ -25,11 +25,17 @@ import { registrarAuditLog } from './auditService';
 import { crearNotificacion } from './notificacionesService';
 import { getServiciosByCuadranteId, aplicarCambioServiciosAutorizado, getCuadrantes } from './cuadranteService';
 import { getPersonas } from './personasService';
+import { assertNotImpersonating } from '../utils/impersonationGuard';
+import { computeDocumentContentHash, generateSecureRandomHex } from '../utils/cryptoHelper';
+import { getApprovedAliasUS } from '../utils/aliasHelper';
+import { sealDocumentoViaServer, getAuthSessionToken } from './authClientService';
 
 const SOLICITUDES_COLLECTION = 'solicitudes_cambio';
 const DOCUMENTOS_FIRMA_COLLECTION = 'documentos_cambios_firmados';
+const DOCUMENTOS_FIRMA_LEGACY_COLLECTION = 'documentos_cambio_firmados';
 const SOLICITUDES_STORAGE_KEY = 'solicitudes_cambio_store_v2';
 const DOCS_STORAGE_KEY = 'documentos_cambios_firmados_store_v2';
+const SOLICITUD_TTL_MS = 72 * 60 * 60 * 1000; // 72 horas de vigencia por defecto (R-06)
 
 // Caché en memoria para entorno de desarrollo / fallback
 let memorySolicitudesCache: SolicitudCambio[] = [];
@@ -104,8 +110,8 @@ const saveLocalCache = (notify: boolean = true) => {
 loadLocalCache();
 
 /**
- * Determina de forma fiable si una solicitud corresponde a la Unidad de Seguridad (U.S.)
- * o a la Unidad de Guardia (U.G.), garantizando retrocompatibilidad con registros antiguos.
+ * Determina de forma fiable si una solicitud corresponde a U.S.
+ * o a U.G., garantizando retrocompatibilidad con registros antiguos.
  */
 export const getUnidadSolicitud = (s: SolicitudCambio): TipoServicio => {
   if (s.tipoServicio === 'US' || s.solicitanteGrupo === 'US_SEGURIDAD' || s.destinatarioGrupo === 'US_SEGURIDAD') {
@@ -162,7 +168,7 @@ export const getDescripcionTurnoSolicitud = (s: SolicitudCambio, esDevolucion = 
  *    - Mismo empleo (ROL 1 con ROL 1, ROL 2 con ROL 2).
  *    - Imaginarias de 24h exigen descanso D-1, D y D+1 respecto a servicios.
  * 
- * 2) UNIDAD DE SEGURIDAD (U.S. - 12h):
+ * 2) U.S. (12h):
  *    - El día antes de un DIURNO se puede hacer cambio para entrar de DIURNO (D-1 Diurno y D Diurno = Permitido).
  *    - El día después de un NOCTURNO se puede hacer cambio para entrar de NOCTURNO (D Nocturno y D+1 Nocturno = Permitido).
  *    - Prohibido hacer NOCTURNO y DIURNO seguidos (haría 24 horas y en la U.S. está prohibido):
@@ -215,7 +221,7 @@ export interface ResultadoTransparenciaCandidatosUS {
 
 /**
  * Evalúa de forma exhaustiva TODOS los motivos de incompatibilidad de un candidato
- * para un cambio o asunción de servicio/imaginaria en la Unidad de Seguridad (U.S.).
+ * para un cambio o asunción de servicio/imaginaria en U.S..
  * A diferencia de las validaciones de corte rápido, no se detiene en el primer fallo,
  * sino que recopila la totalidad de causas con fechas, turnos y reglas afectadas.
  */
@@ -239,11 +245,12 @@ export const evaluarMotivosIncompatibilidadCambioUS = (params: {
   } = params;
 
   const motivos: MotivoIncompatibilidad[] = [];
+  const destLabel = getApprovedAliasUS(destinatario);
 
   if (!destinatario.activo) {
     motivos.push({
       categoria: 'DISPONIBILIDAD',
-      descripcion: `El compañero ${destinatario.nombre} no se encuentra en estado ACTIVO.`,
+      descripcion: `El compañero ${destLabel} no se encuentra en estado ACTIVO.`,
       fechaAfectada: fechaServicio,
       codigoRegla: 'US-ESTADO-INACTIVO',
     });
@@ -319,7 +326,7 @@ export const evaluarMotivosIncompatibilidadCambioUS = (params: {
   if (estHoy.ausencia) {
     motivos.push({
       categoria: 'DISPONIBILIDAD',
-      descripcion: `${destinatario.nombre} tiene vacaciones o permiso concedido el día ${fechaServicio}.`,
+      descripcion: `${destLabel} tiene vacaciones o permiso concedido el día ${fechaServicio}.`,
       fechaAfectada: fechaServicio,
       servicioAsignado: 'Vacaciones / Permiso autorizado',
       servicioPretendido: nombreTurnoPretendido,
@@ -332,7 +339,7 @@ export const evaluarMotivosIncompatibilidadCambioUS = (params: {
     if (estHoy.diurno) {
       motivos.push({
         categoria: 'DISPONIBILIDAD',
-        descripcion: `${destinatario.nombre} ya tiene asignado el turno Diurno el día ${fechaServicio}.`,
+        descripcion: `${destLabel} ya tiene asignado el turno Diurno el día ${fechaServicio}.`,
         fechaAfectada: fechaServicio,
         servicioAsignado: 'Turno Diurno (07:00 a 19:00)',
         servicioPretendido: nombreTurnoPretendido,
@@ -342,7 +349,7 @@ export const evaluarMotivosIncompatibilidadCambioUS = (params: {
     if (estHoy.nocturno) {
       motivos.push({
         categoria: 'DESCANSO',
-        descripcion: `${destinatario.nombre} ya realiza turno Nocturno el día ${fechaServicio}. Realizar turno Diurno y Nocturno el mismo día generaría 24 horas consecutivas (prohibido en la U.S.).`,
+        descripcion: `${destLabel} ya realiza turno Nocturno el día ${fechaServicio}. Realizar turno Diurno y Nocturno el mismo día generaría 24 horas consecutivas (prohibido en la U.S.).`,
         fechaAfectada: fechaServicio,
         servicioAsignado: 'Turno Nocturno (19:00 a 07:00)',
         servicioPretendido: nombreTurnoPretendido,
@@ -352,7 +359,7 @@ export const evaluarMotivosIncompatibilidadCambioUS = (params: {
     if (estHoy.imaginaria) {
       motivos.push({
         categoria: 'DISPONIBILIDAD',
-        descripcion: `${destinatario.nombre} está de Imaginaria el día ${fechaServicio}. No puede realizar servicio e imaginaria simultáneamente.`,
+        descripcion: `${destLabel} está de Imaginaria el día ${fechaServicio}. No puede realizar servicio e imaginaria simultáneamente.`,
         fechaAfectada: fechaServicio,
         servicioAsignado: 'Imaginaria U.S. (24h)',
         servicioPretendido: nombreTurnoPretendido,
@@ -364,7 +371,7 @@ export const evaluarMotivosIncompatibilidadCambioUS = (params: {
     if (estAnt.nocturno) {
       motivos.push({
         categoria: 'DESCANSO',
-        descripcion: `${destinatario.nombre} realiza turno Nocturno el día anterior (${strAnt}) finalizando a las 07:00 h. Entrar de Diurno el ${fechaServicio} (07:00 h) supondría trabajar 24 horas continuas, lo cual está prohibido en la U.S.`,
+        descripcion: `${destLabel} realiza turno Nocturno el día anterior (${strAnt}) finalizando a las 07:00 h. Entrar de Diurno el ${fechaServicio} (07:00 h) supondría trabajar 24 horas continuas, lo cual está prohibido en la U.S.`,
         fechaAfectada: strAnt,
         servicioAsignado: 'Turno Nocturno (19:00 a 07:00)',
         servicioPretendido: nombreTurnoPretendido,
@@ -374,7 +381,7 @@ export const evaluarMotivosIncompatibilidadCambioUS = (params: {
     if (estAnt.imaginaria) {
       motivos.push({
         categoria: 'DESCANSO',
-        descripcion: `${destinatario.nombre} tiene asignada Imaginaria el día anterior (${strAnt}), finalizando a las 07:00 h del ${fechaServicio}. Entrar de Diurno el ${fechaServicio} (07:00 h) empalmaría con la imaginaria (riesgo de 24-36 horas continuas).`,
+        descripcion: `${destLabel} tiene asignada Imaginaria el día anterior (${strAnt}), finalizando a las 07:00 h del ${fechaServicio}. Entrar de Diurno el ${fechaServicio} (07:00 h) empalmaría con la imaginaria (riesgo de 24-36 horas continuas).`,
         fechaAfectada: strAnt,
         servicioAsignado: 'Imaginaria U.S. (24h)',
         servicioPretendido: nombreTurnoPretendido,
@@ -388,7 +395,7 @@ export const evaluarMotivosIncompatibilidadCambioUS = (params: {
     if (estHoy.nocturno) {
       motivos.push({
         categoria: 'DISPONIBILIDAD',
-        descripcion: `${destinatario.nombre} ya tiene asignado el turno Nocturno el día ${fechaServicio}.`,
+        descripcion: `${destLabel} ya tiene asignado el turno Nocturno el día ${fechaServicio}.`,
         fechaAfectada: fechaServicio,
         servicioAsignado: 'Turno Nocturno (19:00 a 07:00)',
         servicioPretendido: nombreTurnoPretendido,
@@ -398,7 +405,7 @@ export const evaluarMotivosIncompatibilidadCambioUS = (params: {
     if (estHoy.diurno) {
       motivos.push({
         categoria: 'DESCANSO',
-        descripcion: `${destinatario.nombre} ya realiza turno Diurno el día ${fechaServicio}. Realizar Diurno y Nocturno seguidos generaría 24 horas continuas (prohibido en la U.S.).`,
+        descripcion: `${destLabel} ya realiza turno Diurno el día ${fechaServicio}. Realizar Diurno y Nocturno seguidos generaría 24 horas continuas (prohibido en la U.S.).`,
         fechaAfectada: fechaServicio,
         servicioAsignado: 'Turno Diurno (07:00 a 19:00)',
         servicioPretendido: nombreTurnoPretendido,
@@ -408,7 +415,7 @@ export const evaluarMotivosIncompatibilidadCambioUS = (params: {
     if (estHoy.imaginaria) {
       motivos.push({
         categoria: 'DISPONIBILIDAD',
-        descripcion: `${destinatario.nombre} está de Imaginaria el día ${fechaServicio}.`,
+        descripcion: `${destLabel} está de Imaginaria el día ${fechaServicio}.`,
         fechaAfectada: fechaServicio,
         servicioAsignado: 'Imaginaria U.S. (24h)',
         servicioPretendido: nombreTurnoPretendido,
@@ -423,7 +430,7 @@ export const evaluarMotivosIncompatibilidadCambioUS = (params: {
     if (estSig.diurno) {
       motivos.push({
         categoria: 'DESCANSO',
-        descripcion: `${destinatario.nombre} tiene turno Diurno el día posterior (${strSig}). El turno Nocturno del ${fechaServicio} finaliza a las 07:00 h de ${strSig} y entraría directamente a Diurno (07:00 h), sumando 24 horas continuas de servicio (prohibido en la U.S.).`,
+        descripcion: `${destLabel} tiene turno Diurno el día posterior (${strSig}). El turno Nocturno del ${fechaServicio} finaliza a las 07:00 h de ${strSig} y entraría directamente a Diurno (07:00 h), sumando 24 horas continuas de servicio (prohibido en la U.S.).`,
         fechaAfectada: strSig,
         servicioAsignado: 'Turno Diurno (07:00 a 19:00)',
         servicioPretendido: nombreTurnoPretendido,
@@ -433,7 +440,7 @@ export const evaluarMotivosIncompatibilidadCambioUS = (params: {
     if (estSig.imaginaria) {
       motivos.push({
         categoria: 'DESCANSO',
-        descripcion: `${destinatario.nombre} tiene asignada Imaginaria el día posterior (${strSig}), iniciando a las 07:00 h de ${strSig}. El turno Nocturno del ${fechaServicio} finaliza a las 07:00 h de ${strSig} y empalmaría con la imaginaria.`,
+        descripcion: `${destLabel} tiene asignada Imaginaria el día posterior (${strSig}), iniciando a las 07:00 h de ${strSig}. El turno Nocturno del ${fechaServicio} finaliza a las 07:00 h de ${strSig} y empalmaría con la imaginaria.`,
         fechaAfectada: strSig,
         servicioAsignado: 'Imaginaria U.S. (24h)',
         servicioPretendido: nombreTurnoPretendido,
@@ -446,7 +453,7 @@ export const evaluarMotivosIncompatibilidadCambioUS = (params: {
     if (estHoy.diurno || estHoy.nocturno || estHoy.imaginaria) {
       motivos.push({
         categoria: 'DISPONIBILIDAD',
-        descripcion: `${destinatario.nombre} ya tiene servicio o imaginaria asignada el día ${fechaServicio}.`,
+        descripcion: `${destLabel} ya tiene servicio o imaginaria asignada el día ${fechaServicio}.`,
         fechaAfectada: fechaServicio,
         servicioAsignado: estHoy.diurno ? 'Turno Diurno' : estHoy.nocturno ? 'Turno Nocturno' : 'Imaginaria',
         servicioPretendido: nombreTurnoPretendido,
@@ -458,7 +465,7 @@ export const evaluarMotivosIncompatibilidadCambioUS = (params: {
     if (estAnt.nocturno || estAnt.imaginaria) {
       motivos.push({
         categoria: 'DESCANSO',
-        descripcion: `${destinatario.nombre} tiene ${estAnt.nocturno ? 'turno Nocturno' : 'Imaginaria'} el día anterior (${strAnt}), finalizando a las 07:00 h del ${fechaServicio}. Empalmaría con la Imaginaria del ${fechaServicio} a las 07:00 h.`,
+        descripcion: `${destLabel} tiene ${estAnt.nocturno ? 'turno Nocturno' : 'Imaginaria'} el día anterior (${strAnt}), finalizando a las 07:00 h del ${fechaServicio}. Empalmaría con la Imaginaria del ${fechaServicio} a las 07:00 h.`,
         fechaAfectada: strAnt,
         servicioAsignado: estAnt.nocturno ? 'Turno Nocturno' : 'Imaginaria',
         servicioPretendido: nombreTurnoPretendido,
@@ -470,7 +477,7 @@ export const evaluarMotivosIncompatibilidadCambioUS = (params: {
     if (estSig.diurno || estSig.imaginaria) {
       motivos.push({
         categoria: 'DESCANSO',
-        descripcion: `${destinatario.nombre} tiene ${estSig.diurno ? 'turno Diurno' : 'Imaginaria'} el día siguiente (${strSig}), iniciando a las 07:00 h de ${strSig}. Empalmaría con el fin de la Imaginaria del ${fechaServicio} a las 07:00 h.`,
+        descripcion: `${destLabel} tiene ${estSig.diurno ? 'turno Diurno' : 'Imaginaria'} el día siguiente (${strSig}), iniciando a las 07:00 h de ${strSig}. Empalmaría con el fin de la Imaginaria del ${fechaServicio} a las 07:00 h.`,
         fechaAfectada: strSig,
         servicioAsignado: estSig.diurno ? 'Turno Diurno' : 'Imaginaria',
         servicioPretendido: nombreTurnoPretendido,
@@ -506,7 +513,7 @@ export const validarViabilidadCambio = (
     };
   }
 
-  // Detectar si el cuadrante o el personal pertenece a la U.S. (Unidad de Seguridad)
+  // Detectar si el cuadrante o el personal pertenece a U.S.
   const isUS =
     solicitante.tipoServicio === 'US' ||
     destinatario.tipoServicio === 'US' ||
@@ -515,7 +522,7 @@ export const validarViabilidadCambio = (
     (servicios.length > 0 && servicios[0]?.diurno !== undefined);
 
   // =========================================================================
-  // RAMA A: UNIDAD DE SEGURIDAD (U.S. - SERVICIOS DE 12 HORAS)
+  // RAMA A: U.S. (SERVICIOS DE 12 HORAS)
   // =========================================================================
   if (isUS) {
     const motivos = evaluarMotivosIncompatibilidadCambioUS({
@@ -700,7 +707,7 @@ export const validarViabilidadPermuta = (
     };
   }
 
-  // Detectar si el cuadrante o el personal pertenece a la U.S. (Unidad de Seguridad)
+  // Detectar si el cuadrante o el personal pertenece a U.S.
   const isUS =
     solicitante.tipoServicio === 'US' ||
     destinatario.tipoServicio === 'US' ||
@@ -733,7 +740,7 @@ export const validarViabilidadPermuta = (
     if (catA === 'DESCONOCIDO' || catB === 'DESCONOCIDO' || catA === catB) {
       return {
         valido: false,
-        motivo: 'En la Unidad de Seguridad no se puede permutar el mismo tipo de turno en la misma fecha.',
+        motivo: 'En U.S. no se puede permutar el mismo tipo de turno en la misma fecha.',
       };
     }
   }
@@ -942,7 +949,7 @@ export const validarViabilidadPermuta = (
   }
 
   // =========================================================================
-  // RAMA A: UNIDAD DE SEGURIDAD (U.S. - 12 HORAS)
+  // RAMA A: U.S. (U.S. - 12 HORAS)
   // =========================================================================
   const parseSlotUS = (slot?: SlotServicioTipo | string, tipoCambio?: 'SERVICIO' | 'IMAGINARIA') => {
     const isNocturno = slot?.includes('nocturno') ?? false;
@@ -1796,6 +1803,13 @@ export const crearSolicitudCambio = async (params: {
 
   const solicitudId = `cambio-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
   const nowIso = new Date().toISOString();
+  const esSolicitudUS =
+    solicitante.tipoServicio === 'US' ||
+    solicitante.grupo === 'US_SEGURIDAD' ||
+    destinatario.tipoServicio === 'US' ||
+    destinatario.grupo === 'US_SEGURIDAD';
+  const solicitanteVisible = esSolicitudUS ? getApprovedAliasUS(solicitante) : solicitante.nombre;
+  const destinatarioVisible = esSolicitudUS ? getApprovedAliasUS(destinatario) : destinatario.nombre;
 
   const nuevaSolicitud: SolicitudCambio = {
     id: solicitudId,
@@ -1808,14 +1822,14 @@ export const crearSolicitudCambio = async (params: {
     tipoCambio,
     modalidad: esPermuta ? 'PERMUTA' : 'CAMBIO_INDIVIDUAL',
     solicitantePersonaId: solicitante.id,
-    solicitanteNombre: solicitante.nombre,
+    solicitanteNombre: solicitanteVisible,
     solicitanteEmpleo: solicitante.empleo,
     solicitanteGrupo: solicitante.grupo,
     solicitanteUid,
     firmaSolicitante: firmaSolicitante || (solicitante.telefono ? 'FIRMA_REGISTRADA' : undefined),
     fechaFirmaSolicitante: nowIso,
     destinatarioPersonaId: destinatario.id,
-    destinatarioNombre: destinatario.nombre,
+    destinatarioNombre: destinatarioVisible,
     destinatarioEmpleo: destinatario.empleo,
     destinatarioGrupo: destinatario.grupo,
     destinatarioUid,
@@ -1825,9 +1839,12 @@ export const crearSolicitudCambio = async (params: {
     servicioDevolucionTipo: tipoCambioDev,
     motivo: motivo?.trim() || '',
     fechaSolicitud: nowIso,
+    fechaExpiracion: new Date(Date.now() + SOLICITUD_TTL_MS).toISOString(),
     estado: 'PENDIENTE_COMPAÑERO',
     esValido: true,
   };
+
+  assertNotImpersonating('crearSolicitudCambio');
 
   // Guardar en memoria y localStorage
   memorySolicitudesCache.unshift(nuevaSolicitud);
@@ -1844,8 +1861,9 @@ export const crearSolicitudCambio = async (params: {
   // 1. Notificar al compañero destinatario
   await crearNotificacion({
     tipo: 'NUEVA_SOLICITUD_CAMBIO',
+    tipoServicio: esSolicitudUS ? 'US' : 'GUARDIA',
     titulo: `Nueva Solicitud de Cambio de ${tipoCambio === 'IMAGINARIA' ? 'Imaginaria' : 'Servicio'}`,
-    mensaje: `${solicitante.nombre} (${solicitante.empleo}) te ha propuesto un cambio para el ${fechaServicio}.${servicioDevolucionFecha ? ` A cambio ofrece realizar tu guardia del ${servicioDevolucionFecha}.` : ''}`,
+    mensaje: `${solicitanteVisible} (${solicitante.empleo}) te ha propuesto un cambio para el ${fechaServicio}.${servicioDevolucionFecha ? ` A cambio ofrece realizar tu ${esSolicitudUS ? 'servicio' : 'guardia'} del ${servicioDevolucionFecha}.` : ''}`,
     destinatarioPersonaId: destinatario.id,
     destinatarioUid,
     linkTab: 'cambios',
@@ -1857,8 +1875,9 @@ export const crearSolicitudCambio = async (params: {
   // 2. Notificación de confirmación para el solicitante
   await crearNotificacion({
     tipo: 'NUEVA_SOLICITUD_CAMBIO',
+    tipoServicio: esSolicitudUS ? 'US' : 'GUARDIA',
     titulo: 'Solicitud de Cambio Enviada',
-    mensaje: `Has propuesto un cambio de servicio para el ${fechaServicio} a ${destinatario.nombre}.${servicioDevolucionFecha ? ` Fecha propuesta de devolución: ${servicioDevolucionFecha}.` : ''} Queda pendiente de su aceptación.`,
+    mensaje: `Has propuesto un cambio de servicio para el ${fechaServicio} a ${destinatarioVisible}.${servicioDevolucionFecha ? ` Fecha propuesta de devolución: ${servicioDevolucionFecha}.` : ''} Queda pendiente de su aceptación.`,
     destinatarioPersonaId: solicitante.id,
     linkTab: 'cambios',
     referenciaId: solicitudId,
@@ -1869,7 +1888,7 @@ export const crearSolicitudCambio = async (params: {
   return {
     success: true,
     solicitud: nuevaSolicitud,
-    message: `Solicitud enviada a ${destinatario.nombre}. Queda pendiente de su aceptación previa.`,
+    message: `Solicitud enviada a ${destinatarioVisible}. Queda pendiente de su aceptación previa.`,
   };
 };
 
@@ -2091,6 +2110,7 @@ export const responderSolicitudCompanero = async (params: {
     personas = [],
   } = params;
 
+  assertNotImpersonating('responderSolicitudCompanero');
   loadLocalCache();
   const accion = accionParam || (aceptada === false ? 'RECHAZAR' : 'ACEPTAR');
 
@@ -2100,6 +2120,29 @@ export const responderSolicitudCompanero = async (params: {
   }
   if (!sol) {
     return { success: false, message: 'Solicitud no encontrada.' };
+  }
+
+  // Control estricto de actor y transición de estado (R-06)
+  if (sol.destinatarioPersonaId !== personaInfo.id) {
+    return {
+      success: false,
+      message: 'Acción no autorizada: únicamente el compañero destinatario puede responder a esta solicitud.',
+    };
+  }
+  if (sol.estado !== 'PENDIENTE_COMPAÑERO') {
+    return {
+      success: false,
+      message: `La solicitud ya no está pendiente de respuesta del compañero (estado actual: ${sol.estado}).`,
+    };
+  }
+  if (sol.fechaExpiracion && Date.now() > new Date(sol.fechaExpiracion).getTime()) {
+    sol.estado = 'CANCELADA';
+    sol.motivoCancelacion = 'Solicitud expirada automáticamente tras 72h sin respuesta.';
+    saveLocalCache();
+    return {
+      success: false,
+      message: 'Esta solicitud ha expirado (TTL de 72h superado). Crea una nueva propuesta si sigue siendo necesaria.',
+    };
   }
 
   const now = new Date().toISOString();
@@ -2326,10 +2369,24 @@ export const aceptarContraofertaSolicitante = async (params: {
   firmaSolicitante?: string;
   personaInfo: { id: string; nombre: string };
 }): Promise<{ success: boolean; message: string }> => {
-  const { solicitudId, firmaSolicitante } = params;
+  assertNotImpersonating('aceptarContraofertaSolicitante');
+  const { solicitudId, firmaSolicitante, personaInfo } = params;
+  loadLocalCache();
   const sol = memorySolicitudesCache.find((s) => s.id === solicitudId);
   if (!sol) {
     return { success: false, message: 'Solicitud no encontrada.' };
+  }
+  if (sol.solicitantePersonaId !== personaInfo.id) {
+    return {
+      success: false,
+      message: 'Acción no autorizada: solo el solicitante original puede aceptar la contraoferta.',
+    };
+  }
+  if (sol.estado !== 'CONTRAOFERTA_COMPAÑERO') {
+    return {
+      success: false,
+      message: `No hay una contraoferta activa que aceptar (estado actual: ${sol.estado}).`,
+    };
   }
 
   const now = new Date().toISOString();
@@ -2338,6 +2395,8 @@ export const aceptarContraofertaSolicitante = async (params: {
     sol.firmaSolicitante = firmaSolicitante;
     sol.fechaFirmaSolicitante = now;
   }
+  // Remediación R-16: sincronizar inmediatamente caché local tras mutar estado
+  saveLocalCache();
 
   try {
     const docRef = doc(db, SOLICITUDES_COLLECTION, solicitudId);
@@ -2371,6 +2430,70 @@ export const aceptarContraofertaSolicitante = async (params: {
 };
 
 /**
+ * Permite al solicitante cancelar una solicitud todavía pendiente antes de su resolución (R-06).
+ */
+export const cancelarSolicitudCambio = async (params: {
+  solicitudId: string;
+  personaInfo: { id: string; nombre: string };
+  motivo?: string;
+}): Promise<{ success: boolean; message: string }> => {
+  assertNotImpersonating('cancelarSolicitudCambio');
+  const { solicitudId, personaInfo, motivo } = params;
+  loadLocalCache();
+  let sol = memorySolicitudesCache.find((s) => s.id === solicitudId);
+  if (!sol) {
+    sol = (await getSolicitudCambioById(solicitudId)) || undefined;
+  }
+  if (!sol) {
+    return { success: false, message: 'Solicitud no encontrada.' };
+  }
+  if (sol.solicitantePersonaId !== personaInfo.id) {
+    return {
+      success: false,
+      message: 'Solo el solicitante original puede cancelar su propia solicitud.',
+    };
+  }
+  if (!['PENDIENTE_COMPAÑERO', 'CONTRAOFERTA_COMPAÑERO'].includes(sol.estado)) {
+    return {
+      success: false,
+      message: `No se puede cancelar una solicitud en estado ${sol.estado}.`,
+    };
+  }
+
+  const now = new Date().toISOString();
+  sol.estado = 'CANCELADA';
+  sol.motivoCancelacion = motivo?.trim() || 'Cancelada por el solicitante antes de su autorización.';
+  saveLocalCache();
+
+  try {
+    await setDoc(
+      doc(db, SOLICITUDES_COLLECTION, solicitudId),
+      sanitizeForFirestore({
+        estado: 'CANCELADA',
+        motivoCancelacion: sol.motivoCancelacion,
+        fechaRespuestaCompanero: now,
+      }),
+      { merge: true }
+    );
+  } catch (err: any) {
+    console.warn('Cancelación diferida en Firestore:', err?.message || err);
+  }
+
+  await registrarAuditLog({
+    adminUid: personaInfo.id,
+    adminNombre: personaInfo.nombre,
+    accion: 'CANCELAR_CAMBIO',
+    cuadranteId: sol.cuadranteId,
+    fechaAfectada: sol.fechaServicio,
+    personaId: personaInfo.id,
+    personaNombre: personaInfo.nombre,
+    detalles: `Solicitud ${solicitudId} cancelada por el solicitante (${sol.motivoCancelacion}).`,
+  });
+
+  return { success: true, message: 'Solicitud cancelada correctamente.' };
+};
+
+/**
  * El administrador aprueba o rechaza el cambio acordado.
  * Al autorizar:
  * - Se comprueban las firmas electrónicas necesarias.
@@ -2388,6 +2511,7 @@ export const resolverSolicitudAdmin = async (params: {
   personas: Persona[];
   servicios?: ServicioDia[];
 }): Promise<{ success: boolean; message: string; documentoId?: string }> => {
+  assertNotImpersonating('resolverSolicitudAdmin');
   const { solicitudId, aprobada, motivoRechazo, firmaAdmin, adminInfo, personas, servicios: serviciosProp } = params;
   loadLocalCache();
 
@@ -2397,6 +2521,20 @@ export const resolverSolicitudAdmin = async (params: {
   }
   if (!sol) {
     return { success: false, message: 'Solicitud no encontrada.' };
+  }
+
+  // Control estricto de máquina de estados (R-06): impedir re-resolver estados terminales
+  if (['APROBADA_ADMIN', 'RECHAZADA_ADMIN', 'CANCELADA', 'RECHAZADA_COMPAÑERO'].includes(sol.estado)) {
+    return {
+      success: false,
+      message: `La solicitud ya fue cerrada definitivamente (estado: ${sol.estado}) y no puede reprocesarse.`,
+    };
+  }
+  if (aprobada && sol.fechaExpiracion && Date.now() > new Date(sol.fechaExpiracion).getTime()) {
+    return {
+      success: false,
+      message: 'La solicitud ha superado su plazo de validez (72h) y debe renovarse antes de autorizarse.',
+    };
   }
 
   const now = new Date().toISOString();
@@ -2635,54 +2773,95 @@ export const resolverSolicitudAdmin = async (params: {
     }
   }
 
-  // 2. Generar Documento Electrónico Firmado
-  const codigoVerificacion = `DOC-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-  const documentoId = `doc-cambio-${Date.now()}`;
+  // 2. Generar Documento Electrónico con Integridad Criptográfica SHA-256 + Sellado en Servidor (R-05)
+  const nonceVerificacion = generateSecureRandomHex(6).toUpperCase();
+  const documentoId = `doc-cambio-${Date.now()}-${nonceVerificacion.slice(0, 6)}`;
 
-  const documentoFirmado: DocumentoCambioFirmado = {
+  const personaANombreDoc = esUnidadUS ? getApprovedAliasUS(solicitanteObj) : solicitanteObj.nombre;
+  const personaBNombreDoc = esUnidadUS ? getApprovedAliasUS(destinatarioObj) : destinatarioObj.nombre;
+
+  let documentoFirmado: DocumentoCambioFirmado = {
     id: documentoId,
     solicitudId: sol.id,
-    codigoVerificacion,
+    codigoVerificacion: '',
     tipoCambio: sol.tipoCambio || 'SERVICIO',
+    tipoServicio: unidadSol,
     cuadranteId: sol.cuadranteId,
     fechaEmision: now,
     fechaServicioA: sol.fechaServicio,
     slotTipoA: sol.slotTipo,
     personaA: {
       id: solicitanteObj.id,
-      nombre: solicitanteObj.nombre,
+      nombre: personaANombreDoc,
       empleo: solicitanteObj.empleo,
       grupo: solicitanteObj.grupo,
-      firma: sol.firmaSolicitante || 'FIRMA_ELECTRONICA_REGISTRADA',
+      firma: sol.firmaSolicitante || 'ACEPTACION_ELECTRONICA_REGISTRADA',
       fechaFirma: sol.fechaFirmaSolicitante || sol.fechaSolicitud,
     },
     fechaServicioB: sol.servicioDevolucionFecha,
     slotTipoB: sol.servicioDevolucionSlot,
     personaB: {
       id: destinatarioObj.id,
-      nombre: destinatarioObj.nombre,
+      nombre: personaBNombreDoc,
       empleo: destinatarioObj.empleo,
       grupo: destinatarioObj.grupo,
-      firma: sol.firmaDestinatario || 'FIRMA_ELECTRONICA_REGISTRADA',
+      firma: sol.firmaDestinatario || 'ACEPTACION_ELECTRONICA_REGISTRADA',
       fechaFirma: sol.fechaFirmaDestinatario || now,
     },
     autorizacionAdmin: {
       adminUid: adminInfo.uid,
       adminNombre: adminInfo.nombre,
-      firma: firmaAdmin || 'FIRMA_ADMINISTRADOR',
+      firma: firmaAdmin || `AUTORIZACION_ADMIN_${adminInfo.uid}_${now}`,
       fechaAutorizacion: now,
       resolucion: 'AUTORIZADO',
     },
-    detalles: `Autorización de cambio de ${sol.tipoCambio === 'IMAGINARIA' ? 'imaginaria' : 'guardia 24h'} correspondiente al día ${sol.fechaServicio}. ${sol.servicioDevolucionFecha ? `Incluye devolución acordada para el ${sol.servicioDevolucionFecha}.` : ''}`,
+    detalles: `Autorización de cambio de ${sol.tipoCambio === 'IMAGINARIA' ? 'imaginaria' : esUnidadUS ? 'servicio U.S.' : 'guardia 24h'} correspondiente al día ${sol.fechaServicio}. ${sol.servicioDevolucionFecha ? `Incluye devolución acordada para el ${sol.servicioDevolucionFecha}.` : ''}`,
     motivo: sol.motivo || 'Acuerdo de servicio entre partes',
+    versionDocumento: 2,
+    nivelFirmaLegal: 'ACEPTACION_ELECTRONICA_INTERNA_NO_CUALIFICADA_EIDAS',
   };
 
+  // Calcular digest SHA-256 canónico del documento
+  const sha256Local = await computeDocumentContentHash({
+    ...documentoFirmado,
+    personaA: { ...documentoFirmado.personaA, firma: documentoFirmado.personaA.firma || '' },
+    personaB: { ...documentoFirmado.personaB, firma: documentoFirmado.personaB.firma || '' },
+    autorizacionAdmin: {
+      ...documentoFirmado.autorizacionAdmin,
+      firma: documentoFirmado.autorizacionAdmin.firma || '',
+    },
+    motivo: documentoFirmado.motivo || '',
+  });
+
+  // Sellar con HMAC-SHA256 en el servidor si hay sesión activa; fallback determinista SHA-256 + CSPRNG si offline
+  let sealedByServer = false;
+  if (getAuthSessionToken()) {
+    const serverSeal = await sealDocumentoViaServer(
+      documentoFirmado,
+      esUnidadUS ? 'US-CSV' : 'CSV'
+    );
+    if (serverSeal.success && serverSeal.documento) {
+      documentoFirmado = serverSeal.documento;
+      sealedByServer = true;
+    }
+  }
+
+  if (!sealedByServer) {
+    documentoFirmado.sha256Contenido = sha256Local;
+    documentoFirmado.algoritmoIntegridad = 'SHA256-CANONICAL-v2';
+    documentoFirmado.selladoEnServidor = false;
+    documentoFirmado.codigoVerificacion = `${esUnidadUS ? 'US-CSV' : 'CSV'}-${sha256Local.slice(0, 12).toUpperCase()}-${nonceVerificacion}`;
+  }
+
+  const codigoVerificacion = documentoFirmado.codigoVerificacion;
   memoryDocumentosFirmadosCache.unshift(documentoFirmado);
 
-  try {
-    await setDoc(doc(db, DOCUMENTOS_FIRMA_COLLECTION, documentoId), sanitizeForFirestore(documentoFirmado));
-  } catch (err: any) {
-    console.warn('Persistencia de documento firmado en Firestore diferida:', err.message || err);
+  if (!sealedByServer) {
+    try {
+      await setDoc(doc(db, DOCUMENTOS_FIRMA_COLLECTION, documentoId), sanitizeForFirestore(documentoFirmado));
+    } catch (err: any) {
+      console.warn('Persistencia de documento firmado en Firestore diferida:', err.message || err);
+    }
   }
 
   // 3. Modificar el cuadrante de forma atómica (actualiza titular real, posibles devoluciones y recalcula métricas)
@@ -2746,6 +2925,7 @@ export const resolverSolicitudAdmin = async (params: {
   // 6. Notificar a ambos usuarios y al Administrador (Centro de Notificaciones)
   await crearNotificacion({
     tipo: 'SOLICITUD_APROBADA_ADMIN',
+    tipoServicio: esUnidadUS ? 'US' : 'GUARDIA',
     titulo: 'Cambio de Servicio Autorizado por Administración',
     mensaje: `Cambio de servicio autorizado por Administración. Documento justificativo: ${codigoVerificacion}.`,
     destinatarioPersonaId: sol.solicitantePersonaId,
@@ -2756,8 +2936,9 @@ export const resolverSolicitudAdmin = async (params: {
   });
   await crearNotificacion({
     tipo: 'SOLICITUD_APROBADA_ADMIN',
+    tipoServicio: esUnidadUS ? 'US' : 'GUARDIA',
     titulo: 'Cambio de Servicio Autorizado por Administración',
-    mensaje: `Cambio de servicio autorizado por Administración. Has asumido la guardia del ${sol.fechaServicio}. Documento justificativo: ${codigoVerificacion}.`,
+    mensaje: `Cambio de servicio autorizado por Administración. Has asumido ${esUnidadUS ? 'el servicio' : 'la guardia'} del ${sol.fechaServicio}. Documento justificativo: ${codigoVerificacion}.`,
     destinatarioPersonaId: sol.destinatarioPersonaId,
     referenciaId: solicitudId,
     cuadranteId: sol.cuadranteId,
@@ -2768,8 +2949,8 @@ export const resolverSolicitudAdmin = async (params: {
   // Notificación específica para el Centro de Notificaciones del Administrador
   await crearNotificacion({
     tipo: 'SOLICITUD_APROBADA_ADMIN',
-    tipoServicio: 'GUARDIA',
-    titulo: `Cambio Autorizado y Aplicado: ${sol.solicitanteNombre} ➔ ${sol.destinatarioNombre}`,
+    tipoServicio: esUnidadUS ? 'US' : 'GUARDIA',
+    titulo: `Cambio Autorizado y Aplicado: ${personaANombreDoc} ➔ ${personaBNombreDoc}`,
     mensaje: `Se ha autorizado y aplicado en el cuadrante el cambio para el ${sol.fechaServicio}.${sol.servicioDevolucionFecha ? ` Devolución: ${sol.servicioDevolucionFecha}.` : ''} Documento justificativo emitido: ${codigoVerificacion}.`,
     esParaAdmin: true,
     linkTab: 'cuadrantes',
@@ -2816,13 +2997,38 @@ export const getDocumentosFirmados = async (): Promise<DocumentoCambioFirmado[]>
     const q = query(
       collection(db, DOCUMENTOS_FIRMA_COLLECTION),
       orderBy('fechaEmision', 'desc'),
-      limit(100)
+      limit(250)
     );
     const snapshot = await getDocs(q);
-    const docsFromFirestore: DocumentoCambioFirmado[] = [];
-    snapshot.forEach((d) => docsFromFirestore.push(d.data() as DocumentoCambioFirmado));
-    if (docsFromFirestore.length > 0) {
-      memoryDocumentosFirmadosCache = docsFromFirestore;
+    const byId = new Map<string, DocumentoCambioFirmado>();
+    snapshot.forEach((d) => {
+      const data = d.data() as DocumentoCambioFirmado;
+      byId.set(data.id || d.id, { ...data, id: data.id || d.id });
+    });
+
+    // Preservación histórica (R-16): leer también la colección legada singular en solo lectura
+    try {
+      const legacySnap = await getDocs(
+        query(collection(db, DOCUMENTOS_FIRMA_LEGACY_COLLECTION), limit(250))
+      );
+      legacySnap.forEach((d) => {
+        const data = d.data() as DocumentoCambioFirmado;
+        const id = data.id || d.id;
+        if (!byId.has(id)) {
+          byId.set(id, {
+            ...data,
+            id,
+            versionDocumento: data.versionDocumento || 1,
+            origenColeccionLegada: DOCUMENTOS_FIRMA_LEGACY_COLLECTION,
+          });
+        }
+      });
+    } catch {
+      // Sin documentos legados o acceso restringido
+    }
+
+    if (byId.size > 0) {
+      memoryDocumentosFirmadosCache = Array.from(byId.values());
       saveLocalCache();
     }
   } catch (err: any) {
@@ -2882,45 +3088,14 @@ export const rechazarSolicitudAdmin = async (params: {
 };
 
 /**
- * Limpia todas las solicitudes de cambio y documentos firmados de U.G.
- * Utilizado al cargar una nueva plantilla de personal en limpio.
+ * PRESERVACIÓN TOTAL DE DATOS HISTÓRICOS (R-05 / R-16 / Condición Prioritaria):
+ * Ya NO elimina documentos firmados ni el historial de solicitudes en Firestore.
+ * Únicamente refresca la vista local manteniendo intacta toda la trazabilidad histórica.
  */
 export const limpiarTodosCambiosUG = async () => {
-  loadLocalCache();
-  memorySolicitudesCache = memorySolicitudesCache.filter(
-    (s) => (s.tipoServicio || 'GUARDIA') === 'US'
+  console.info(
+    '[Preservación Histórica] Los documentos firmados y solicitudes históricas de U.G. son inmutables y se preservan íntegros en Firestore.'
   );
-  memoryDocumentosFirmadosCache = memoryDocumentosFirmadosCache.filter(
-    (d) => (d.tipoServicio || 'GUARDIA') === 'US'
-  );
-  saveLocalCache();
-
-  try {
-    const snapSols = await getDocs(collection(db, SOLICITUDES_COLLECTION));
-    if (!snapSols.empty) {
-      const batch = writeBatch(db);
-      snapSols.forEach((d) => {
-        const data = d.data() as SolicitudCambio;
-        if ((data.tipoServicio || 'GUARDIA') !== 'US') {
-          batch.delete(d.ref);
-        }
-      });
-      await batch.commit();
-    }
-    const snapDocs = await getDocs(collection(db, DOCUMENTOS_FIRMA_COLLECTION));
-    if (!snapDocs.empty) {
-      const batchDocs = writeBatch(db);
-      snapDocs.forEach((d) => {
-        const data = d.data() as DocumentoCambioFirmado;
-        if ((data.tipoServicio || 'GUARDIA') !== 'US') {
-          batchDocs.delete(d.ref);
-        }
-      });
-      await batchDocs.commit();
-    }
-  } catch (e) {
-    console.warn('Error limpiando solicitudes/documentos en Firestore:', e);
-  }
 };
 
 /**

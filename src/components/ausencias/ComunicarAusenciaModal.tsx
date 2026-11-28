@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Persona, ServicioDia, TipoAusencia } from '../../types';
+import { Persona, ServicioDia } from '../../types';
 import { comunicarAusencia } from '../../services/ausenciasService';
 import {
   ShieldAlert,
@@ -15,6 +15,10 @@ import {
   getRolUG,
   getApellidoUG,
 } from '../../utils/ugNomenclatura';
+import {
+  CATEGORIA_AUSENCIA_SOBREVENIDA,
+  ETIQUETA_AUSENCIA_SOBREVENIDA,
+} from '../../utils/ausenciaSobrevenidaValidator';
 
 interface ComunicarAusenciaModalProps {
   isOpen: boolean;
@@ -62,8 +66,6 @@ export const ComunicarAusenciaModal: React.FC<ComunicarAusenciaModalProps> = ({
   }, [servicios, currentPersona.id]);
 
   const [selectedServicioKey, setSelectedServicioKey] = useState<string>('');
-  const [tipoAusencia, setTipoAusencia] = useState<TipoAusencia>('INDISPOSICION');
-  const [observaciones, setObservaciones] = useState<string>('');
   const [enviando, setEnviando] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -83,7 +85,7 @@ export const ComunicarAusenciaModal: React.FC<ComunicarAusenciaModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!itemSeleccionado) {
-      setErrorMsg('Por favor selecciona el servicio afectado por la ausencia.');
+      setErrorMsg('Por favor selecciona el servicio afectado por la ausencia sobrevenida.');
       return;
     }
 
@@ -97,8 +99,7 @@ export const ComunicarAusenciaModal: React.FC<ComunicarAusenciaModalProps> = ({
         fechaServicio: itemSeleccionado.servicio.fecha,
         titular: currentPersona,
         slotTipo: itemSeleccionado.slotTipo,
-        tipoAusencia,
-        observaciones,
+        tipoAusencia: CATEGORIA_AUSENCIA_SOBREVENIDA,
         servicioDia: itemSeleccionado.servicio,
         personas,
         todosLosServicios: servicios,
@@ -112,7 +113,7 @@ export const ComunicarAusenciaModal: React.FC<ComunicarAusenciaModalProps> = ({
         setErrorMsg(res.message);
       }
     } catch (err: any) {
-      setErrorMsg(`Error al comunicar ausencia: ${err.message || err}`);
+      setErrorMsg(`Error al comunicar ausencia sobrevenida: ${err.message || err}`);
     } finally {
       setEnviando(false);
     }
@@ -128,9 +129,9 @@ export const ComunicarAusenciaModal: React.FC<ComunicarAusenciaModalProps> = ({
               <ShieldAlert className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold">Comunicar Ausencia / Indisposición</h3>
+              <h3 className="text-base font-bold">Comunicar Ausencia Sobrevenida</h3>
               <p className="text-xs text-slate-300">
-                Alerta inmediata de cobertura para imaginaria y administradores
+                Alerta operativa de cobertura para imaginaria y administradores
               </p>
             </div>
           </div>
@@ -189,7 +190,7 @@ export const ComunicarAusenciaModal: React.FC<ComunicarAusenciaModalProps> = ({
                     Aviso Obligatorio de Cobertura
                   </h4>
                   <p className="text-xs font-semibold text-amber-900 mt-0.5 leading-snug">
-                    IMPORTANTE: Además de comunicar la baja en la aplicación, <span className="underline font-black">debes llamar personalmente</span> al imaginaria de tu mismo rol ({getRolUG(currentPersona.empleo)}) para coordinar el relevo.
+                    IMPORTANTE: Además de comunicar la ausencia sobrevenida en la aplicación, <span className="underline font-black">debes llamar personalmente</span> al imaginaria de tu mismo rol ({getRolUG(currentPersona.empleo)}) para coordinar el relevo.
                   </p>
                 </div>
               </div>
@@ -227,71 +228,28 @@ export const ComunicarAusenciaModal: React.FC<ComunicarAusenciaModalProps> = ({
             </div>
           )}
 
-          {/* Tipo de Ausencia */}
+          {/* Clasificación Operativa Única Neutra */}
           <div>
             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-              2. Motivo / Tipo de Ausencia
+              2. Clasificación Operativa
             </label>
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => setTipoAusencia('INDISPOSICION')}
-                className={`p-2.5 rounded-xl border text-xs font-bold transition ${
-                  tipoAusencia === 'INDISPOSICION'
-                    ? 'bg-slate-900 text-white border-slate-950'
-                    : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
-                }`}
-              >
-                Indisposición
-              </button>
-              <button
-                type="button"
-                onClick={() => setTipoAusencia('ENFERMEDAD')}
-                className={`p-2.5 rounded-xl border text-xs font-bold transition ${
-                  tipoAusencia === 'ENFERMEDAD'
-                    ? 'bg-slate-900 text-white border-slate-950'
-                    : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
-                }`}
-              >
-                Baja Médica
-              </button>
-              <button
-                type="button"
-                onClick={() => setTipoAusencia('OTRA_AUSENCIA')}
-                className={`p-2.5 rounded-xl border text-xs font-bold transition ${
-                  tipoAusencia === 'OTRA_AUSENCIA'
-                    ? 'bg-slate-900 text-white border-slate-950'
-                    : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
-                }`}
-              >
-                Fuerza Mayor
-              </button>
+            <div className="p-3 rounded-xl border border-slate-300 bg-slate-50 text-xs font-black text-slate-900 flex items-center justify-between">
+              <span>{ETIQUETA_AUSENCIA_SOBREVENIDA}</span>
+              <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-md bg-slate-200 text-slate-700">
+                Categoría neutra única
+              </span>
             </div>
           </div>
 
-          {/* AVISO OBLIGATORIO DE PRIVACIDAD: PARTES MÉDICOS POR WHATSAPP */}
+          {/* Aviso de minimización operativa */}
           <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-xl text-xs space-y-1 text-blue-900">
             <div className="flex items-center gap-1.5 font-bold text-blue-950">
               <Info className="w-4 h-4 text-blue-600 shrink-0" />
-              <span>Aviso reglamentario sobre partes médicos:</span>
+              <span>Registro estrictamente operativo:</span>
             </div>
             <p className="text-[11px] leading-relaxed text-blue-800">
-              La aplicación <strong>no almacena ni procesa partes médicos</strong> por motivos de confidencialidad de datos. Recuerda remitir el parte médico a través del <strong>WhatsApp del grupo o canal habitual con Administración</strong>.
+              La aplicación registra únicamente la comunicación de <strong>{ETIQUETA_AUSENCIA_SOBREVENIDA}</strong> necesaria para activar la cobertura y actualizar el cuadrante. No solicita ni almacena motivos ni documentación personal adicional.
             </p>
-          </div>
-
-          {/* Observaciones */}
-          <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-              3. Observaciones Adicionales (Opcional)
-            </label>
-            <textarea
-              rows={2}
-              placeholder="Indicaciones para el relevo o información relevante de la guardia..."
-              value={observaciones}
-              onChange={(e) => setObservaciones(e.target.value)}
-              className="w-full text-xs text-slate-900 bg-white border border-slate-300 rounded-xl px-3.5 py-2 focus:ring-2 focus:ring-red-900 focus:outline-hidden"
-            />
           </div>
 
           <div className="flex items-center gap-1.5 text-[11px] text-slate-500 font-medium">

@@ -80,7 +80,7 @@ export const PersonaDetailPage: React.FC<PersonaDetailPageProps> = ({
   const [loadingCuadrante, setLoadingCuadrante] = useState(false);
 
   const isUS = persona.tipoServicio === 'US' || persona.grupo === 'US_SEGURIDAD';
-  const nombreGrupo = isUS ? 'Unidad de Seguridad (U.S.)' : NOMBRE_GRUPO_UG;
+  const nombreGrupo = isUS ? 'U.S.' : NOMBRE_GRUPO_UG;
   const subtituloGrupo = isUS ? 'Turnos de 12h (Diurno / Nocturno / Imaginaria)' : 'Turnos de 24h';
 
   const cuentaVinculada = cuentas.find((c) => c.personaId === persona.id);

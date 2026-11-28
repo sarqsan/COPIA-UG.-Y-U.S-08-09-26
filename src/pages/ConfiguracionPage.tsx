@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../firebase/context';
 import { FIRESTORE_DATABASE_ID } from '../firebase/config';
-import { seedDatabaseInitial } from '../services/seedService';
+import { seedDatabaseInitial, isDevSeedAllowed } from '../services/seedService';
 import { getCiclos, eliminarCiclo } from '../services/ciclosService';
 import { CicloPersonal } from '../types';
 import { EmailPersonalConfigPanel } from '../components/configuracion/EmailPersonalConfigPanel';
@@ -188,22 +188,39 @@ export const ConfiguracionPage: React.FC<ConfiguracionPageProps> = ({
               </span>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-slate-500">Reglas de Seguridad:</span>
+              <span className="text-slate-500">Reglas de Acceso:</span>
               <span className="text-emerald-600 font-bold">Desplegadas en Firebase</span>
             </div>
           </div>
 
-          <div className="pt-2">
-            <button
-              id="btn-reseed-database-config"
-              onClick={handleSeedData}
-              disabled={seeding}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 py-2.5 text-xs font-bold text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 cursor-pointer"
-            >
-              <Database className="h-4 w-4" />
-              <span>{seeding ? 'Restableciendo datos...' : 'Restablecer Datos de Prueba (11 ROL 1 + 11 ROL 2 + 2 Admins)'}</span>
-            </button>
-          </div>
+          {isDevSeedAllowed() ? (
+            <div className="pt-2">
+              <button
+                id="btn-reseed-database-config"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      'SOLO DESARROLLO: Esta acción sobrescribirá los datos de prueba locales. ¿Confirmas continuar?'
+                    )
+                  ) {
+                    handleSeedData();
+                  }
+                }}
+                disabled={seeding}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-amber-700 py-2.5 text-xs font-bold text-white hover:bg-amber-800 cursor-pointer"
+              >
+                <Database className="h-4 w-4" />
+                <span>{seeding ? 'Restableciendo datos...' : '[SOLO DEV] Restablecer Datos de Prueba'}</span>
+              </button>
+            </div>
+          ) : (
+            <div className="pt-2 rounded-xl border border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/30 px-3 py-2 text-[11px] text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
+              <Shield className="h-4 w-4 shrink-0" />
+              <span>
+                Protección de datos activa: la reinicialización de datos de prueba está bloqueada en producción.
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Module 3: Copias de Respaldo y Puntos de Retorno */}
@@ -221,7 +238,7 @@ export const ConfiguracionPage: React.FC<ConfiguracionPageProps> = ({
           </div>
 
           <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed max-w-3xl">
-            El sistema genera copias de seguridad automáticas diarias y bajo demanda para proteger cuadrantes, asignaciones, personal y configuraciones frente a errores humanos o eliminaciones accidentales. U.G. y U.S. mantienen aislamiento total y las auditorías son inmutables.
+            El sistema genera copias de respaldo automáticas diarias y bajo demanda para proteger cuadrantes, asignaciones, personal y configuraciones frente a errores humanos o eliminaciones accidentales. U.G. y U.S. mantienen aislamiento total y las auditorías son inmutables.
           </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
@@ -234,7 +251,7 @@ export const ConfiguracionPage: React.FC<ConfiguracionPageProps> = ({
               <span className="font-bold text-emerald-600 dark:text-emerald-400">Estricto al 100%</span>
             </div>
             <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-700">
-              <span className="text-[11px] text-slate-500 block">Seguridad Reversible:</span>
+              <span className="text-[11px] text-slate-500 block">Restauración Reversible:</span>
               <span className="font-bold text-purple-600 dark:text-purple-400">Snapshot de Emergencia Previo</span>
             </div>
           </div>

@@ -4,8 +4,8 @@ import { RolUsuario, TipoServicio } from '../../types';
  * Servicio de control de acceso para el Módulo de Matrículas.
  * Regla de negocio estricta:
  * - Administrador: Acceso total.
- * - U.S. (Unidad de Seguridad): Acceso permitido a su portal.
- * - U.G. (Unidad de Guardia): ACCESO DENEGADO (interfaz, rutas y datos).
+ * - U.S.: Acceso permitido a su portal.
+ * - U.G. (U.G.): ACCESO DENEGADO (interfaz, rutas y datos).
  */
 
 export interface PermisoMatriculaResultado {
@@ -27,16 +27,16 @@ export const evaluarPermisoMatriculas = (
     };
   }
 
-  // 2. Personal de la Unidad de Seguridad (US) tiene acceso autorizado
+  // 2. Personal de U.S. (US) tiene acceso autorizado
   if (tipoServicio === 'US' || tipoServicio === 'US_SEGURIDAD') {
     return {
       permitido: true,
-      motivo: 'Acceso autorizado para miembros de la Unidad de Seguridad (U.S.)',
+      motivo: 'Acceso autorizado para miembros de U.S.',
       perfilDetectado: 'US_SEGURIDAD',
     };
   }
 
-  // 3. Personal de la Unidad de Guardia (UG) tiene ACCESO TERMINANTEMENTE DENEGADO
+  // 3. Personal de U.G. (UG) tiene ACCESO TERMINANTEMENTE DENEGADO
   if (tipoServicio === 'GUARDIA' || tipoServicio === 'U.G.' || !tipoServicio) {
     return {
       permitido: false,

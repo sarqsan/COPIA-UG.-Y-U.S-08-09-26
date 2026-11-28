@@ -112,7 +112,7 @@
     },
     "IncidenciaAusencia": {
       "title": "IncidenciaAusencia",
-      "description": "Comunicación de baja o indisposición con alerta a imaginarias",
+      "description": "Comunicación operativa de ausencia sobrevenida con alerta a imaginarias",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
@@ -122,7 +122,7 @@
         "puesto": { "type": "string", "enum": ["ROL 1", "ROL 2"] },
         "titularPersonaId": { "type": "string" },
         "titularNombre": { "type": "string", "maxLength": 150 },
-        "tipoAusencia": { "type": "string", "enum": ["ENFERMEDAD", "INDISPOSICION", "OTRA_AUSENCIA"] },
+        "tipoAusencia": { "type": "string", "enum": ["AUSENCIA_SOBREVENIDA"] },
         "imaginariaRol1PersonaId": { "type": "string" },
         "imaginariaRol2PersonaId": { "type": "string" },
         "estado": { "type": "string", "enum": ["COMUNICADA_PENDIENTE_COBERTURA", "COBERTURA_ACEPTADA_PENDIENTE_ADMIN", "RESUELTA_APROBADA", "RECHAZADA_ADMIN", "CANCELADA"] },

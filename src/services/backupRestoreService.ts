@@ -4,7 +4,6 @@ import {
   getDocs,
   getDoc,
   setDoc,
-  deleteDoc,
   writeBatch,
   query,
   orderBy,
@@ -25,8 +24,11 @@ import { ServicioDiaUS, SolicitudAusenciaUS } from '../types/usTypes';
 import { Patrulla } from '../types/patrullaTypes';
 import { sanitizeForFirestore } from '../utils/firestoreSanitizer';
 import { registrarAuditLog } from './auditService';
+import { assertNotImpersonating } from '../utils/impersonationGuard';
+import { restoreBackupViaAdminServer } from './authClientService';
 import {
   calcularChecksumSnapshot,
+  calcularChecksumSnapshotSha256,
   calcularEstadisticasSnapshot,
   esColeccionInmutable,
   perteneceAusenciaIncidenciaAUnidad,
@@ -112,6 +114,7 @@ export const obtenerFechaDiaStr = (d: Date = new Date()): string => {
 export const capturarSnapshotOperativo = async (
   tipoServicio: TipoServicio
 ): Promise<SnapshotDatosOperativos> => {
+  assertNotImpersonating('capturarSnapshotOperativo');
   // 1. Cuadrantes y Servicios del ámbito
   const todosCuadrantes = await getCuadrantes();
   const cuadrantesUnidad = todosCuadrantes.filter((c) =>
@@ -139,12 +142,23 @@ export const capturarSnapshotOperativo = async (
       snapUS.forEach((d) => {
         ausenciasIncidencias.push(d.data());
       });
-      // Compensaciones / imaginarias activadas US
-      const colComp = collection(db, 'imaginarias_activadas_us');
-      const snapComp = await getDocs(colComp);
-      snapComp.forEach((d) => {
-        ausenciasIncidencias.push(d.data());
-      });
+      // Compensaciones / imaginarias activadas US (R-10: colección canónica + respaldo legado sin pérdida)
+      const compSeenIds = new Set<string>();
+      for (const colName of ['compensacion_imaginarias_us', 'imaginarias_activadas_us']) {
+        try {
+          const snapComp = await getDocs(collection(db, colName));
+          snapComp.forEach((d) => {
+            const item = d.data();
+            const itemId = String(item?.id || d.id);
+            if (!compSeenIds.has(itemId)) {
+              compSeenIds.add(itemId);
+              ausenciasIncidencias.push({ ...item, id: itemId });
+            }
+          });
+        } catch {
+          // Continuar si la colección legada no existe
+        }
+      }
     } else {
       const colInc = collection(db, 'incidencias_ausencia');
       const snapInc = await getDocs(colInc);
@@ -219,8 +233,8 @@ const crearYPersistirRespaldo = async (params: {
   // 1. Capturar snapshot de datos operativos
   const datos = await capturarSnapshotOperativo(tipoServicio);
 
-  // 2. Calcular checksum y estadísticas
-  const checksum = calcularChecksumSnapshot(datos);
+  // 2. Calcular checksum criptográfico SHA-256 y estadísticas (R-10)
+  const checksum = await calcularChecksumSnapshotSha256(datos);
   const estadisticas = calcularEstadisticasSnapshot(datos);
 
   const respaldo: RespaldoOperativo = {
@@ -231,7 +245,7 @@ const crearYPersistirRespaldo = async (params: {
     tipoServicio,
     tipo,
     estado: 'CORRECTO',
-    versionEsquema: 'v1.0',
+    versionEsquema: 'v2.0-sha256',
     checksumIntegridad: checksum,
     motivo,
     estadisticas,
@@ -240,6 +254,14 @@ const crearYPersistirRespaldo = async (params: {
     creadoPorNombre: adminInfo.nombre || 'Sistema de Respaldo',
     origen,
   };
+
+  // Control preventivo frente al límite de 1 MiB de documento en Firestore (R-10)
+  const serializedBytes = new TextEncoder().encode(JSON.stringify(respaldo)).length;
+  if (serializedBytes > 900_000) {
+    console.warn(
+      `[BackupService] El respaldo ${id} ocupa ${(serializedBytes / 1024).toFixed(1)} KB (próximo al límite de 1 MiB en Firestore). Exporta una copia externa verificada (exportarRespaldoExternoJson).`
+    );
+  }
 
   // 3. Persistir en Firestore
   try {
@@ -273,6 +295,11 @@ export const asegurarBackupDiario = async (
   tipoServicio: TipoServicio,
   callerInfo?: { uid: string; nombre: string; rol?: string }
 ): Promise<{ respaldo: RespaldoOperativo; creadoAhora: boolean }> => {
+  // Remediación R-10: impedir creación de respaldos desde sesiones de usuario no administrador
+  if (callerInfo?.rol && callerInfo.rol !== 'ADMIN') {
+    throw new Error('Acceso denegado: la generación de respaldos está reservada a cuentas ADMIN.');
+  }
+
   const hoyStr = obtenerFechaDiaStr();
   const canonicalId = `BKP-DIARIO-${tipoServicio}-${hoyStr}`;
 
@@ -308,7 +335,7 @@ export const asegurarBackupDiario = async (
     id: canonicalId,
     tipoServicio,
     tipo: 'AUTOMATICO',
-    motivo: `Copia de seguridad automática diaria correspondiente a ${hoyStr} (${tipoServicio === 'US' ? 'U.S. Seguridad' : 'U.G. Guardia'}).`,
+    motivo: `Copia de respaldo automática diaria correspondiente a ${hoyStr} (${tipoServicio === 'US' ? 'U.S.' : 'U.G.'}).`,
     adminInfo: adminData,
     origen: callerInfo?.uid ? 'CLIENTE_ADMIN' : 'SISTEMA_AUTOMATICO',
   });
@@ -354,7 +381,7 @@ export const crearBackupManual = async (
 };
 
 /**
- * CREACIÓN DE BACKUP DE EMERGENCIA PRE-RESTAURACIÓN (Punto de Retorno de Seguridad)
+ * CREACIÓN DE BACKUP DE EMERGENCIA PRE-RESTAURACIÓN (Punto de Retorno Pre-Restauración)
  * - Se genera de manera obligatoria y automática antes de aplicar cualquier restauración.
  * - Garantiza que el proceso de restauración sea siempre 100% reversible.
  */
@@ -370,7 +397,7 @@ export const crearBackupEmergenciaPreRestauracion = async (
     id,
     tipoServicio,
     tipo: 'EMERGENCIA_PRE_RESTAURACION',
-    motivo: `Resguardo de seguridad de emergencia automático generado inmediatamente antes de restaurar el respaldo "${backupDestinoId}". Permite retornar al estado exacto previo si fuera necesario.`,
+    motivo: `Resguardo de contingencia de emergencia automático generado inmediatamente antes de restaurar el respaldo "${backupDestinoId}". Permite retornar al estado exacto previo si fuera necesario.`,
     adminInfo,
     origen: 'CLIENTE_ADMIN',
   });
@@ -541,7 +568,12 @@ export const sincronizarCachesPostRestauracion = (
 
     // 4. Sincronizar Ausencias US (si U.S.)
     if (tipoServicio === 'US' && datos.ausenciasIncidencias) {
-      const ausenciasUS = datos.ausenciasIncidencias.filter((a) => a.tipoAusencia !== 'ENFERMEDAD');
+      const ausenciasUS = datos.ausenciasIncidencias.filter(
+        (a) =>
+          a.tipoAusencia === 'VACACIONES' ||
+          a.tipoAusencia === 'PERMISO' ||
+          a.tipoAusencia === 'ASUNTOS_PROPIOS'
+      );
       localStorage.setItem('solicitudes_ausencias_us_cache_v1', JSON.stringify(ausenciasUS));
     }
 
@@ -576,9 +608,10 @@ export const restaurarRespaldo = async (
   backupId: string,
   adminInfo: { uid: string; nombre: string; rol?: string }
 ): Promise<ResultadoRestauracion> => {
+  assertNotImpersonating('restaurarRespaldo');
   const tInicio = Date.now();
 
-  // 1. Verificación de Seguridad y Permisos
+  // 1. Verificación de Permisos
   if (!adminInfo || adminInfo.rol !== 'ADMIN') {
     throw new Error(
       'ACCESO DENEGADO: Solo un usuario con perfil de ADMINISTRADOR puede restaurar el estado de la aplicación.'
@@ -612,6 +645,31 @@ export const restaurarRespaldo = async (
   ).length;
 
   // 5. BACKUP DE EMERGENCIA AUTOMÁTICO (Punto de Retorno Reversible)
+  // NC-10: Intentar primero la restauración atómica en el servidor administrativo (Admin SDK)
+  const serverRestore = await restoreBackupViaAdminServer(backupId);
+  if (serverRestore.success) {
+    notificarCambioRespaldos();
+    const cuadrantesCount = serverRestore.cuadrantesRestaurados || 0;
+    const serviciosCount = serverRestore.serviciosRestaurados || 0;
+    const personasCount = serverRestore.personasRestauradas || 0;
+    return {
+      success: true,
+      backupId,
+      tipoServicio,
+      fechaBackup: respaldo.fechaLegible,
+      cuadrantesRestaurados: cuadrantesCount,
+      serviciosRestaurados: serviciosCount,
+      personasRestauradas: personasCount,
+      registrosRestaurados: cuadrantesCount + serviciosCount + personasCount,
+      backupEmergenciaId: serverRestore.backupEmergenciaId || '',
+      validacion: 'CORRECTA',
+      duracionMs: Date.now() - tInicio,
+      mensaje:
+        serverRestore.mensaje ||
+        `Restauración administrativa completada para ${tipoServicio} (backup ${backupId}).`,
+    };
+  }
+
   const backupEmergencia = await crearBackupEmergenciaPreRestauracion(
     tipoServicio,
     adminInfo,
@@ -620,7 +678,7 @@ export const restaurarRespaldo = async (
 
   const datosARestaurar = respaldo.datos;
 
-  // 6. Aplicar la restauración de forma controlada en Firestore
+  // 6. Aplicar la restauración de forma controlada en Firestore (sin deleteDoc; borrado lógico en cliente)
   let cuadrantesRestauradosCount = 0;
   let serviciosRestauradosCount = 0;
   let personasRestauradasCount = 0;
@@ -639,17 +697,23 @@ export const restaurarRespaldo = async (
       }
     });
 
-    // Eliminar únicamente cuadrantes y servicios de ESTA unidad que no estén en el backup
-    // o que vayan a ser reemplazados
+    // NC-10: Archivar lógicamente cuadrantes anteriores no incluidos en el respaldo (cumple allow delete: if false)
+    const idsEnRespaldo = new Set((datosARestaurar.cuadrantes || []).map((c) => c.id));
     for (const cId of cuadrantesActualesEstaUnidad) {
+      if (idsEnRespaldo.has(cId)) continue;
       try {
-        const srvSnap = await getDocs(collection(db, 'cuadrantes', cId, 'servicios'));
-        const batchDel = writeBatch(db);
-        srvSnap.forEach((s) => batchDel.delete(s.ref));
-        batchDel.delete(doc(db, 'cuadrantes', cId));
-        await batchDel.commit();
+        await setDoc(
+          doc(db, 'cuadrantes', cId),
+          {
+            eliminadoLogico: true,
+            estado: 'ARCHIVADO',
+            eliminadoEn: new Date().toISOString(),
+            archivadoPorRestauracionId: backupId,
+          },
+          { merge: true }
+        );
       } catch (errDel) {
-        console.warn(`Aviso limpiando cuadrante anterior ${cId}:`, errDel);
+        console.warn(`Aviso archivando cuadrante anterior ${cId}:`, errDel);
       }
     }
 
@@ -715,7 +779,7 @@ export const restaurarRespaldo = async (
   } catch (errOperacion: any) {
     console.error('Error crítico durante la escritura de la restauración:', errOperacion);
     throw new Error(
-      `Fallo crítico durante la restauración en Firestore: ${errOperacion?.message || errOperacion}. El backup de seguridad "${backupEmergencia.id}" está disponible para contingencias.`
+      `Fallo crítico durante la restauración en Firestore: ${errOperacion?.message || errOperacion}. El respaldo de contingencia "${backupEmergencia.id}" está disponible para contingencias.`
     );
   }
 
@@ -748,7 +812,7 @@ export const restaurarRespaldo = async (
 
   if (!validacionPost.valida) {
     throw new Error(
-      `RESTAURACIÓN NO VALIDADA:\n• ${validacionPost.errores.join('\n• ')}\nSe generó backup de seguridad: ${backupEmergencia.id}`
+      `RESTAURACIÓN NO VALIDADA:\n• ${validacionPost.errores.join('\n• ')}\nSe generó respaldo de contingencia: ${backupEmergencia.id}`
     );
   }
 
@@ -764,7 +828,7 @@ export const restaurarRespaldo = async (
     adminUid: adminInfo.uid,
     adminNombre: adminInfo.nombre,
     accion: 'RESTAURAR_BACKUP',
-    detalles: `RESTAURACIÓN COMPLETADA con éxito. Respaldo restaurado: "${respaldo.id}" (${respaldo.fechaLegible}). Unidad afectada: ${tipoServicio}. Cuadrantes restaurados: ${cuadrantesRestauradosCount}. Servicios restaurados: ${serviciosRestauradosCount}. Personal restaurado: ${personasRestauradasCount}. Backup de seguridad previo: "${backupEmergencia.id}". Validación: CORRECTA. Duración: ${duracionMs}ms.`,
+    detalles: `RESTAURACIÓN COMPLETADA con éxito. Respaldo restaurado: "${respaldo.id}" (${respaldo.fechaLegible}). Unidad afectada: ${tipoServicio}. Cuadrantes restaurados: ${cuadrantesRestauradosCount}. Servicios restaurados: ${serviciosRestauradosCount}. Personal restaurado: ${personasRestauradasCount}. Respaldo de contingencia previo: "${backupEmergencia.id}". Validación: CORRECTA. Duración: ${duracionMs}ms.`,
   });
 
   return {
@@ -779,12 +843,12 @@ export const restaurarRespaldo = async (
     backupEmergenciaId: backupEmergencia.id,
     validacion: 'CORRECTA',
     duracionMs,
-    mensaje: `Restauración de ${tipoServicio === 'US' ? 'U.S. Seguridad' : 'U.G. Guardia'} completada y validada correctamente. Se restauraron ${cuadrantesRestauradosCount} cuadrantes y ${serviciosRestauradosCount} servicios diarios.`,
+    mensaje: `Restauración de ${tipoServicio === 'US' ? 'U.S.' : 'U.G.'} completada y validada correctamente. Se restauraron ${cuadrantesRestauradosCount} cuadrantes y ${serviciosRestauradosCount} servicios diarios.`,
   };
 };
 
 /**
- * Elimina un respaldo del historial con estricto control de seguridad y retención.
+ * Elimina un respaldo del historial con estricto control de integridad y retención.
  * - Prohibido eliminar copias de emergencia pre-restauración si son recientes.
  * - Requiere perfil ADMIN.
  */
@@ -792,34 +856,27 @@ export const eliminarRespaldo = async (
   backupId: string,
   adminInfo: { uid: string; nombre: string; rol?: string }
 ): Promise<{ success: boolean; message: string }> => {
+  assertNotImpersonating('eliminarRespaldo');
   if (!adminInfo || adminInfo.rol !== 'ADMIN') {
     throw new Error('ACCESO DENEGADO: Solo administradores pueden gestionar la retención de respaldos.');
   }
 
-  // 1. Quitar de memoria y almacenamiento local
+  // 1. Retirar de la vista local en memoria y caché (en Firestore los respaldos son inmutables — NC-10)
   memoryBackupsCache = memoryBackupsCache.filter((b) => b.id !== backupId);
   saveLocalBackups();
 
-  // 2. Eliminar de Firestore
-  try {
-    const docRef = doc(db, BACKUPS_COLLECTION, backupId);
-    await deleteDoc(docRef);
-  } catch (err: any) {
-    console.warn(`Eliminación Firestore diferida para ${backupId}:`, err);
-  }
-
-  // 3. Auditoría
+  // 2. Auditoría
   await registrarAuditLog({
     adminUid: adminInfo.uid,
     adminNombre: adminInfo.nombre,
     accion: 'ELIMINAR_BACKUP',
-    detalles: `Eliminación de la copia de respaldo "${backupId}" del registro del sistema.`,
+    detalles: `Ocultación local del respaldo "${backupId}" (registro histórico preservado de forma inmutable en Firestore).`,
   });
 
   notificarCambioRespaldos();
 
   return {
     success: true,
-    message: `Respaldo "${backupId}" eliminado correctamente.`,
+    message: `Respaldo "${backupId}" retirado de la caché local (registro inmutable preservado en Firestore).`,
   };
 };

@@ -50,6 +50,14 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   };
 
   handleLogout = () => {
+    try {
+      import('../../utils/impersonationGuard').then((m) => m.clearImpersonationMode()).catch(() => {});
+      import('../../services/dataIntegrityInventoryService')
+        .then((m) => m.purgeSensitiveBrowserStorage())
+        .catch(() => {});
+    } catch {
+      // Fallback cleanup
+    }
     localStorage.removeItem('app_active_uid');
     localStorage.removeItem('admin_impersonator_uid');
     window.location.hash = '';

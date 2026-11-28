@@ -16,13 +16,14 @@ import {
   getDocs,
   setDoc,
   updateDoc,
-  deleteDoc,
   onSnapshot,
   query,
   orderBy,
   writeBatch,
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
+import { assertNotImpersonating, isImpersonating } from '../utils/impersonationGuard';
+import { getApprovedAliasUS } from '../utils/aliasHelper';
 
 export { expandirRangoFechas };
 
@@ -161,148 +162,10 @@ export const calcularCupoMaximoAusenciasUS = (totalMiembrosUS: number = 16): num
 
 /**
  * Reconstruye y recupera de forma exhaustiva las solicitudes de ausencia U.S.
- * a partir de:
- * 1. Todos los servicios diarios de los cuadrantes U.S. (srv.ausencias).
- * 2. Respaldos guardados en respaldos_sistema o en caché local.
- *
- * Restaura el historial de ausencias, recalcula días computables y no computables,
- * actualiza la memoria, el almacenamiento local y persiste en Firestore.
- */
-export const PERMISOS_HISTORICOS_US: {
-  id: string;
-  personaId: string;
-  personaNombre: string;
-  tipoAusencia: TipoAusenciaUS;
-  fechaInicio: string;
-  fechaFin: string;
-  motivo: string;
-}[] = [
-  {
-    id: 'sol-aus-us-1790068917382-excel',
-    personaId: 'excel-us-rol2-10-lz7r',
-    personaNombre: 'SOLIVELLA',
-    tipoAusencia: 'PERMISO',
-    fechaInicio: '2026-11-02',
-    fechaFin: '2026-11-19',
-    motivo: 'Asignación de PERMISO',
-  },
-  {
-    id: 'sol-aus-us-1790081563318-excel',
-    personaId: 'excel-us-rol1-4-lz7r',
-    personaNombre: 'SANTIAGO',
-    tipoAusencia: 'VACACIONES',
-    fechaInicio: '2026-11-02',
-    fechaFin: '2026-11-20',
-    motivo: 'Asignación de VACACIONES',
-  },
-  {
-    id: 'sol-aus-us-1790081631143-excel',
-    personaId: 'excel-us-rol1-4-lz7r',
-    personaNombre: 'SANTIAGO',
-    tipoAusencia: 'ASUNTOS_PROPIOS',
-    fechaInicio: '2026-11-23',
-    fechaFin: '2026-11-30',
-    motivo: 'Asignación de ASUNTOS PROPIOS',
-  },
-  {
-    id: 'sol-aus-us-1790083225908-excel',
-    personaId: 'excel-us-rol1-16-lz7r',
-    personaNombre: 'ORDOÑEZ',
-    tipoAusencia: 'VACACIONES',
-    fechaInicio: '2026-11-01',
-    fechaFin: '2026-11-02',
-    motivo: 'Asignación de VACACIONES',
-  },
-  {
-    id: 'sol-aus-us-1790159449490-excel',
-    personaId: 'excel-us-rol2-12-lz7r',
-    personaNombre: 'ARAGON',
-    tipoAusencia: 'VACACIONES',
-    fechaInicio: '2026-11-03',
-    fechaFin: '2026-11-18',
-    motivo: 'Asignación de VACACIONES',
-  },
-  {
-    id: 'sol-aus-us-1790159490002-excel',
-    personaId: 'excel-us-rol2-12-lz7r',
-    personaNombre: 'ARAGON',
-    tipoAusencia: 'ASUNTOS_PROPIOS',
-    fechaInicio: '2026-11-20',
-    fechaFin: '2026-11-30',
-    motivo: 'Asignación de ASUNTOS PROPIOS',
-  },
-  {
-    id: 'sol-aus-us-1790588125196-excel',
-    personaId: 'excel-us-rol1-1-lz7r',
-    personaNombre: 'ARACIL',
-    tipoAusencia: 'ASUNTOS_PROPIOS',
-    fechaInicio: '2026-11-03',
-    fechaFin: '2026-11-11',
-    motivo: 'Asignación de ASUNTOS PROPIOS',
-  },
-  {
-    id: 'sol-aus-us-1790588157388-excel',
-    personaId: 'excel-us-rol1-1-lz7r',
-    personaNombre: 'ARACIL',
-    tipoAusencia: 'VACACIONES',
-    fechaInicio: '2026-11-18',
-    fechaFin: '2026-12-02',
-    motivo: 'Asignación de VACACIONES',
-  },
-  {
-    id: 'sol-aus-us-1790759511951-excel',
-    personaId: 'excel-us-rol2-12-lz7r',
-    personaNombre: 'ARAGON',
-    tipoAusencia: 'PERMISO',
-    fechaInicio: '2026-11-30',
-    fechaFin: '2027-01-29',
-    motivo: 'Asignación de PERMISO',
-  },
-  {
-    id: 'sol-aus-us-1790759671212-excel',
-    personaId: 'excel-us-rol2-13-lz7r',
-    personaNombre: 'CHARCOS',
-    tipoAusencia: 'VACACIONES',
-    fechaInicio: '2026-11-16',
-    fechaFin: '2026-11-27',
-    motivo: 'Asignación de VACACIONES',
-  },
-  {
-    id: 'sol-aus-us-1790842762437-excel',
-    personaId: 'excel-us-rol2-12-lz7r',
-    personaNombre: 'ARAGON',
-    tipoAusencia: 'VACACIONES',
-    fechaInicio: '2026-12-01',
-    fechaFin: '2026-12-18',
-    motivo: 'Asignación de VACACIONES (Diciembre)',
-  },
-  {
-    id: 'sol-aus-us-1793953063940-excel',
-    personaId: 'excel-us-rol2-10-lz7r',
-    personaNombre: 'SOLIVELLA',
-    tipoAusencia: 'PERMISO',
-    fechaInicio: '2026-12-04',
-    fechaFin: '2026-12-04',
-    motivo: 'TGCF (Permiso Diciembre)',
-  },
-  {
-    id: 'sol-aus-us-1789975241928-excel',
-    personaId: 'excel-us-rol1-15-lz7r',
-    personaNombre: 'MAYOR',
-    tipoAusencia: 'VACACIONES',
-    fechaInicio: '2026-11-16',
-    fechaFin: '2026-11-18',
-    motivo: 'Asignación de VACACIONES',
-  },
-];
-
-/**
- * Reconstruye y recupera de forma exhaustiva las solicitudes de ausencia U.S.
- * a partir de:
- * 1. El catálogo de asignaciones históricas U.S. (incluido Diciembre y meses venideros).
- * 2. Todos los servicios diarios de los cuadrantes U.S. confirmados (srv.ausencias).
- * 3. El registro inmutable de auditoría (auditLogs) para rescates de concesiones directas.
- * 4. Respaldos guardados en respaldos_sistema o en caché local.
+ * a partir de las fuentes autenticadas (sin incluir registros nominales embebidos en el bundle público):
+ * 1. Todos los servicios diarios de los cuadrantes U.S. confirmados (srv.ausencias).
+ * 2. El registro inmutable de auditoría (auditLogs) para rescates de concesiones directas.
+ * 3. Respaldos guardados en respaldos_sistema o en caché local de la sesión.
  *
  * Restaura el historial, recalcula días computables y no computables,
  * actualiza la memoria, el almacenamiento local y persiste en Firestore.
@@ -310,34 +173,7 @@ export const PERMISOS_HISTORICOS_US: {
 export const reconstruirAusenciasUSDesdeCuadrantes = async (): Promise<SolicitudAusenciaUS[]> => {
   const recuperadasMap = new Map<string, SolicitudAusenciaUS>();
 
-  // 1. Cargar catálogo de asignaciones históricas U.S. (incluye Diciembre)
-  for (const item of PERMISOS_HISTORICOS_US) {
-    const fechas = expandirRangoFechas(item.fechaInicio, item.fechaFin);
-    const desglose = desglosarPeriodoPermisoUS(fechas, item.tipoAusencia);
-    const sol: SolicitudAusenciaUS = {
-      id: item.id,
-      personaId: item.personaId,
-      personaNombre: item.personaNombre,
-      tipoAusencia: item.tipoAusencia,
-      fechaInicio: item.fechaInicio,
-      fechaFin: item.fechaFin,
-      fechasAfectadas: fechas,
-      diasConsumibles: desglose.totalDiasConsumibles,
-      diasTotales: desglose.totalDiasSolicitados,
-      diasNoConsumibles: desglose.totalDiasNoConsumibles,
-      festivosExcluidos: desglose.fechasFestivas,
-      finesSemanaExcluidos: desglose.fechasFinesSemana,
-      motivo: item.motivo,
-      estado: 'APROBADA',
-      fechaSolicitud: `${item.fechaInicio}T08:00:00.000Z`,
-      fechaResolucion: `${item.fechaInicio}T09:00:00.000Z`,
-      adminResolucionNombre: 'Administración (Recuperado)',
-      documentoJustificativoEntregado: true,
-    };
-    recuperadasMap.set(sol.id, sol);
-  }
-
-  // 2. Escanear Cuadrantes U.S. (tanto en Firestore como en caché local)
+  // 1. Escanear Cuadrantes U.S. (tanto en Firestore como en caché local)
   try {
     const cuadrantes = await getCuadrantes();
     const cuadrantesUS = cuadrantes.filter(
@@ -584,13 +420,15 @@ export const reconstruirAusenciasUSDesdeCuadrantes = async (): Promise<Solicitud
     saveAusenciasCache();
     notifyAusenciasUSListeners();
 
-    // Intentar persistir cada documento en Firestore
-    for (const sol of resultadoFinal) {
-      try {
-        const docRef = doc(db, AUSENCIAS_US_COLLECTION, sol.id);
-        await setDoc(docRef, sanitizeForFirestore(sol), { merge: true });
-      } catch {
-        // En preview write-shield bloquea, pero queda blindado en local y memoria
+    // Intentar persistir cada documento en Firestore (nunca durante simulación de solo lectura)
+    if (!isImpersonating()) {
+      for (const sol of resultadoFinal) {
+        try {
+          const docRef = doc(db, AUSENCIAS_US_COLLECTION, sol.id);
+          await setDoc(docRef, sanitizeForFirestore(sol), { merge: true });
+        } catch {
+          // Persistencia diferida si entorno offline o bloqueado
+        }
       }
     }
   }
@@ -608,9 +446,10 @@ export const getSolicitudesAusenciaUS = async (): Promise<SolicitudAusenciaUS[]>
     const colRef = collection(db, AUSENCIAS_US_COLLECTION);
     const snap = await getDocs(colRef);
     snap.forEach((d) => {
-      const it = d.data() as SolicitudAusenciaUS;
+      const it = d.data() as SolicitudAusenciaUS & { eliminadoLogico?: boolean };
       if (
         it &&
+        !it.eliminadoLogico &&
         it.personaNombre &&
         !it.personaNombre.startsWith('Guardia US') &&
         !it.personaId?.startsWith('test-')
@@ -692,6 +531,7 @@ export const solicitarAusenciaUS = async (params: {
   forzarPorAdmin?: boolean;
   adminInfo?: { uid: string; nombre: string };
 }): Promise<{ success: boolean; message: string; solicitud?: SolicitudAusenciaUS }> => {
+  assertNotImpersonating('solicitarAusenciaUS');
   const { persona, tipoAusencia, fechaInicio, fechaFin, motivo, totalMiembrosUS = 16, forzarPorAdmin, adminInfo } = params;
 
   const fechas = expandirRangoFechas(fechaInicio, fechaFin);
@@ -796,10 +636,11 @@ export const solicitarAusenciaUS = async (params: {
   const id = `sol-aus-us-${Date.now()}-${persona.id.substring(0, 5)}`;
   const now = new Date().toISOString();
 
+  const personaVisible = getApprovedAliasUS(persona);
   const nuevaSolicitud: SolicitudAusenciaUS = {
     id,
     personaId: persona.id,
-    personaNombre: persona.nombre,
+    personaNombre: personaVisible,
     tipoAusencia,
     fechaInicio,
     fechaFin,
@@ -851,8 +692,8 @@ export const solicitarAusenciaUS = async (params: {
     try {
       await crearNotificacion({
         tipo: 'SOLICITUD_PENDIENTE_ADMIN',
-        titulo: `Solicitud Permiso U.S. - ${persona.nombre}`,
-        mensaje: `${persona.nombre} ha solicitado ${tipoLabel} (${fechaInicio} a ${fechaFin})${detalleExcluidosTxt}. Pendiente de resolución por la Administración.`,
+        titulo: `Solicitud Permiso U.S. - ${personaVisible}`,
+        mensaje: `${personaVisible} ha solicitado ${tipoLabel} (${fechaInicio} a ${fechaFin})${detalleExcluidosTxt}. Pendiente de resolución por la Administración.`,
         esParaAdmin: true,
         tipoServicio: 'US',
         linkTab: 'cuadrantes',
@@ -864,7 +705,7 @@ export const solicitarAusenciaUS = async (params: {
   }
 
   const mensajeExito = forzarPorAdmin
-    ? `${tipoLabel} asignadas y aprobadas correctamente para ${persona.nombre}${detalleExcluidosTxt}.`
+    ? `${tipoLabel} asignadas y aprobadas correctamente para ${personaVisible}${detalleExcluidosTxt}.`
     : desglose.totalDiasNoConsumibles > 0
     ? `Solicitud de ${tipoLabel} registrada exitosamente (${desglose.totalDiasConsumibles} días computables a descontar, ${desglose.totalDiasNoConsumibles} días no computables). Recuerda entregar el documento justificativo en mano a la Administración.`
     : `Solicitud de ${tipoLabel} registrada exitosamente (${fechas.length} días). Recuerda que debes entregar el documento justificativo en mano a la Administración.`;
@@ -886,6 +727,7 @@ export const resolverSolicitudAusenciaUS = async (params: {
   totalMiembrosUS?: number;
   adminInfo: { uid: string; nombre: string };
 }): Promise<{ success: boolean; message: string }> => {
+  assertNotImpersonating('resolverSolicitudAusenciaUS');
   const { solicitudId, aprobada, motivoRechazo, totalMiembrosUS = 16, adminInfo } = params;
 
   if (!adminInfo || !adminInfo.nombre || !adminInfo.nombre.trim() || !adminInfo.uid) {
@@ -1007,6 +849,7 @@ export const modificarSolicitudAusenciaUS = async (params: {
   message: string;
   solicitud?: SolicitudAusenciaUS;
 }> => {
+  assertNotImpersonating('modificarSolicitudAusenciaUS');
   const { solicitudId, adminInfo, fechaInicio, fechaFin, tipoAusencia, motivo } = params;
 
   // 1. Verificación estricta de autorización de administrador
@@ -1015,9 +858,7 @@ export const modificarSolicitudAusenciaUS = async (params: {
       adminInfo.rol !== 'USUARIO' &&
       (adminInfo.rol === 'ADMIN' ||
         adminInfo.uid?.startsWith('admin-') ||
-        adminInfo.uid === 'admin-system' ||
-        (adminInfo as any).email === 'sarqsan2@gmail.com' ||
-        Boolean(adminInfo.uid && adminInfo.rol === undefined))
+        adminInfo.uid === 'admin-system')
   );
 
   if (!esAdmin) {
@@ -1127,9 +968,7 @@ export const eliminarSolicitudAusenciaUS = async (params: {
         adminInfo.rol !== 'USUARIO' &&
         (adminInfo.rol === 'ADMIN' ||
           adminInfo.uid?.startsWith('admin-') ||
-          adminInfo.uid === 'admin-system' ||
-          (adminInfo as any).email === 'sarqsan2@gmail.com' ||
-          Boolean(adminInfo.uid && adminInfo.rol === undefined))
+          adminInfo.uid === 'admin-system')
     );
     if (!esAdmin) {
       return {
@@ -1139,6 +978,7 @@ export const eliminarSolicitudAusenciaUS = async (params: {
     }
   }
 
+  assertNotImpersonating('eliminarAusenciaUS');
   const todas = await getSolicitudesAusenciaUS();
   const sol = todas.find((s) => s.id === solicitudId);
 
@@ -1147,10 +987,20 @@ export const eliminarSolicitudAusenciaUS = async (params: {
   notifyAusenciasUSListeners();
 
   try {
+    // NC-10: Baja lógica alineada con firestore.rules (allow delete: if false)
     const docRef = doc(db, AUSENCIAS_US_COLLECTION, solicitudId);
-    await deleteDoc(docRef);
+    await setDoc(
+      docRef,
+      {
+        eliminadoLogico: true,
+        estado: 'ANULADA',
+        eliminadoEn: new Date().toISOString(),
+        eliminadoPorUid: adminInfo?.uid || null,
+      },
+      { merge: true }
+    );
   } catch (e: any) {
-    console.warn('Delete Firestore ausencia diferido:', e.message || e);
+    console.warn('Baja lógica Firestore ausencia diferida:', e.message || e);
   }
 
   // Sincronizar cuadrantes si estaba aprobada
@@ -1199,9 +1049,10 @@ export const subscribeSolicitudesAusenciaUS = (
 
         const validFirestoreItems: SolicitudAusenciaUS[] = [];
         snapshot.forEach((docSnap) => {
-          const it = docSnap.data() as SolicitudAusenciaUS;
+          const it = docSnap.data() as SolicitudAusenciaUS & { eliminadoLogico?: boolean };
           if (
             it &&
+            !it.eliminadoLogico &&
             it.personaNombre &&
             !it.personaNombre.startsWith('Guardia US') &&
             !it.personaId?.startsWith('test-')
@@ -1283,14 +1134,21 @@ export const limpiarTodasSolicitudesAusenciaUS = async (adminInfo?: { uid: strin
   message: string;
   eliminadas: number;
 }> => {
+  assertNotImpersonating('limpiarTodasSolicitudesAusenciaUS');
   try {
     const colRef = collection(db, AUSENCIAS_US_COLLECTION);
     const snap = await getDocs(colRef);
     const batch = writeBatch(db);
     let count = 0;
+    const now = new Date().toISOString();
 
     snap.forEach((docSnap) => {
-      batch.delete(docSnap.ref);
+      // NC-10: Baja lógica alineada con firestore.rules (allow delete: if false)
+      batch.set(
+        docSnap.ref,
+        { eliminadoLogico: true, estado: 'ANULADA', eliminadoEn: now },
+        { merge: true }
+      );
       count++;
     });
 

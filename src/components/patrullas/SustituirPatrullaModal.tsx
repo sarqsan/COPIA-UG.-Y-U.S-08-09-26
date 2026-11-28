@@ -237,7 +237,7 @@ export const SustituirPatrullaModal: React.FC<SustituirPatrullaModalProps> = ({
                 placeholder={
                   esAdmin
                     ? 'Opcional: ej. Cambio patrulla por imaginaria, orden de servicio... (si se deja vacío se registra como "Sustitución directa administrativa")'
-                    : 'Indique el motivo reglamentario (ej: Baja médica, indisposición, orden de servicio)...'
+                    : 'Indique el motivo operativo (ej: Ausencia sobrevenida, cambio de servicio, orden de servicio)...'
                 }
                 className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-xs text-slate-800 focus:border-amber-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
               />

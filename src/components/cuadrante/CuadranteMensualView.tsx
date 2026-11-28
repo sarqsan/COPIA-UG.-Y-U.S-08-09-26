@@ -485,17 +485,17 @@ export const CuadranteMensualView: React.FC<CuadranteMensualViewProps> = ({
                 C
               </span>
               <span className="font-semibold text-emerald-800 dark:text-emerald-300">
-                Cobertura Baja Médica
+                Cobertura Ausencia Sobrevenida
               </span>
             </div>
 
-            {/* CUADRADO B (BAJA / SERVICIO CUBIERTO - ROJO/ROSA) */}
+            {/* CUADRADO B (AUSENCIA SOBREVENIDA / SERVICIO CUBIERTO - ROJO/ROSA) */}
             <div className="flex items-center gap-1.5">
               <span className="inline-flex h-5 w-5 items-center justify-center rounded-sm bg-rose-600 font-mono text-[10px] font-black text-white shadow-xs border border-rose-700">
                 B
               </span>
               <span className="font-semibold text-rose-800 dark:text-rose-300">
-                Baja Médica
+                Ausencia Sobrevenida
               </span>
             </div>
 
@@ -626,7 +626,7 @@ export const CuadranteMensualView: React.FC<CuadranteMensualViewProps> = ({
                     }
                   </div>
                   <div className="text-[9px] font-bold uppercase tracking-wider text-rose-300">
-                    En Baja
+                    Aus. Sobrev.
                   </div>
                 </div>
               )}
@@ -734,14 +734,14 @@ export const CuadranteMensualView: React.FC<CuadranteMensualViewProps> = ({
                     ) : esCobertura ? (
                       <div className="space-y-1">
                         <span className="inline-block px-2 py-0.5 rounded-md bg-emerald-500 text-white font-mono text-[10px] font-black tracking-wider">
-                          COBERTURA BAJA
+                          COBERTURA AUSENCIA
                         </span>
                         <p className="text-[10px] text-emerald-200">09:00 a 09:00 (+1)</p>
                       </div>
                     ) : esBaja ? (
                       <div className="space-y-1">
                         <span className="inline-block px-2 py-0.5 rounded-md bg-rose-600 text-white font-mono text-[10px] font-black tracking-wider">
-                          BAJA MÉDICA
+                          AUSENCIA SOBREVENIDA
                         </span>
                         <p className="text-[10px] text-rose-700 dark:text-rose-300">
                           Relevado por imaginaria
@@ -1043,7 +1043,7 @@ export const CuadranteMensualView: React.FC<CuadranteMensualViewProps> = ({
                                 type="button"
                                 onClick={() => esEditableAdmin && onEditSlot!(d.servicio!, slotEdicion!)}
                                 disabled={!esEditableAdmin}
-                                title={`${d.diaSemanaNombre} ${d.diaNumero} ${mesActualInfo.nombre}: COBERTURA ACTIVADA POR BAJA MÉDICA (09:00 a 09:00)${
+                                title={`${d.diaSemanaNombre} ${d.diaNumero} ${mesActualInfo.nombre}: COBERTURA ACTIVADA POR AUSENCIA SOBREVENIDA (09:00 a 09:00)${
                                   esEditableAdmin ? ' • [Clic para editar asignación - Administrador]' : ''
                                 }`}
                                 className={`inline-flex h-6 w-6 items-center justify-center rounded-sm bg-emerald-600 font-mono text-[11px] font-black text-white shadow-xs border border-emerald-700 transition-transform ${
@@ -1054,7 +1054,7 @@ export const CuadranteMensualView: React.FC<CuadranteMensualViewProps> = ({
                               </button>
                             ) : estado === 'BAJA' ? (
                               <span
-                                title={`${d.diaSemanaNombre} ${d.diaNumero} ${mesActualInfo.nombre}: BAJA MÉDICA / SERVICIO CUBIERTO POR SUSTITUTO`}
+                                title={`${d.diaSemanaNombre} ${d.diaNumero} ${mesActualInfo.nombre}: AUSENCIA SOBREVENIDA / SERVICIO CUBIERTO POR SUSTITUTO`}
                                 className="inline-flex h-6 w-6 items-center justify-center rounded-sm bg-rose-600 font-mono text-[11px] font-black text-white shadow-xs border border-rose-700 hover:scale-110 transition-transform"
                               >
                                 B
@@ -1165,7 +1165,7 @@ export const CuadranteMensualView: React.FC<CuadranteMensualViewProps> = ({
         <div className="flex items-center gap-2">
           <Shield className="h-4 w-4 text-emerald-600 shrink-0" />
           <span>
-            <strong>Privacidad operativa garantizada:</strong> Esta vista no expone identificadores personales, teléfonos, partes médicos ni notas personales.
+            <strong>Privacidad operativa garantizada:</strong> Esta vista no expone identificadores personales, teléfonos ni notas personales.
           </span>
         </div>
 

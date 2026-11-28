@@ -14,6 +14,7 @@ import { Notificacion, TipoNotificacion, Empleo, TipoServicio } from '../types';
 import { enviarPushParaNotificacion } from './pushNotificationService';
 import { registrarDispositivoFCM } from './fcmTokenService';
 import { sanitizeForFirestore } from '../utils/firestoreSanitizer';
+import { assertNotImpersonating, isImpersonating } from '../utils/impersonationGuard';
 
 const NOTIFICACIONES_COLLECTION = 'notificaciones';
 const NOTIFICACIONES_STORAGE_KEY = 'notificaciones_cache_v3';
@@ -70,8 +71,28 @@ const saveNotifStorage = (notify: boolean = true) => {
 
 loadNotifStorage();
 
+export class ChatNotificationRemovedError extends Error {
+  constructor(message = 'Las notificaciones exclusivas del chat interno han sido retiradas definitivamente.') {
+    super(message);
+    this.name = 'ChatNotificationRemovedError';
+  }
+}
+
+export const esNotificacionExclusivaChat = (params: {
+  tipo?: string | null;
+  linkTab?: string | null;
+}): boolean => {
+  const tipoNorm = String(params.tipo || '').trim().toUpperCase();
+  const tabNorm = String(params.linkTab || '').trim().toLowerCase();
+  return (
+    tabNorm === 'chat' ||
+    tipoNorm === 'MENSAJE_ADMINISTRATIVO' ||
+    tipoNorm === 'MENSAJE_CHAT'
+  );
+};
+
 /**
- * Crea y envía una notificación en el sistema
+ * Crea y envía una notificación operativa independiente en el sistema
  */
 export const crearNotificacion = async (params: {
   tipo: TipoNotificacion;
@@ -88,6 +109,10 @@ export const crearNotificacion = async (params: {
   servicioId?: string;
   tipoServicio?: TipoServicio;
 }): Promise<Notificacion> => {
+  assertNotImpersonating('crearNotificacion');
+  if (esNotificacionExclusivaChat({ tipo: params.tipo as string, linkTab: params.linkTab })) {
+    throw new ChatNotificationRemovedError();
+  }
   const notifId = `notif-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
   const notificacion: Notificacion = {
     id: notifId,
@@ -156,7 +181,7 @@ export const getNotificaciones = async (
     const snapshot = await getDocs(q);
 
     if (snapshot.empty) {
-      if (memoryNotificacionesCache.length === 0) {
+      if (memoryNotificacionesCache.length === 0 && !isImpersonating()) {
         for (const initNotif of INITIAL_NOTIFICATIONS) {
           try {
             await setDoc(doc(db, NOTIFICACIONES_COLLECTION, initNotif.id), initNotif);
@@ -252,6 +277,7 @@ export const getNotificaciones = async (
 
       return {
         ...item,
+        linkTab: item.linkTab?.toLowerCase() === 'chat' ? undefined : item.linkTab,
         leida: !!estaLeida,
       };
     })
@@ -347,6 +373,7 @@ export const subscribeNotificaciones = (
 
             return {
               ...item,
+              linkTab: item.linkTab?.toLowerCase() === 'chat' ? undefined : item.linkTab,
               leida: !!estaLeida,
             };
           })
@@ -373,6 +400,7 @@ export const marcarNotificacionLeida = async (
   notificacionId: string,
   userIdentifier?: string | null
 ): Promise<void> => {
+  assertNotImpersonating('marcarNotificacionLeida');
   const item = memoryNotificacionesCache.find((n) => n.id === notificacionId);
   const now = new Date().toISOString();
   const readerKey = userIdentifier || 'unknown-user';
@@ -415,6 +443,7 @@ export const marcarTodasNotificacionesLeidas = async (
   uid?: string | null,
   isAdmin: boolean = false
 ): Promise<void> => {
+  assertNotImpersonating('marcarTodasNotificacionesLeidas');
   const items = await getNotificaciones(personaId, uid, isAdmin);
   const now = new Date().toISOString();
   const readerKey = uid || (personaId ? `user-${personaId}` : isAdmin ? 'ADMIN_GLOBAL' : 'user');

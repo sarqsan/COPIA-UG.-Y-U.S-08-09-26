@@ -1,4 +1,78 @@
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
+import { assertNotImpersonating } from '../utils/impersonationGuard';
+
+const MAX_EXCEL_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
+const MAX_EXCEL_ROWS = 5000;
+
+export function sanitizeSpreadsheetCellForExport(value: unknown): string {
+  const str = String(value ?? '');
+  if (/^[=+\-@\t\r]/.test(str)) {
+    return `'${str}`;
+  }
+  return str;
+}
+
+const cellToPlainValue = (val: ExcelJS.CellValue): any => {
+  if (val === null || val === undefined) return '';
+  if (typeof val === 'object') {
+    if ('text' in val && typeof (val as any).text === 'string') return (val as any).text;
+    if ('result' in val && (val as any).result !== undefined) return (val as any).result;
+    if ('richText' in val && Array.isArray((val as any).richText)) {
+      return (val as any).richText.map((r: any) => r.text || '').join('');
+    }
+    if (val instanceof Date) return val.toISOString().split('T')[0];
+  }
+  return val;
+};
+
+const readFirstSheetMatrixWithExcelJS = async (
+  buffer: ArrayBuffer
+): Promise<{ hasSheet: boolean; rows: any[][] }> => {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buffer);
+  const ws = wb.worksheets[0];
+  if (!ws) return { hasSheet: false, rows: [] };
+  if (ws.rowCount > MAX_EXCEL_ROWS) {
+    throw new Error(`El archivo excede el límite seguro de ${MAX_EXCEL_ROWS} filas.`);
+  }
+  const rows: any[][] = [];
+  ws.eachRow({ includeEmpty: false }, (row) => {
+    const vals = row.values as any[];
+    const arr = Array.isArray(vals) ? vals.slice(1).map(cellToPlainValue) : [];
+    rows.push(arr);
+  });
+  return { hasSheet: true, rows };
+};
+
+const downloadAoaWithExcelJS = async (
+  data: any[][],
+  sheetName: string,
+  filename: string
+): Promise<void> => {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(sheetName);
+  data.forEach((row, idx) => {
+    const safeRow = row.map((cell) =>
+      idx === 0 ? String(cell ?? '') : sanitizeSpreadsheetCellForExport(cell)
+    );
+    ws.addRow(safeRow);
+  });
+  if (ws.rowCount > 0) ws.getRow(1).font = { bold: true };
+  const buf = await wb.xlsx.writeBuffer();
+  if (typeof document !== 'undefined' && typeof URL !== 'undefined') {
+    const blob = new Blob([buf], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+};
 import { ExcelValidationResult,
   ExcelRowParsed,
   ImportSimulationSummary,
@@ -37,13 +111,24 @@ export const parseExcelFile = async (
   return new Promise((resolve) => {
     const reader = new FileReader();
 
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
-        const data = new Uint8Array(e.target?.result as ArrayBuffer);
-        const workbook = XLSX.read(data, { type: 'array' });
-        const firstSheetName = workbook.SheetNames[0];
+        if (file.size > MAX_EXCEL_FILE_BYTES) {
+          return resolve({
+            isValid: false,
+            totalCount: 0,
+            rol1Count: 0,
+            rol2Count: 0,
+            gruposCount: { 'U.G.': 0, 'US_SEGURIDAD': 0 },
+            validRows: [],
+            invalidRows: [],
+            generalErrors: ['El archivo supera el límite máximo seguro de 10 MB.'],
+          });
+        }
+        const arrayBuf = e.target?.result as ArrayBuffer;
+        const { hasSheet, rows: rawJson } = await readFirstSheetMatrixWithExcelJS(arrayBuf);
 
-        if (!firstSheetName) {
+        if (!hasSheet) {
           return resolve({
             isValid: false,
             totalCount: 0,
@@ -58,9 +143,6 @@ export const parseExcelFile = async (
             generalErrors: ['El archivo Excel está vacío o no contiene hojas de cálculo.'],
           });
         }
-
-        const worksheet = workbook.Sheets[firstSheetName];
-        const rawJson: any[] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
 
         if (!rawJson || rawJson.length === 0) {
           return resolve({
@@ -520,6 +602,7 @@ export const ejecutarImportacionConfirmada = async (
   adminInfo: { uid: string; nombre: string },
   nombreCiclo: string = 'Ciclo Importado'
 ): Promise<{ success: boolean; message: string; count: number }> => {
+  assertNotImpersonating('ejecutarImportacionConfirmada');
   try {
     const batch = writeBatch(db);
     const now = new Date().toISOString();
@@ -674,10 +757,7 @@ export const descargarPlantillaExcelApellidos = () => {
     ...apellidosRol2.map((ap) => [ap]),
   ];
 
-  const ws = XLSX.utils.aoa_to_sheet(data);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Apellidos UG');
-  XLSX.writeFile(wb, 'plantilla_apellidos_ug_22.xlsx');
+  downloadAoaWithExcelJS(data, 'Apellidos UG', 'plantilla_apellidos_ug_22.xlsx').catch(() => {});
 };
 
 /**
@@ -708,14 +788,11 @@ export const descargarPlantillaExcelEjemplo = (rol1Count = 11, rol2Count = 11) =
     data.push(['ROL 2', apellido]);
   }
 
-  const ws = XLSX.utils.aoa_to_sheet(data);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Plantilla Personal UG');
-  XLSX.writeFile(wb, 'plantilla_rol_apellido.xlsx');
+  downloadAoaWithExcelJS(data, 'Plantilla Personal UG', 'plantilla_rol_apellido.xlsx').catch(() => {});
 };
 
 /**
- * Genera y descarga una plantilla Excel para la U.S. (Unidad de Seguridad - Turnos de 12 Horas)
+ * Genera y descarga una plantilla Excel para U.S. (Turnos de 12 Horas)
  * Únicamente dos columnas: ROL y APELLIDO (dotación variable ~16 personas).
  */
 export const descargarPlantillaExcelUS = (rol1Count = 8, rol2Count = 8) => {
@@ -741,14 +818,11 @@ export const descargarPlantillaExcelUS = (rol1Count = 8, rol2Count = 8) => {
     data.push(['ROL 2', apellido]);
   }
 
-  const ws = XLSX.utils.aoa_to_sheet(data);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Plantilla U.S.');
-  XLSX.writeFile(wb, 'plantilla_us_seguridad_12h.xlsx');
+  downloadAoaWithExcelJS(data, 'Plantilla U.S.', 'plantilla_us_12h.xlsx').catch(() => {});
 };
 
 /**
- * Parser específico para la U.S. (Unidad de Seguridad)
+ * Parser específico para U.S.
  * - Solo requiere ROL y APELLIDO.
  * - Dotación variable y adaptativa (sin número fijo obligatorio de 16 o 22).
  * - Aislamiento total respecto a la U.G.
@@ -760,13 +834,24 @@ export const parseExcelFileUS = async (
   return new Promise((resolve) => {
     const reader = new FileReader();
 
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
-        const data = new Uint8Array(e.target?.result as ArrayBuffer);
-        const workbook = XLSX.read(data, { type: 'array' });
-        const firstSheetName = workbook.SheetNames[0];
+        if (file.size > MAX_EXCEL_FILE_BYTES) {
+          return resolve({
+            isValid: false,
+            totalCount: 0,
+            rol1Count: 0,
+            rol2Count: 0,
+            gruposCount: { 'U.G.': 0, 'US_SEGURIDAD': 0 },
+            validRows: [],
+            invalidRows: [],
+            generalErrors: ['El archivo supera el límite máximo seguro de 10 MB.'],
+          });
+        }
+        const arrayBuf = e.target?.result as ArrayBuffer;
+        const { hasSheet, rows: rawJson } = await readFirstSheetMatrixWithExcelJS(arrayBuf);
 
-        if (!firstSheetName) {
+        if (!hasSheet) {
           return resolve({
             isValid: false,
             totalCount: 0,
@@ -778,9 +863,6 @@ export const parseExcelFileUS = async (
             generalErrors: ['El archivo Excel está vacío o no contiene hojas de cálculo.'],
           });
         }
-
-        const worksheet = workbook.Sheets[firstSheetName];
-        const rawJson: any[] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
 
         if (!rawJson || rawJson.length === 0) {
           return resolve({
@@ -979,7 +1061,7 @@ export const parseExcelFileUS = async (
 };
 
 /**
- * Ejecuta la importación confirmada exclusivamente para la U.S. (Unidad de Seguridad)
+ * Ejecuta la importación confirmada exclusivamente para U.S.
  * - Mantiene aislamiento total: no modifica ni borra personal ni cuadrantes de la U.G.
  * - Da de alta / actualiza el personal activo de U.S.
  * - Desactiva (sin borrar) personal de U.S. no presente en la nueva lista para preservar histórico.
@@ -990,6 +1072,7 @@ export const ejecutarImportacionConfirmadaUS = async (
   adminInfo: { uid: string; nombre: string },
   nombreCiclo: string = 'Ciclo U.S. 2026'
 ): Promise<{ success: boolean; message: string; count: number }> => {
+  assertNotImpersonating('ejecutarImportacionConfirmadaUS');
   try {
     const batch = writeBatch(db);
     const now = new Date().toISOString();
@@ -1098,7 +1181,7 @@ export const ejecutarImportacionConfirmadaUS = async (
       adminUid: adminInfo.uid,
       adminNombre: adminInfo.nombre,
       accion: 'IMPORTAR_PERSONAL',
-      detalles: `Plantilla de la U.S. (Unidad de Seguridad) importada: ${validRows.length} usuarios activos (${rol1Count} ROL 1 y ${rol2Count} ROL 2). Historial conservado y U.G. no afectada.`,
+      detalles: `Plantilla de U.S. importada: ${validRows.length} usuarios activos (${rol1Count} ROL 1 y ${rol2Count} ROL 2). Historial conservado y U.G. no afectada.`,
     });
 
     return {

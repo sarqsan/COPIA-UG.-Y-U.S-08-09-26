@@ -8,6 +8,7 @@ import {
   getTokensActivosAdmins,
   getTokensActivosTodos,
 } from './fcmTokenService';
+import { buildAuthenticatedHeaders } from './authClientService';
 
 // VAPID Key opcional desde variable de entorno si se especifica
 const VAPID_KEY = (import.meta as any).env?.VITE_FIREBASE_VAPID_KEY || undefined;
@@ -258,7 +259,7 @@ const obtenerYRegistrarToken = async (uid: string): Promise<string | null> => {
 export const formatearPayloadPushSeguro = (notif: Notificacion): PushNotificationPayload => {
   let titulo = 'Gestor Operativo';
   let mensaje = notif.mensaje || 'Nueva actualización en el servicio.';
-  let linkTab = notif.linkTab || 'cuadrantes';
+  let linkTab = notif.linkTab && notif.linkTab.toLowerCase() !== 'chat' ? notif.linkTab : 'cuadrantes';
 
   switch (notif.tipo) {
     case 'NUEVA_SOLICITUD_CAMBIO':
@@ -307,12 +308,6 @@ export const formatearPayloadPushSeguro = (notif: Notificacion): PushNotificatio
       titulo = 'Cobertura Confirmada';
       mensaje = 'La sustitución por imaginaria ha sido confirmada en el cuadrante.';
       linkTab = 'cuadrantes';
-      break;
-
-    case 'MENSAJE_ADMINISTRATIVO':
-      titulo = 'Comunicado Administrativo';
-      mensaje = notif.titulo || 'Tienes un nuevo aviso de la administración.';
-      linkTab = 'solicitudes';
       break;
 
     case 'AVISO_IMPORTANTE':
@@ -386,6 +381,16 @@ export const enviarPushParaNotificacion = async (params: {
   esParaTodos?: boolean;
 }): Promise<{ sent: boolean; count: number; error?: string }> => {
   try {
+    const tipoNorm = String((params.notificacion as any)?.tipo || '').trim().toUpperCase();
+    const tabNorm = String(params.notificacion?.linkTab || '').trim().toLowerCase();
+    if (tabNorm === 'chat' || tipoNorm === 'MENSAJE_ADMINISTRATIVO' || tipoNorm === 'MENSAJE_CHAT') {
+      return {
+        sent: false,
+        count: 0,
+        error: 'Notificaciones exclusivas del chat interno retiradas definitivamente.',
+      };
+    }
+
     const notifId = params.notificacion.id;
 
     // 1. Comprobación de idempotencia (evitar duplicados accidentales)
@@ -412,12 +417,10 @@ export const enviarPushParaNotificacion = async (params: {
     // 3. Formatear payload seguro para push
     const payload = formatearPayloadPushSeguro(params.notificacion);
 
-    // 4. Enviar mediante el endpoint seguro de backend (Express /server.ts)
+    // 4. Enviar mediante el endpoint autenticado de backend (FCM HTTP v1)
     const response = await fetch('/api/push/send', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: buildAuthenticatedHeaders(),
       body: JSON.stringify({
         tokens,
         payload,

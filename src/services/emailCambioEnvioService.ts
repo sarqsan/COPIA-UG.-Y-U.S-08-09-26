@@ -2,13 +2,14 @@ import { DocumentoCambioFirmado, CuadranteMaestro, ServicioDia, Persona, Registr
 import { getEmailPersonalConfig, registrarEnvioEmail, comprobarEnvioPrevio, renderizarPlantillaEmail } from './emailPersonalConfigService';
 import { getGmailAccessToken, CUENTA_EMISORA_GMAIL } from './gmailAuthService';
 import { generarDocumentoCambioExcelData } from './documentoCambioExcelService';
+import { buildAuthenticatedHeaders } from './authClientService';
 
 // Bloqueo en memoria para evitar envíos concurrentes o duplicados por doble clic
 const enviosEnCurso = new Set<string>();
 
 /**
  * Envía el Excel del cambio a Personal a través de Gmail API.
- * - Emisor fijo: sarqsan2@gmail.com
+ * - Emisor: configurable en Administración (configuracion_sistema / VITE_GMAIL_SENDER_EMAIL)
  * - Destinatario, asunto y cuerpo leídos de la configuración ADMIN
  * - Excel: Hoja "Diligencia Cambio" + Hoja "CUADRANTE DEL MES"
  * - Deduplicación estricta (no envía dos veces automáticamente el mismo ID_CAMBIO)
@@ -113,7 +114,7 @@ export const enviarDocumentoCambioPorGmail = async (params: {
         cuerpo: cuerpoFinal,
         fecha: new Date().toISOString(),
         estado: 'ERROR',
-        error: 'Pendiente de autorización de Gmail para sarqsan2@gmail.com. El cuadrante ya está aplicado. Conecta Gmail y pulsa Reenviar a Personal.',
+        error: 'Pendiente de autorización de Gmail para la cuenta emisora configurada. El cuadrante ya está aplicado. Conecta Gmail y pulsa Reenviar a Personal.',
         nombreAdjunto: resExcel.filename,
         tipoEnvio,
       };
@@ -123,18 +124,17 @@ export const enviarDocumentoCambioPorGmail = async (params: {
       return {
         success: false,
         requireAuth: true,
-        message: 'El cambio y el cuadrante han sido aplicados correctamente. Falta la autorización de Gmail con sarqsan2@gmail.com para despachar el correo a Personal. Puedes autorizarla y pulsar "Reenviar a Personal".',
+        message: 'El cambio y el cuadrante han sido aplicados correctamente. Falta la autorización de Gmail con la cuenta emisora configurada para despachar el correo a Personal. Puedes autorizarla y pulsar "Reenviar a Personal".',
         registro: registroError,
       };
     }
 
-    // 6. Enviar vía API backend con el token Bearer en memoria
+    // 6. Enviar vía API backend autenticada (Bearer sesión app + X-Gmail-Access-Token OAuth)
     const response = await fetch('/api/email/enviar-documento-cambio', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
+      headers: buildAuthenticatedHeaders({
+        'X-Gmail-Access-Token': token,
+      }),
       body: JSON.stringify({
         emisor: CUENTA_EMISORA_GMAIL,
         destinatario: config.destinatario,
@@ -246,7 +246,7 @@ export const enviarEmailPruebaPersonal = async (opciones?: {
   if (!token) {
     return {
       success: false,
-      message: 'No hay sesión activa de Gmail con sarqsan2@gmail.com. Pulsa primero "Conectar con Google" para autorizar el envío.',
+      message: 'No hay sesión activa de Gmail con la cuenta emisora configurada. Pulsa primero "Conectar con Google" para autorizar el envío.',
     };
   }
 
@@ -254,7 +254,7 @@ export const enviarEmailPruebaPersonal = async (opciones?: {
   const asuntoFinal = opciones?.asunto || `[PRUEBA SISTEMA] Verificación de envío a Personal — ${new Date().toLocaleDateString('es-ES')}`;
   const cuerpoFinal = opciones?.cuerpo || `Buenos días:
 
-Este es un mensaje de prueba emitido desde la cuenta configurada sarqsan2@gmail.com para verificar la comunicación y la recepción de cuadrantes de la Unidad de Guardias.
+Este es un mensaje de prueba emitido desde la cuenta configurada en Administración para verificar la comunicación y la recepción de cuadrantes U.G. / U.S.
 
 Si ha recibido este correo correctamente con su archivo adjunto Excel, el canal de notificación a Personal está completamente operativo.
 
@@ -308,10 +308,9 @@ Un cordial saludo.`;
   try {
     const response = await fetch('/api/email/enviar-documento-cambio', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
+      headers: buildAuthenticatedHeaders({
+        'X-Gmail-Access-Token': token,
+      }),
       body: JSON.stringify({
         emisor: CUENTA_EMISORA_GMAIL,
         destinatario: destinatarioFinal,

@@ -27,7 +27,19 @@ import {
   limpiarValorOriginal,
   extraerCandidatosMatriculaDeCelda,
 } from './matriculaNormalizerService';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
+
+/** Convierte índice de columna 0-based en letra Excel (0 -> A, 25 -> Z, 26 -> AA). */
+const encodeExcelCol = (idx: number): string => {
+  let n = idx + 1;
+  let col = '';
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    col = String.fromCharCode(65 + rem) + col;
+    n = Math.floor((n - 1) / 26);
+  }
+  return col || 'A';
+};
 
 // Nombres de colecciones raíz
 export const COLECCION_MATRICULAS = 'matriculas_autorizadas';
@@ -596,7 +608,7 @@ export const identificarColumnasMatricula = (
         indice: idx,
         nombreOriginal: enc,
         nombreNormalizado: normalizarTextoEncabezado(enc),
-        letraExcel: XLSX.utils.encode_col(idx),
+        letraExcel: encodeExcelCol(idx),
       });
     }
   });
@@ -604,7 +616,7 @@ export const identificarColumnasMatricula = (
 };
 
 /**
- * Escanea de forma optimizada, asíncrona y segura las hojas de un libro Excel (.xlsx, .xls).
+ * Escanea de forma optimizada, asíncrona y segura las hojas de un libro Excel (.xlsx) con ExcelJS.
  * - Identifica EXCLUSIVAMENTE las columnas de matrícula mediante sus encabezados.
  * - Si no encuentra ninguna columna de matrícula, NO busca en otras columnas y devuelve aviso claro.
  * - Las columnas no autorizadas (Modelo, Marca, Color, etc.) NUNCA llegan al detector ni al normalizador.
@@ -612,7 +624,7 @@ export const identificarColumnasMatricula = (
  * - Procesa por bloques asíncronos para evitar congelar el hilo principal del navegador.
  */
 export const escanearMatriculasDesdeLibroExcel = async (
-  workbook: XLSX.WorkBook,
+  workbook: ExcelJS.Workbook,
   opciones?: OpcionesEscaneoExcel
 ): Promise<ResultadoEscaneoMultiColumna> => {
   let totalCeldasEscaneadas = 0;
@@ -624,7 +636,7 @@ export const escanearMatriculasDesdeLibroExcel = async (
 
   let algunaHojaConColumnaMatricula = false;
 
-  for (let hIdx = 0; hIdx < workbook.SheetNames.length; hIdx++) {
+  for (let hIdx = 0; hIdx < workbook.worksheets.length; hIdx++) {
     if (opciones?.debeCancelar?.()) {
       return {
         items: [],
@@ -638,14 +650,30 @@ export const escanearMatriculasDesdeLibroExcel = async (
       };
     }
 
-    const sheetName = workbook.SheetNames[hIdx];
-    const ws = workbook.Sheets[sheetName];
-    if (!ws || !ws['!ref']) continue;
+    const ws = workbook.worksheets[hIdx];
+    const sheetName = ws.name;
+    if (!ws || ws.rowCount === 0) continue;
 
-    const matriz: any[][] = XLSX.utils.sheet_to_json(ws, {
-      header: 1,
-      defval: '',
-      blankrows: false,
+    const matriz: any[][] = [];
+    ws.eachRow({ includeEmpty: false }, (row) => {
+      const values = row.values as any[];
+      // ExcelJS row.values es 1-indexed (values[0] es undefined)
+      const rowArr = Array.isArray(values)
+        ? values.slice(1).map((v) => {
+            if (v === null || v === undefined) return '';
+            if (typeof v === 'object') {
+              if ('text' in v) return String((v as any).text || '');
+              if ('result' in v) return String((v as any).result ?? '');
+              if ('richText' in v && Array.isArray((v as any).richText)) {
+                return (v as any).richText.map((r: any) => r.text || '').join('');
+              }
+            }
+            return v;
+          })
+        : [];
+      if (rowArr.some((c) => String(c ?? '').trim() !== '')) {
+        matriz.push(rowArr);
+      }
     });
 
     if (!matriz || matriz.length === 0) continue;
@@ -654,7 +682,7 @@ export const escanearMatriculasDesdeLibroExcel = async (
     const tieneEncabezados = primeraFila.some((c: any) => typeof c === 'string' && c.trim().length > 0);
     const encabezadosRaw: string[] = primeraFila.map((c: any, i: number) => {
       const val = String(c || '').trim();
-      return val || `Columna ${XLSX.utils.encode_col(i)}`;
+      return val || `Columna ${encodeExcelCol(i)}`;
     });
 
     let maxColsHoja = 0;
@@ -705,7 +733,7 @@ export const escanearMatriculasDesdeLibroExcel = async (
           );
           opciones.onProgreso({
             hojaActual: hIdx + 1,
-            totalHojas: workbook.SheetNames.length,
+            totalHojas: workbook.worksheets.length,
             nombreHoja: sheetName,
             filaActual: r - filaInicio,
             totalFilasHoja,
@@ -754,11 +782,11 @@ export const escanearMatriculasDesdeLibroExcel = async (
   }
 
   // Notificación de progreso final
-  if (opciones?.onProgreso && workbook.SheetNames.length > 0) {
+  if (opciones?.onProgreso && workbook.worksheets.length > 0) {
     opciones.onProgreso({
-      hojaActual: workbook.SheetNames.length,
-      totalHojas: workbook.SheetNames.length,
-      nombreHoja: workbook.SheetNames[workbook.SheetNames.length - 1],
+      hojaActual: workbook.worksheets.length,
+      totalHojas: workbook.worksheets.length,
+      nombreHoja: workbook.worksheets[workbook.worksheets.length - 1].name,
       filaActual: totalFilasDocumento,
       totalFilasHoja: totalFilasDocumento,
       totalFilasGlobal: totalFilasDocumento,

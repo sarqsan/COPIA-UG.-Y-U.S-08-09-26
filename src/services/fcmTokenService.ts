@@ -3,13 +3,13 @@ import {
   doc,
   getDocs,
   setDoc,
-  deleteDoc,
   query,
   where,
   getDoc,
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { FCMTokenDoc, PlataformaDispositivo } from '../types';
+import { assertNotImpersonating } from '../utils/impersonationGuard';
 
 const CUENTAS_COLLECTION = 'cuentas';
 const TOKENS_SUBCOLLECTION = 'fcmTokens';
@@ -70,6 +70,7 @@ export const registrarDispositivoFCM = async (
   uid: string,
   token: string
 ): Promise<boolean> => {
+  assertNotImpersonating('registrarDispositivoFCM');
   if (!uid || !token) return false;
 
   try {
@@ -269,6 +270,7 @@ export const getTokensActivosTodos = async (): Promise<string[]> => {
  * Marca un token devuelto por FCM como INVÁLIDO o EXPIRADO
  */
 export const marcarTokenInvalido = async (uid: string, token: string): Promise<void> => {
+  assertNotImpersonating('marcarTokenInvalido');
   try {
     const tokenId = generarTokenId(token);
     const tokenDocRef = doc(db, CUENTAS_COLLECTION, uid, TOKENS_SUBCOLLECTION, tokenId);

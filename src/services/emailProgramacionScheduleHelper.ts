@@ -74,7 +74,8 @@ const WEEKDAY_LABEL_ES: Record<DiaSemanaClave, string> = {
 };
 
 export const CONFIG_PROGRAMACION_DEFAULT: EmailProgramacionConfig = {
-  cuentaEmisora: 'sarqsan2@gmail.com',
+  cuentaEmisora:
+    (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_GMAIL_SENDER_EMAIL) || '',
   destinatario: '',
   diasSemana: ['JUE'],
   horaEnvio: '12:00',
@@ -179,7 +180,10 @@ export const validarConfigProgramacion = (
   }
 
   const normalized: EmailProgramacionConfig = {
-    cuentaEmisora: 'sarqsan2@gmail.com',
+    cuentaEmisora:
+      typeof input.cuentaEmisora === 'string' && input.cuentaEmisora.trim()
+        ? input.cuentaEmisora.trim()
+        : CONFIG_PROGRAMACION_DEFAULT.cuentaEmisora,
     destinatario,
     diasSemana,
     horaEnvio: esHoraValidaHHmm(horaEnvio) ? horaEnvio : CONFIG_PROGRAMACION_DEFAULT.horaEnvio,

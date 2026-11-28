@@ -1,0 +1,15 @@
+{
+  "firestore": [
+    {
+      "database": "ai-studio-copiaparaarenare-515803b6-e919-45f1-b85c-678bfaf81f13",
+      "rules": "firestore.rules"
+    }
+  ],
+  "emulators": {
+    "firestore": {
+      "host": "127.0.0.1",
+      "port": 8080
+    },
+    "singleProjectMode": true
+  }
+}

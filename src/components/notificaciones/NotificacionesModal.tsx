@@ -13,7 +13,6 @@ import {
   AlertTriangle,
   RefreshCw,
   X,
-  MessageSquare,
   ShieldAlert,
   ArrowRightLeft,
   Calendar,
@@ -111,8 +110,6 @@ export const NotificacionesModal: React.FC<NotificacionesModalProps> = ({
       case 'SOLICITUD_APROBADA_ADMIN':
       case 'SOLICITUD_PENDIENTE_ADMIN':
         return <ArrowRightLeft className="w-5 h-5 text-emerald-500" />;
-      case 'MENSAJE_ADMINISTRATIVO':
-        return <MessageSquare className="w-5 h-5 text-blue-500" />;
       default:
         return <Bell className="w-5 h-5 text-indigo-500" />;
     }
@@ -241,10 +238,15 @@ export const NotificacionesModal: React.FC<NotificacionesModalProps> = ({
 
             {/* Acciones de navegación contextual */}
             <div className="pt-2 flex flex-col sm:flex-row items-center gap-2">
-              {onNavigateTab && (
+              {onNavigateTab && selectedNotif.linkTab?.toLowerCase() !== 'chat' && (
                 <button
                   onClick={() => {
-                    const targetTab = selectedNotif.linkTab || (selectedNotif.esParaAdmin ? 'cuadrantes' : 'solicitudes');
+                    const targetTab =
+                      selectedNotif.linkTab && selectedNotif.linkTab.toLowerCase() !== 'chat'
+                        ? selectedNotif.linkTab
+                        : selectedNotif.esParaAdmin
+                        ? 'cuadrantes'
+                        : 'solicitudes';
                     onNavigateTab(targetTab, selectedNotif.referenciaId);
                     onClose();
                   }}

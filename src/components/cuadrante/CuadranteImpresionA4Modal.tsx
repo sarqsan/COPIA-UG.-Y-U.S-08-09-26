@@ -302,7 +302,7 @@ export const CuadranteImpresionA4Modal: React.FC<CuadranteImpresionA4ModalProps>
                       </p>
                     </div>
 
-                    {/* Badge de Seguridad */}
+                    {/* Indicador de Verificación */}
                     <div className="text-right text-[10px] font-mono text-slate-500">
                       <div className="font-bold text-slate-800">DOCUMENTO DE CUADRANTE</div>
                       <div>VIGENCIA: {cuadrante.fechaInicio} / {cuadrante.fechaFin}</div>
@@ -445,7 +445,7 @@ export const CuadranteImpresionA4Modal: React.FC<CuadranteImpresionA4ModalProps>
                                         I
                                       </span>
                                     ) : estado === 'COBERTURA' ? (
-                                      /* CUADRADO C (COBERTURA BAJA MÉDICA) */
+                                      /* CUADRADO C (COBERTURA AUSENCIA SOBREVENIDA) */
                                       <span
                                         className="inline-flex h-5 w-5 items-center justify-center rounded-sm bg-emerald-600 text-white font-mono text-[10px] font-black border border-emerald-700 shadow-xs"
                                         style={{ backgroundColor: '#059669', color: '#ffffff' }}
@@ -453,7 +453,7 @@ export const CuadranteImpresionA4Modal: React.FC<CuadranteImpresionA4ModalProps>
                                         C
                                       </span>
                                     ) : estado === 'BAJA' ? (
-                                      /* CUADRADO B (BAJA MÉDICA REAL) */
+                                      /* CUADRADO B (AUSENCIA SOBREVENIDA) */
                                       <span
                                         className="inline-flex h-5 w-5 items-center justify-center rounded-sm bg-rose-600 text-white font-mono text-[10px] font-black border border-rose-700 shadow-xs"
                                         style={{ backgroundColor: '#e11d48', color: '#ffffff' }}
@@ -554,7 +554,7 @@ export const CuadranteImpresionA4Modal: React.FC<CuadranteImpresionA4ModalProps>
                             C
                           </span>
                           <span className="font-semibold text-emerald-800">
-                            Cobertura Baja Médica
+                            Cobertura Ausencia Sobrevenida
                           </span>
                         </div>
 
@@ -566,7 +566,7 @@ export const CuadranteImpresionA4Modal: React.FC<CuadranteImpresionA4ModalProps>
                             B
                           </span>
                           <span className="font-semibold text-rose-800">
-                            Baja Médica Real
+                            Ausencia Sobrevenida
                           </span>
                         </div>
 

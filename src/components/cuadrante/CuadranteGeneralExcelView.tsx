@@ -172,7 +172,7 @@ export const CuadranteGeneralExcelView: React.FC<CuadranteGeneralExcelViewProps>
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-sm font-black text-slate-900 dark:text-white">
-                Ver Cuadrante General — {isUS ? 'Unidad de Seguridad (U.S.)' : 'Unidad de Guardia (U.G. 24h)'}
+                Ver Cuadrante General — {isUS ? 'U.S.' : 'U.G. (24h)'}
               </h2>
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[10px] font-bold border border-slate-200 dark:border-slate-700">
                 <Lock className="w-3 h-3 text-slate-500" />

@@ -1,7 +1,7 @@
 import { getDiaEspecialConfig, calcularDomingoPascua } from './diasEspecialesService';
 
 /**
- * SERVICIO CENTRALIZADO DE FESTIVOS PARA LA UNIDAD DE SEGURIDAD (U.S.)
+ * SERVICIO CENTRALIZADO DE FESTIVOS PARA LA U.S.
  * 
  * Regla funcional obligatoria de permisos y vacaciones U.S.:
  * - Un día festivo NO se contabiliza como día consumido de permiso/vacaciones.

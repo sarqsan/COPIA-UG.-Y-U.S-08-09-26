@@ -1,6 +1,18 @@
 import React, { useState } from 'react';
 import { Grupo } from '../../types';
-import { Link2, Copy, Check, X, ShieldCheck, KeyRound, MessageSquareShare, UserPlus } from 'lucide-react';
+import { createSingleUseInviteViaServer } from '../../services/authClientService';
+import {
+  Link2,
+  Copy,
+  Check,
+  X,
+  ShieldCheck,
+  KeyRound,
+  MessageSquareShare,
+  UserPlus,
+  RefreshCw,
+  AlertCircle,
+} from 'lucide-react';
 
 interface CompartirEnlaceAltaModalProps {
   isOpen: boolean;
@@ -13,6 +25,10 @@ export const CompartirEnlaceAltaModal: React.FC<CompartirEnlaceAltaModalProps> =
 }) => {
   const [activeTab, setActiveTab] = useState<'acceso' | 'alta'>('acceso');
   const [grupo, setGrupo] = useState<Grupo>('U.G.');
+  const [generatedInviteLink, setGeneratedInviteLink] = useState<string>('');
+  const [inviteExpiry, setInviteExpiry] = useState<string>('');
+  const [generating, setGenerating] = useState<boolean>(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedMsg, setCopiedMsg] = useState(false);
 
@@ -20,16 +36,31 @@ export const CompartirEnlaceAltaModal: React.FC<CompartirEnlaceAltaModalProps> =
 
   const baseUrl = window.location.origin + window.location.pathname;
   const genericAccessLink = baseUrl;
-  const registrationLink = `${baseUrl}#alta?grupo=${encodeURIComponent(grupo)}`;
 
-  const mensajeWhatsApp = `📋 *PORTAL DE PERSONAL (U.G.)*
-Ya podéis consultar vuestros cuadrantes, guardias de 24h e imaginarias en:
-🔗 ${genericAccessLink}
+  const mensajeWhatsApp = `PORTAL DE PERSONAL (U.G. / U.S.)
+Accede a tus cuadrantes, guardias e imaginarias en:
+${genericAccessLink}
 
-🔑 *PRIMER ACCESO:*
-- *Usuario:* Tu primer apellido + tu rol en minúsculas y sin espacios (ej: \`sanchezrol1\` o \`sanchezrol2\`).
-- *Contraseña:* Lo mismo (\`sanchezrol1\` o \`sanchezrol2\`).
-Al entrar, el sistema os pedirá definir vuestro usuario y contraseña personal definitiva.`;
+Inicia sesión con tu usuario y contraseña personal segura.
+Si es tu primera incorporación, solicita a Administración un enlace individual de invitación de un solo uso.`;
+
+  const handleGenerateInvite = async () => {
+    setGenerating(true);
+    setInviteError(null);
+    try {
+      const res = await createSingleUseInviteViaServer({ grupo, ttlHours: 24 });
+      if (!res.success || !res.token) {
+        setInviteError(res.error || 'No se pudo generar la invitación segura en el servidor.');
+        return;
+      }
+      setGeneratedInviteLink(`${baseUrl}#alta?token=${encodeURIComponent(res.token)}`);
+      setInviteExpiry(res.fechaExpiracion || '');
+    } catch (err: any) {
+      setInviteError(err?.message || 'Error conectando con el servidor.');
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   const handleCopyLink = async (link: string) => {
     try {
@@ -54,16 +85,15 @@ Al entrar, el sistema os pedirá definir vuestro usuario y contraseña personal 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4">
       <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-lg w-full overflow-hidden flex flex-col my-6">
-        {/* Header */}
         <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-blue-500/20 text-blue-400 rounded-xl">
               <Link2 className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold">Enlaces de Acceso y Registro</h3>
+              <h3 className="text-base font-bold">Enlaces de Acceso e Invitaciones Seguras</h3>
               <p className="text-xs text-slate-400">
-                Difusión para el personal de la plantilla y nuevas incorporaciones
+                Invitaciones de un solo uso firmadas por el servidor (sin contraseñas en claro)
               </p>
             </div>
           </div>
@@ -75,7 +105,6 @@ Al entrar, el sistema os pedirá definir vuestro usuario y contraseña personal 
           </button>
         </div>
 
-        {/* Tabs */}
         <div className="flex border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 p-1.5 gap-1.5">
           <button
             type="button"
@@ -87,7 +116,7 @@ Al entrar, el sistema os pedirá definir vuestro usuario y contraseña personal 
             }`}
           >
             <KeyRound className="w-3.5 h-3.5" />
-            <span>Enlace General de Acceso</span>
+            <span>Enlace General del Portal</span>
           </button>
 
           <button
@@ -100,27 +129,26 @@ Al entrar, el sistema os pedirá definir vuestro usuario y contraseña personal 
             }`}
           >
             <UserPlus className="w-3.5 h-3.5" />
-            <span>Alta de Nuevo Personal</span>
+            <span>Invitación Única (24h)</span>
           </button>
         </div>
 
         <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
           {activeTab === 'acceso' ? (
-            /* TAB 1: ENLACE GENERAL DE ACCESO */
             <>
               <div className="p-3.5 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 rounded-2xl text-xs text-blue-950 dark:text-blue-200 space-y-1.5">
                 <div className="font-bold flex items-center gap-1.5 text-blue-900 dark:text-blue-300">
                   <ShieldCheck className="w-4 h-4 text-blue-600" />
-                  <span>Enlace Único para Toda la Plantilla</span>
+                  <span>Enlace Oficial de Acceso (Sin Credenciales Predecibles)</span>
                 </div>
                 <p className="text-[11px] leading-relaxed opacity-95">
-                  Puedes enviar este enlace a todo el personal. Al abrirlo, se les solicitará usuario y contraseña. Para los que entran por <strong>primera vez</strong>, introducen su <code className="bg-blue-100 dark:bg-blue-900/60 px-1 py-0.5 rounded font-mono font-bold">apellido+rol</code> (ej: <span className="font-semibold">sanchezrol1</span> o <span className="font-semibold">sanchezrol2</span>) tanto en usuario como en contraseña y el sistema les requerirá definir su clave personal.
+                  Comparte este enlace con el personal que ya dispone de cuenta activa. Por protección de acceso, nunca se difunden contraseñas por defecto ni patrones predecibles por mensajería.
                 </p>
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Enlace Web del Portal:
+                  URL del Portal:
                 </label>
                 <div className="flex items-center gap-2">
                   <input
@@ -133,30 +161,18 @@ Al entrar, el sistema os pedirá definir vuestro usuario y contraseña personal 
                     type="button"
                     onClick={() => handleCopyLink(genericAccessLink)}
                     className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition shrink-0 shadow-xs cursor-pointer ${
-                      copiedLink
-                        ? 'bg-emerald-600 text-white'
-                        : 'bg-blue-600 hover:bg-blue-700 text-white'
+                      copiedLink ? 'bg-emerald-600 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'
                     }`}
                   >
-                    {copiedLink ? (
-                      <>
-                        <Check className="w-4 h-4" />
-                        <span>Copiado</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-4 h-4" />
-                        <span>Copiar Enlace</span>
-                      </>
-                    )}
+                    {copiedLink ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                    <span>{copiedLink ? 'Copiado' : 'Copiar'}</span>
                   </button>
                 </div>
               </div>
 
-              {/* Mensaje preparado para WhatsApp */}
               <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-                  Mensaje Informativo para WhatsApp / Telegram:
+                  Mensaje Informativo Seguro:
                 </label>
                 <div className="p-3 bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-xl text-[11px] font-mono text-slate-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed">
                   {mensajeWhatsApp}
@@ -170,39 +186,39 @@ Al entrar, el sistema os pedirá definir vuestro usuario y contraseña personal 
                       : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-800'
                   }`}
                 >
-                  {copiedMsg ? (
-                    <>
-                      <Check className="w-4 h-4" />
-                      <span>¡Mensaje Copiado al Portapapeles!</span>
-                    </>
-                  ) : (
-                    <>
-                      <MessageSquareShare className="w-4 h-4 text-emerald-600" />
-                      <span>Copiar Mensaje Listo para WhatsApp</span>
-                    </>
-                  )}
+                  {copiedMsg ? <Check className="w-4 h-4" /> : <MessageSquareShare className="w-4 h-4 text-emerald-600" />}
+                  <span>{copiedMsg ? '¡Mensaje Copiado!' : 'Copiar Mensaje Informativo'}</span>
                 </button>
               </div>
             </>
           ) : (
-            /* TAB 2: ALTA DE NUEVO PERSONAL */
             <>
               <div className="p-3.5 bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800/60 rounded-2xl text-xs text-purple-950 dark:text-purple-200">
                 <div className="font-bold flex items-center gap-1.5 mb-1 text-purple-900 dark:text-purple-300">
                   <UserPlus className="w-4 h-4 text-purple-600" />
-                  <span>Formulario Público de Alta Operativa</span>
+                  <span>Invitación Criptográfica de Un Solo Uso (R-03)</span>
                 </div>
-                Los nuevos miembros de la unidad pueden rellenar su ficha de alta (Apellido y Rol: ROL 1 o ROL 2) mediante este formulario directo sin intervención previa del administrador.
+                Cada enlace emitido por el servidor expira a las 24 horas, se consume tras un único registro y asigna estrictamente el rol <strong>USUARIO</strong> en la unidad seleccionada.
               </div>
+
+              {inviteError && (
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{inviteError}</span>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Grupo Destino:
+                  Unidad Destino:
                 </label>
                 <select
                   id="select-grupo-enlace-alta"
                   value={grupo}
-                  onChange={(e) => setGrupo(e.target.value as Grupo)}
+                  onChange={(e) => {
+                    setGrupo(e.target.value as Grupo);
+                    setGeneratedInviteLink('');
+                  }}
                   className="w-full text-xs font-semibold text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl p-2.5"
                 >
                   <option value="U.G.">U.G. (24 HORAS)</option>
@@ -210,40 +226,46 @@ Al entrar, el sistema os pedirá definir vuestro usuario y contraseña personal 
                 </select>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Enlace de Autoregistro:
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    readOnly
-                    value={registrationLink}
-                    className="w-full text-xs font-mono text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 select-all"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => handleCopyLink(registrationLink)}
-                    className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition shrink-0 shadow-xs cursor-pointer ${
-                      copiedLink
-                        ? 'bg-emerald-600 text-white'
-                        : 'bg-purple-600 hover:bg-purple-700 text-white'
-                    }`}
-                  >
-                    {copiedLink ? (
-                      <>
-                        <Check className="w-4 h-4" />
-                        <span>Copiado</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-4 h-4" />
-                        <span>Copiar</span>
-                      </>
-                    )}
-                  </button>
+              <button
+                type="button"
+                onClick={handleGenerateInvite}
+                disabled={generating}
+                className="w-full py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold flex items-center justify-center gap-2 transition disabled:opacity-50 cursor-pointer"
+              >
+                <RefreshCw className={`w-4 h-4 ${generating ? 'animate-spin' : ''}`} />
+                <span>{generating ? 'Generando token firmado...' : 'Generar Enlace Único de Invitación (24h)'}</span>
+              </button>
+
+              {generatedInviteLink && (
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                    Enlace de Invitación (un solo uso):
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={generatedInviteLink}
+                      className="w-full text-xs font-mono text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 select-all"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleCopyLink(generatedInviteLink)}
+                      className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition shrink-0 cursor-pointer ${
+                        copiedLink ? 'bg-emerald-600 text-white' : 'bg-purple-600 hover:bg-purple-700 text-white'
+                      }`}
+                    >
+                      {copiedLink ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                      <span>{copiedLink ? 'Copiado' : 'Copiar'}</span>
+                    </button>
+                  </div>
+                  {inviteExpiry && (
+                    <p className="text-[11px] text-slate-500">
+                      Caduca el: {new Date(inviteExpiry).toLocaleString('es-ES')}
+                    </p>
+                  )}
                 </div>
-              </div>
+              )}
             </>
           )}
 

@@ -30,21 +30,16 @@ export interface InfoEstadoPersonaServicio {
 }
 
 /**
- * Helper para detectar si un slot corresponde a una baja médica real
+ * Helper para detectar si un slot corresponde a una ausencia sobrevenida cubierta por imaginaria
  */
-const esBajaMedicaSlot = (slot: any): boolean => {
+const esAusenciaSobrevenidaSlot = (slot: any): boolean => {
   if (!slot) return false;
   return (
     slot.estadoAsignacion === 'CUBIERTO_POR_IMAGINARIA' ||
     slot.estadoAsignacion === 'BAJA' ||
-    slot.tipoOrigen === 'BAJA_MEDICA' ||
-    slot.tipoOrigen === 'BAJA' ||
     (typeof slot.motivoCambio === 'string' &&
-      (slot.motivoCambio.toUpperCase().includes('BAJA') ||
-        slot.motivoCambio.toUpperCase().includes('MÉDICA') ||
-        slot.motivoCambio.toUpperCase().includes('MEDICA') ||
-        slot.motivoCambio.toUpperCase().includes('INDISPOSICIÓN') ||
-        slot.motivoCambio.toUpperCase().includes('INDISPOSICION')))
+      (slot.motivoCambio.toUpperCase().includes('AUSENCIA SOBREVENIDA') ||
+        slot.motivoCambio.toUpperCase().includes('COBERTURA ACTIVADA')))
   );
 };
 
@@ -55,8 +50,8 @@ const esBajaMedicaSlot = (slot: any): boolean => {
  * 'I' = Imaginaria (24h)
  * 'I_CEDIDO' = Imaginaria cedida por cambio autorizado (ámbar suave)
  * 'L' = Libre / Descanso
- * 'BAJA' = Titular de baja médica real (rojo 'B')
- * 'COBERTURA' = Sustituto que cubre una baja médica real (esmeralda 'C')
+ * 'BAJA' = Titular con ausencia sobrevenida cubierta (rojo 'B')
+ * 'COBERTURA' = Sustituto que cubre una ausencia sobrevenida (esmeralda 'C')
  */
 export const getEstadoPersonaEnServicio = (
   servicio: ServicioDia | undefined,
@@ -69,25 +64,25 @@ export const getEstadoPersonaEnServicio = (
     ...servicio.titulares.rol2,
   ].filter(Boolean);
 
-  // 1. ¿Es titular ORIGINAL que está de BAJA MÉDICA REAL y su servicio ha sido cubierto?
+  // 1. ¿Es titular ORIGINAL con ausencia sobrevenida y su servicio ha sido cubierto?
   const slotBajaOriginal = todosTitulares.find(
     (t) =>
       t.personaIdOriginal === personaId &&
       t.personaIdReal &&
       t.personaIdReal !== personaId &&
-      esBajaMedicaSlot(t)
+      esAusenciaSobrevenidaSlot(t)
   );
   if (slotBajaOriginal) {
     return 'BAJA';
   }
 
-  // 2. ¿Es la persona que realiza la COBERTURA DE BAJA MÉDICA real de este servicio?
+  // 2. ¿Es la persona que realiza la COBERTURA de ausencia sobrevenida de este servicio?
   const slotCoberturaReal = todosTitulares.find(
     (t) =>
       t.personaIdReal === personaId &&
       t.personaIdOriginal &&
       t.personaIdOriginal !== personaId &&
-      esBajaMedicaSlot(t)
+      esAusenciaSobrevenidaSlot(t)
   );
   if (slotCoberturaReal) {
     return 'COBERTURA';
@@ -99,7 +94,7 @@ export const getEstadoPersonaEnServicio = (
       t.personaIdOriginal === personaId &&
       t.personaIdReal &&
       t.personaIdReal !== personaId &&
-      !esBajaMedicaSlot(t)
+      !esAusenciaSobrevenidaSlot(t)
   );
   if (slotCedido) {
     return 'S_CEDIDO';
@@ -115,8 +110,8 @@ export const getEstadoPersonaEnServicio = (
 
   // 5a. ¿Cedió su imaginaria por cambio?
   if (
-    (imagRol1?.personaIdOriginal === personaId && imagRol1.personaIdReal && imagRol1.personaIdReal !== personaId && !esBajaMedicaSlot(imagRol1)) ||
-    (imagRol2?.personaIdOriginal === personaId && imagRol2.personaIdReal && imagRol2.personaIdReal !== personaId && !esBajaMedicaSlot(imagRol2))
+    (imagRol1?.personaIdOriginal === personaId && imagRol1.personaIdReal && imagRol1.personaIdReal !== personaId && !esAusenciaSobrevenidaSlot(imagRol1)) ||
+    (imagRol2?.personaIdOriginal === personaId && imagRol2.personaIdReal && imagRol2.personaIdReal !== personaId && !esAusenciaSobrevenidaSlot(imagRol2))
   ) {
     return 'I_CEDIDO';
   }
@@ -695,12 +690,12 @@ export const generarWorkbookCuadranteExcel = async (
     cellL3.border = BORDER_THIN_GRAY;
 
     const cellDescC = ws.getCell(rowLeyenda1, 24);
-    cellDescC.value = 'Cobertura Baja';
+    cellDescC.value = 'Cobertura Ausencia';
     cellDescC.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FF047857' } };
     cellDescC.alignment = { vertical: 'middle', horizontal: 'left' };
     ws.mergeCells(rowLeyenda1, 24, rowLeyenda1, 27);
 
-    // B (Baja)
+    // B (Ausencia Sobrevenida)
     const cellL4 = ws.getCell(rowLeyenda1, 28);
     cellL4.value = 'B';
     cellL4.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FFFFFFFF' } };
@@ -709,7 +704,7 @@ export const generarWorkbookCuadranteExcel = async (
     cellL4.border = BORDER_THIN_GRAY;
 
     const cellDescB = ws.getCell(rowLeyenda1, 29);
-    cellDescB.value = 'Baja Médica';
+    cellDescB.value = 'Ausencia Sobrevenida';
     cellDescB.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FFE11D48' } };
     cellDescB.alignment = { vertical: 'middle', horizontal: 'left' };
     ws.mergeCells(rowLeyenda1, 29, rowLeyenda1, 32);

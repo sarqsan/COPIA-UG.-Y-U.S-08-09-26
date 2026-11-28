@@ -10,7 +10,7 @@ export type TipoFormatoMatricula =
   | 'PROVINCIAL_ALFA'       // 1-2 letras prov oficial + 4 a 6 dígitos + 1-2 letras sufijo (ej. M-1234-AB)
   | 'PROVINCIAL_NUM'        // 1-2 letras prov oficial + 1 a 6 dígitos (ej. B-123456)
   | 'ESPECIAL_CICLOMOTOR'   // C/E/R/H + 4 dígitos + 3 letras (ej. C-1234-BBB, E-1234-BBB)
-  | 'OFICIAL_FUERZAS'       // Prefijo oficial (PGC, CNP, ET, FN, EA, CME, DGP, PMM) + números (ej. PGC-1234-A)
+  | 'OFICIAL_FUERZAS'       // Prefijo oficial administrativo + números (ej. PME-1234-A)
   | 'FORMATO_GENERICO'      // Formato alfanumérico limpio no identificado en los estándares españoles -> SIEMPRE DUDOSA
   | 'DESCONOCIDO_INVALIDO';  // No cumple longitud o contiene caracteres no permitidos
 

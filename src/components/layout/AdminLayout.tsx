@@ -28,7 +28,6 @@ import {
   CalendarDays,
   FileCheck,
   Users,
-  MessageSquare,
   KeyRound,
   History,
   FileSpreadsheet,
@@ -37,7 +36,9 @@ import {
   Database,
   BellRing,
   Send,
+  Tag,
 } from 'lucide-react';
+import { RevisionAliasAdminPanel } from '../admin/RevisionAliasAdminPanel';
 
 // Pages
 import { AdminDashboardPage } from '../../pages/AdminDashboardPage';
@@ -48,7 +49,6 @@ import { CuentasPage } from '../../pages/CuentasPage';
 import { HistorialPage } from '../../pages/HistorialPage';
 import { ImportarExcelPage } from '../../pages/ImportarExcelPage';
 import { ConfiguracionPage } from '../../pages/ConfiguracionPage';
-import { ChatPage } from '../../pages/ChatPage';
 import { ProximamentePage } from '../../pages/ProximamentePage';
 import { DocumentosCambioSection } from '../cambios/DocumentosCambioSection';
 import { PatrullasModule } from '../patrullas/PatrullasModule';
@@ -67,7 +67,7 @@ import {
 } from '../../services/emailProgramacionScheduleHelper';
 
 export const AdminLayout: React.FC = () => {
-  const { currentCuenta, loginAsSimulatedUser } = useAuth();
+  const { currentCuenta, startReadOnlyImpersonation } = useAuth();
   const [activeTab, setActiveTab] = useState<AdminTab>('inicio');
   const [selectedPersona, setSelectedPersona] = useState<Persona | null>(null);
   const [grupoActiva, setGrupoActiva] = useState<TipoServicio>('GUARDIA');
@@ -282,7 +282,7 @@ export const AdminLayout: React.FC = () => {
     await fetchAllData();
   };
 
-  // Modo Administrador: Ver como usuario
+  // Modo Administrador: Ver como usuario (estrictamente SOLO LECTURA y en memoria — R-07)
   const handleImpersonateUser = async (persona: Persona) => {
     if (!currentCuenta || currentCuenta.rol !== 'ADMIN') {
       alert('Acción restringida: solo los administradores pueden utilizar la función de simulación de usuario.');
@@ -290,11 +290,7 @@ export const AdminLayout: React.FC = () => {
     }
 
     try {
-      // 1. Guardar la sesión original de administrador en el storage para permitir el retorno instantáneo
-      localStorage.setItem('admin_impersonator_uid', currentCuenta.uid);
-      localStorage.setItem('admin_impersonator_nombre', currentCuenta.nombre);
-
-      // 2. Registrar en auditoría de seguridad el inicio de la simulación
+      // 1. Registrar en auditoría de acceso el inicio de la simulación
       await registrarAccionAudit(
         'MODO_ADMIN_VER_COMO_USUARIO_INICIO',
         adminInfo,
@@ -303,41 +299,28 @@ export const AdminLayout: React.FC = () => {
           id: persona.id,
           nombre: persona.nombre,
         },
-        `Admin ${adminInfo.nombre} activó la visualización simulada como el usuario ${persona.nombre} (${persona.empleo} - ${persona.grupo})`
+        `Admin ${adminInfo.nombre} activó la visualización simulada de SOLO LECTURA como el usuario ${persona.nombre} (${persona.empleo} - ${persona.grupo})`
       );
 
-      // 3. Obtener o crear cuenta para esta persona
+      // 2. Obtener cuenta existente o vista simulada sin escribir credenciales inseguras
       let targetCuenta = cuentas.find((c) => c.personaId === persona.id);
       if (!targetCuenta) {
-        const uid = `user-${persona.id.substring(0, 8)}`;
-        const cleanName = persona.nombre.toLowerCase().replace(/[^a-z0-9]/g, '');
-        const email = `${cleanName}@grupo.local`;
-        await crearCuenta(
-          {
-            uid,
-            personaId: persona.id,
-            nombre: persona.nombre,
-            email,
-            rol: 'USUARIO',
-            activo: true,
-          },
-          adminInfo
-        );
         targetCuenta = {
-          id: uid,
-          uid,
+          id: `user-${persona.id}`,
+          uid: `user-${persona.id}`,
           personaId: persona.id,
           nombre: persona.nombre,
-          email,
+          email: `${persona.nombre.toLowerCase().replace(/[^a-z0-9]/g, '')}@portal.local`,
           rol: 'USUARIO',
+          tipoServicio: persona.tipoServicio || (persona.grupo === 'US_SEGURIDAD' ? 'US' : 'GUARDIA'),
           activo: true,
-          fechaCreacion: new Date().toISOString(),
+          fechaCreacion: persona.fechaCreacion || new Date().toISOString(),
           ultimoAcceso: new Date().toISOString(),
         };
       }
 
-      // 4. Cambiar contexto simulado
-      await loginAsSimulatedUser(targetCuenta.uid);
+      // 3. Activar modo simulación solo lectura en memoria (sin localStorage)
+      startReadOnlyImpersonation(targetCuenta, persona);
     } catch (err) {
       console.error('Error al simular usuario:', err);
       alert('No se pudo activar la vista como usuario.');
@@ -364,8 +347,6 @@ export const AdminLayout: React.FC = () => {
             setActiveTab('personal');
           } else if (tab === 'inicio') {
             setActiveTab('inicio');
-          } else if (tab === 'chat') {
-            setActiveTab('chat');
           } else if (tab === 'documentos') {
             setActiveTab('documentos');
           }
@@ -398,7 +379,7 @@ export const AdminLayout: React.FC = () => {
                     Grupo Operativo Seleccionado
                   </span>
                   <span className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
-                    {grupoActiva === 'GUARDIA' ? 'U.G.' : 'U.S. - GRUPO DE SEGURIDAD'}
+                    {grupoActiva === 'GUARDIA' ? 'U.G.' : 'U.S.'}
                     <span className="text-xs font-semibold text-slate-500 font-mono">
                       {grupoActiva === 'GUARDIA' ? '(Guardias 24h)' : '(Turnos 12h)'}
                     </span>
@@ -427,7 +408,7 @@ export const AdminLayout: React.FC = () => {
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
-                  U.S. Seguridad (12h)
+                  U.S. (12h)
                 </button>
               </div>
             </div>
@@ -531,18 +512,7 @@ export const AdminLayout: React.FC = () => {
                   />
                 )}
 
-                {activeTab === 'chat' && (
-                  <ChatPage
-                    personas={personasFiltradas}
-                    currentPersona={null}
-                    currentCuentaInfo={{
-                      uid: currentCuenta?.uid || 'admin',
-                      nombre: currentCuenta?.nombre || 'Administrador',
-                      rol: 'ADMIN',
-                      personaId: undefined,
-                    }}
-                  />
-                )}
+                {activeTab === 'alias' && <RevisionAliasAdminPanel />}
 
                 {activeTab === 'historial' && <HistorialPage logs={auditLogs} />}
 
@@ -624,8 +594,8 @@ export const AdminLayout: React.FC = () => {
                 { id: 'patrullas', label: 'Patrullas U.G.', icon: Shield, desc: 'Capa independiente • 0h' },
                 { id: 'documentos', label: 'Diligencias de Cambio', icon: FileCheck, desc: 'Documentos y diligencias' },
                 { id: 'personal', label: 'Personal y Usuarios', icon: Users, desc: 'Gestión de personal' },
-                { id: 'chat', label: 'Chat Interno', icon: MessageSquare, desc: 'Canal de comunicación' },
                 { id: 'cuentas', label: 'Cuentas de Acceso', icon: KeyRound, desc: 'Roles y credenciales' },
+                { id: 'alias', label: 'Revisión de Alias', icon: Tag, desc: 'Aprobación e historial' },
                 { id: 'historial', label: 'Trazabilidad & Auditoría', icon: History, desc: 'Registro inmutable' },
                 { id: 'backups', label: 'Respaldos & Restauración', icon: Database, desc: 'Puntos de retorno' },
                 { id: 'excel', label: 'Importar Personal Excel', icon: FileSpreadsheet, desc: 'Carga masiva .xlsx' },

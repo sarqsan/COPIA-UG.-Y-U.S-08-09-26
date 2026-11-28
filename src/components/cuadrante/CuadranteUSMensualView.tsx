@@ -3,6 +3,7 @@ import { ServicioDiaUS, MetricasCuadranteUS, MetricasIndividualesUS } from '../.
 import { Persona, CuadranteMaestro } from '../../types';
 import { calcularMetricasCuadranteUS } from '../../services/cuadranteUSMetricsService';
 import { clasificarDiaUS } from '../../services/cuadranteUSCalendarHelper';
+import { getApprovedAliasUS } from '../../utils/aliasHelper';
 import {
   Calendar,
   Search,
@@ -92,15 +93,15 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
     return personasUS
       .filter((p) => (p.tipoServicio || (p.grupo === 'US_SEGURIDAD' ? 'US' : 'GUARDIA')) === 'US')
       .filter((p) => {
-        const matchSearch = p.nombre.toLowerCase().includes(searchTerm.toLowerCase());
-        if (!matchSearch) return false;
-        return true;
+        const q = searchTerm.toLowerCase();
+        const visible = getApprovedAliasUS(p).toLowerCase();
+        return visible.includes(q);
       })
       .sort((a, b) => {
         const ordA = a.ordenRotacion !== undefined && a.ordenRotacion !== null ? a.ordenRotacion : 9999;
         const ordB = b.ordenRotacion !== undefined && b.ordenRotacion !== null ? b.ordenRotacion : 9999;
         if (ordA !== ordB) return ordA - ordB;
-        return a.nombre.localeCompare(b.nombre);
+        return getApprovedAliasUS(a).localeCompare(getApprovedAliasUS(b));
       });
   }, [personasUS, searchTerm]);
 
@@ -113,7 +114,7 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
 
   // Obtener estado/código de cada persona en cada día
   const getEstadoEnDia = (servicio: ServicioDiaUS, personaId: string): {
-    codigo: 'D' | 'N' | 'I' | 'PR' | 'V' | 'PER' | 'AP' | 'L' | 'B';
+    codigo: 'D' | 'N' | 'I' | 'PR' | 'V' | 'PER' | 'AP' | 'L' | 'AS';
     label: string;
     horas: number;
     badgeClass: string;
@@ -155,13 +156,13 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
           tooltip: `Asuntos Propios (${horasAusencia}h${servicio.esLaborable ? '' : ' no laborable'})`,
         };
       }
-      if (aus.tipo === 'BAJA_MEDICA' || (aus as any).tipo === 'BAJA' || (aus as any).tipo === 'B') {
+      if ((aus as any).tipo === 'AUSENCIA_SOBREVENIDA') {
         return {
-          codigo: 'B',
-          label: 'Baja Médica',
+          codigo: 'AS',
+          label: 'Ausencia Sobrevenida',
           horas: 0,
           badgeClass: 'bg-rose-600 text-white font-bold',
-          tooltip: 'Baja Médica (0h)',
+          tooltip: 'Ausencia Sobrevenida (0h)',
         };
       }
     }
@@ -180,7 +181,7 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
       };
     }
 
-    // 2b. Diurno Cedido por Cambio vs Baja Médica
+    // 2b. Diurno Cedido por Cambio vs Ausencia Sobrevenida
     const slotDiurnoOriginal = servicio.diurno?.titulares?.find(
       (t) =>
         t.personaIdOriginal === personaId &&
@@ -190,23 +191,18 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
     if (slotDiurnoOriginal) {
       const sAny = slotDiurnoOriginal as any;
       const motivo = (sAny.motivoCambio || '').toUpperCase();
-      const esBaja =
-        sAny.tipoOrigen === 'BAJA_MEDICA' ||
-        sAny.tipoOrigen === 'BAJA' ||
+      const esAusenciaSobrevenida =
         sAny.estadoAsignacion === 'CUBIERTO_POR_IMAGINARIA' ||
-        sAny.estadoAsignacion === 'BAJA' ||
-        motivo.includes('BAJA') ||
-        motivo.includes('MÉDICA') ||
-        motivo.includes('MEDICA') ||
-        motivo.includes('INDISPOSIC');
+        motivo.includes('AUSENCIA SOBREVENIDA') ||
+        motivo.includes('COBERTURA ACTIVADA');
 
-      if (esBaja) {
+      if (esAusenciaSobrevenida) {
         return {
-          codigo: 'B',
-          label: 'Baja Médica Diurna',
+          codigo: 'AS',
+          label: 'Ausencia Sobrevenida Diurna',
           horas: 0,
           badgeClass: 'bg-rose-600 text-white font-bold',
-          tooltip: 'Baja Médica Diurna (Cubierto)',
+          tooltip: 'Ausencia Sobrevenida Diurna (Cubierto)',
         };
       } else {
         return {
@@ -235,7 +231,7 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
       };
     }
 
-    // 3b. Nocturno Cedido por Cambio vs Baja Médica
+    // 3b. Nocturno Cedido por Cambio vs Ausencia Sobrevenida
     const slotNocturnoOriginal = servicio.nocturno?.titulares?.find(
       (t) =>
         t.personaIdOriginal === personaId &&
@@ -245,23 +241,18 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
     if (slotNocturnoOriginal) {
       const sAny = slotNocturnoOriginal as any;
       const motivo = (sAny.motivoCambio || '').toUpperCase();
-      const esBaja =
-        sAny.tipoOrigen === 'BAJA_MEDICA' ||
-        sAny.tipoOrigen === 'BAJA' ||
+      const esAusenciaSobrevenida =
         sAny.estadoAsignacion === 'CUBIERTO_POR_IMAGINARIA' ||
-        sAny.estadoAsignacion === 'BAJA' ||
-        motivo.includes('BAJA') ||
-        motivo.includes('MÉDICA') ||
-        motivo.includes('MEDICA') ||
-        motivo.includes('INDISPOSIC');
+        motivo.includes('AUSENCIA SOBREVENIDA') ||
+        motivo.includes('COBERTURA ACTIVADA');
 
-      if (esBaja) {
+      if (esAusenciaSobrevenida) {
         return {
-          codigo: 'B',
-          label: 'Baja Médica Nocturna',
+          codigo: 'AS',
+          label: 'Ausencia Sobrevenida Nocturna',
           horas: 0,
           badgeClass: 'bg-rose-600 text-white font-bold',
-          tooltip: 'Baja Médica Nocturna (Cubierto)',
+          tooltip: 'Ausencia Sobrevenida Nocturna (Cubierto)',
         };
       } else {
         return {
@@ -509,10 +500,10 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
 
           <div className="flex items-center gap-1.5">
             <span className="w-6 h-6 rounded-md bg-rose-600 text-white font-black flex items-center justify-center text-[10px]">
-              B
+              AS
             </span>
             <span className="text-slate-700 dark:text-slate-300 font-semibold text-[11px]">
-              Baja Médica
+              Ausencia Sobrevenida
             </span>
           </div>
 
@@ -680,7 +671,7 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
                       className="sticky left-0 z-10 bg-inherit p-2.5 text-xs font-semibold text-slate-800 dark:text-slate-100 border-r border-slate-200 dark:border-slate-800 flex items-center justify-between gap-1.5 cursor-pointer shadow-xs"
                     >
                       <div className="truncate">
-                        <span className="font-bold block truncate">{p.nombre}</span>
+                        <span className="font-bold block truncate">{getApprovedAliasUS(p)}</span>
                         <span className="text-[10px] text-slate-400 font-mono">
                           {p.empleo} • #{p.ordenRotacion || idx + 1}
                         </span>
@@ -693,7 +684,7 @@ export const CuadranteUSMensualView: FC<CuadranteUSMensualViewProps> = ({
                       return (
                         <td
                           key={s.fecha}
-                          title={`${p.nombre}: ${est.tooltip}${isAdmin && onEditDia ? ' (Haz clic para editar este día)' : ''}`}
+                          title={`${getApprovedAliasUS(p)}: ${est.tooltip}${isAdmin && onEditDia ? ' (Haz clic para editar este día)' : ''}`}
                           onClick={() => {
                             if (isAdmin && onEditDia) onEditDia(s);
                           }}

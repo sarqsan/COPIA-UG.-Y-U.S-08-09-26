@@ -307,7 +307,11 @@ async function runTests() {
 
   const listaConPendiente = [...solicitudesSimuladas, resAdmin.solicitud!, solicitudPendiente5];
   mockStorage[STORAGE_KEY] = JSON.stringify(listaConPendiente);
-  await setDoc(doc(db, 'ausencias_us', 'sol-pendiente-6'), solicitudPendiente5);
+  try {
+    await setDoc(doc(db, 'ausencias_us', 'sol-pendiente-6'), solicitudPendiente5);
+  } catch {
+    // El Production Write Shield bloquea escrituras reales en entorno NODE_TSX_TEST
+  }
 
   const resAprobacion = await resolverSolicitudAusenciaUS({
     solicitudId: 'sol-pendiente-6',

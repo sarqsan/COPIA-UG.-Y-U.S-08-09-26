@@ -1,277 +1,319 @@
 import React, { useState, useEffect } from 'react';
+import { Empleo, Grupo } from '../../types';
 import { useAuth } from '../../firebase/context';
-import { Grupo, Empleo, Persona, Cuenta } from '../../types';
-import { crearPersona, getPersonas } from '../../services/personasService';
-import { crearCuenta } from '../../services/cuentasService';
-import { ShieldCheck, UserCheck, CheckCircle2, AlertCircle, ArrowRight, Shield, Lock } from 'lucide-react';
+import {
+  validateInviteTokenViaServer,
+  completeInviteRegistrationViaServer,
+} from '../../services/authClientService';
+import { validateStrongPassword, MIN_PASSWORD_LENGTH } from '../../utils/passwordPolicy';
+import {
+  Shield,
+  UserPlus,
+  CheckCircle2,
+  AlertCircle,
+  Lock,
+  Tag,
+  ShieldAlert,
+  Loader2,
+} from 'lucide-react';
+import { validateFreeAlias } from '../../utils/aliasHelper';
 
 interface AltaPublicaViewProps {
-  onComplete?: () => void;
+  onComplete: () => void;
 }
 
+const extractInviteTokenFromLocation = (): string => {
+  if (typeof window === 'undefined') return '';
+  const hash = window.location.hash || '';
+  const search = window.location.search || '';
+  let qs = '';
+  if (hash.includes('?')) qs = hash.substring(hash.indexOf('?'));
+  else if (search) qs = search;
+  const params = new URLSearchParams(qs);
+  return (params.get('token') || '').trim();
+};
+
+/**
+ * Vista de Alta con Invitación Criptográfica de Un Solo Uso (Remediación R-03).
+ * - NUNCA muestra "Enlace Verificado" sin confirmación real del servidor (/api/auth/invitaciones/validar).
+ * - Bloquea cualquier registro si falta token, está caducado o ya fue consumido.
+ * - Exige contraseña fuerte >=12 caracteres y crea exclusivamente cuentas con rol 'USUARIO'.
+ */
 export const AltaPublicaView: React.FC<AltaPublicaViewProps> = ({ onComplete }) => {
-  const { loginAsSimulatedUser } = useAuth();
-  
-  // Extract query params from hash or search
-  const [grupo, setGrupo] = useState<Grupo>('U.G.');
-  const [apellido, setApellido] = useState('');
-  const [rol, setRol] = useState<'ROL 1' | 'ROL 2'>('ROL 1');
-  const [pin, setPin] = useState('');
+  const { completeAuthenticatedSession } = useAuth();
+
+  const [token] = useState<string>(() => extractInviteTokenFromLocation());
+  const [validating, setValidating] = useState<boolean>(true);
+  const [tokenValid, setTokenValid] = useState<boolean>(false);
+  const [tokenError, setTokenError] = useState<string | null>(null);
+  const [grupoAsignado, setGrupoAsignado] = useState<Grupo>('U.G.');
+  const [fechaExpiracion, setFechaExpiracion] = useState<string | null>(null);
+
+  const [alias, setAlias] = useState('');
+  const [empleo, setEmpleo] = useState<Empleo>('ROL 2');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [completed, setCompleted] = useState(false);
+  const [success, setSuccess] = useState(false);
 
   useEffect(() => {
-    // Parse URL hash or search params
-    const hash = window.location.hash;
-    const search = window.location.search;
-    const urlParams = new URLSearchParams(hash.includes('?') ? hash.split('?')[1] : search);
-    const paramGrupo = urlParams.get('grupo');
-    
-    if (paramGrupo === 'SEGURIDAD' || paramGrupo === 'US_SEGURIDAD') {
-      setGrupo('US_SEGURIDAD');
-    } else {
-      setGrupo('U.G.');
-    }
-  }, []);
+    let active = true;
+    const checkToken = async () => {
+      if (!token) {
+        if (active) {
+          setTokenValid(false);
+          setTokenError(
+            'Este formulario requiere un enlace de invitación de un solo uso emitido por Administración.'
+          );
+          setValidating(false);
+        }
+        return;
+      }
+
+      const res = await validateInviteTokenViaServer(token);
+      if (!active) return;
+      if (res.valid) {
+        setTokenValid(true);
+        setGrupoAsignado(res.grupo === 'US_SEGURIDAD' ? 'US_SEGURIDAD' : 'U.G.');
+        setFechaExpiracion(res.fechaExpiracion || null);
+        setTokenError(null);
+      } else {
+        setTokenValid(false);
+        setTokenError(res.error || 'Invitación inválida, utilizada o caducada.');
+      }
+      setValidating(false);
+    };
+
+    checkToken();
+    return () => {
+      active = false;
+    };
+  }, [token]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
-
-    const cleanApellido = apellido.trim().toUpperCase();
-    if (!cleanApellido || cleanApellido.length < 2) {
-      setError('Introduce un apellido válido (mínimo 2 letras).');
+    if (!tokenValid || !token) {
+      setError('No existe una invitación válida verificada por el servidor.');
       return;
     }
 
-    setLoading(true);
+    setError(null);
+    const aliasCheck = validateFreeAlias(alias);
+    if (!aliasCheck.valid) {
+      setError(aliasCheck.error || 'El alias libre no es válido.');
+      return;
+    }
+    const policy = validateStrongPassword(password, { username, nombre: aliasCheck.normalized });
+    if (!policy.valid) {
+      setError(policy.errors.join(' '));
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError('Las contraseñas no coinciden.');
+      return;
+    }
+
+    setSubmitting(true);
     try {
-      const empleo: Empleo = rol === 'ROL 1' ? 'ROL 1' : 'ROL 2';
-      const timestamp = Date.now();
-      const numRandom = Math.floor(1000 + Math.random() * 9000);
-      const personaId = `persona-${empleo.toLowerCase()}-${timestamp}-${numRandom}`;
-      const uid = `user-auto-${timestamp}-${numRandom}`;
-      const email = `${cleanApellido.toLowerCase().replace(/[^a-z0-9]/g, '')}.${numRandom}@portal.es`;
+      const res = await completeInviteRegistrationViaServer({
+        token,
+        alias: aliasCheck.normalized,
+        empleo,
+        username: username.trim(),
+        password,
+      });
 
-      // 1. Check if persona with identical surname already exists in this unit
-      const existingPersonas = await getPersonas();
-      const duplicate = existingPersonas.find(
-        (p) => p.activo && p.nombre.trim().toUpperCase() === cleanApellido && p.grupo === grupo);
-
-      let finalPersonaId = personaId;
-      if (!duplicate) {
-        // Create new Persona record
-        const nuevaPersona: Persona = {
-          id: personaId,
-          nombre: cleanApellido,
-          empleo,
-          grupo,
-          telefono: '',
-          activo: true,
-          ordenRotacion: existingPersonas.filter((p) => p.activo && p.empleo === empleo).length + 1,
-          fechaCreacion: new Date().toISOString(),
-          fechaActualizacion: new Date().toISOString(),
-        };
-
-        const resPersona = await crearPersona(nuevaPersona, {
-          uid: 'public-registration',
-          nombre: 'Autoregistro Público',
-        });
-        if (resPersona && resPersona.id) {
-          finalPersonaId = resPersona.id;
-        }
-      } else {
-        finalPersonaId = duplicate.id;
+      if (!res.success || !res.cuenta) {
+        setError(res.error || 'No se pudo completar el alta.');
+        return;
       }
 
-      // 2. Create Cuenta
-      await crearCuenta(
-        {
-          uid,
-          personaId: finalPersonaId,
-          email,
-          nombre: cleanApellido,
-          rol: 'USUARIO',
-          activo: true,
-        },
-        {
-          uid: 'public-registration',
-          nombre: 'Autoregistro Público',
-        }
+      setSuccess(true);
+      await completeAuthenticatedSession(
+        res.cuenta,
+        res.firebaseCustomToken,
+        res.proteccionDatos ?? null
       );
-
-      // 3. Clear the URL hash so future refreshes stay in the portal
-      window.history.replaceState(null, '', window.location.pathname);
-
-      setCompleted(true);
-
-      // 4. Log in immediately
-      setTimeout(async () => {
-        await loginAsSimulatedUser(uid);
-        if (onComplete) onComplete();
-      }, 800);
+      if (typeof window !== 'undefined') {
+        window.location.hash = '';
+      }
+      onComplete();
     } catch (err: any) {
-      console.error('Error en autoregistro:', err);
-      setError(err.message || 'Ocurrió un error al procesar el alta.');
+      setError(err?.message || 'Error completando el registro seguro.');
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
-  const nombreGrupoLabel = (grupo as string) === 'GUARDIA' || (grupo as string) === 'UG' ? 'U.G. (24 HORAS)' : 'U.S. (12 HORAS)';
+  const handleVolverLogin = () => {
+    if (typeof window !== 'undefined') {
+      window.location.hash = '';
+    }
+    onComplete();
+  };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-100 p-4 dark:bg-slate-950 font-sans">
-      <div className="w-full max-w-md space-y-6">
-        {/* Header Branding */}
-        <div className="text-center space-y-2">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-white font-black text-xl shadow-lg shadow-blue-500/20">
-            <ShieldCheck className="h-7 w-7" />
+    <div className="min-h-screen flex items-center justify-center bg-slate-950 p-4">
+      <div className="w-full max-w-md rounded-3xl bg-white dark:bg-slate-900 shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+        <div className="bg-slate-900 p-6 text-white text-center space-y-2">
+          <div className="mx-auto w-12 h-12 rounded-2xl bg-blue-500/20 flex items-center justify-center">
+            <Shield className="w-6 h-6 text-blue-400" />
           </div>
-          <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white sm:text-2xl">
-            Alta Operativa de Usuario
-          </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Acceso público directo mediante enlace autorizado
+          <h1 className="text-lg font-black">Alta Segura por Invitación</h1>
+          <p className="text-xs text-slate-300">
+            Validación criptográfica en servidor de invitación de un solo uso
           </p>
         </div>
 
-        {/* Card */}
-        <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white p-6 shadow-xl dark:border-slate-800 dark:bg-slate-900">
-          {completed ? (
-            <div className="text-center py-6 space-y-3 animate-fadeIn">
-              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400">
-                <CheckCircle2 className="h-8 w-8" />
-              </div>
-              <h2 className="text-base font-bold text-slate-900 dark:text-white">
-                ¡Alta completada con éxito!
-              </h2>
-              <p className="text-xs text-slate-600 dark:text-slate-300">
-                Accediendo directamente a tu portal personal en <strong>{nombreGrupoLabel}</strong>...
+        <div className="p-6">
+          {validating ? (
+            <div className="py-10 text-center space-y-3">
+              <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto" />
+              <p className="text-xs font-semibold text-slate-500">
+                Verificando firma y vigencia del enlace con el servidor...
               </p>
-              <div className="mx-auto h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-emerald-600" />
+            </div>
+          ) : !tokenValid ? (
+            <div className="space-y-4 text-center">
+              <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 space-y-2">
+                <ShieldAlert className="w-8 h-8 text-rose-600 mx-auto" />
+                <p className="text-sm font-bold text-rose-800 dark:text-rose-200">
+                  Enlace de Invitación No Válido
+                </p>
+                <p className="text-xs text-rose-700 dark:text-rose-300 leading-relaxed">
+                  {tokenError}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleVolverLogin}
+                className="w-full py-2.5 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 cursor-pointer"
+              >
+                Volver al Inicio de Sesión
+              </button>
+            </div>
+          ) : success ? (
+            <div className="py-8 text-center space-y-3">
+              <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto" />
+              <p className="text-sm font-bold text-emerald-800 dark:text-emerald-200">
+                Cuenta creada correctamente
+              </p>
+              <p className="text-xs text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl p-3">
+                Tu alias está en revisión por el administrador. Te avisaremos cuando haya sido aprobado.
+              </p>
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
-              {/* Unit Tag */}
-              <div className="p-3.5 bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 rounded-2xl flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Shield className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
-                  <div>
-                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-                      Grupo Asignada:
+              <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-200 flex items-start gap-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600" />
+                <div>
+                  <span className="font-bold">Invitación verificada criptográficamente</span> — Unidad asignada:{' '}
+                  <strong>{grupoAsignado === 'US_SEGURIDAD' ? 'U.S. (12h)' : 'U.G. (24h)'}</strong>
+                  {fechaExpiracion && (
+                    <span className="block text-[10px] opacity-80">
+                      Válida hasta: {new Date(fechaExpiracion).toLocaleString('es-ES')}
                     </span>
-                    <span className="text-xs font-black text-blue-900 dark:text-blue-200">
-                      {nombreGrupoLabel}
-                    </span>
-                  </div>
+                  )}
                 </div>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-200/80 text-blue-900 dark:bg-blue-900 dark:text-blue-200">
-                  Enlace Verificado
-                </span>
               </div>
 
               {error && (
-                <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800 dark:border-rose-900 dark:bg-rose-950/50 dark:text-rose-300">
-                  <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                   <span>{error}</span>
                 </div>
               )}
 
-              {/* Apellido */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 uppercase tracking-wider">
-                  Primer Apellido
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Alias Identificativo Libre
                 </label>
-                <input
-                  id="input-alta-apellido"
-                  type="text"
-                  required
-                  placeholder="Ej: GARCÍA"
-                  value={apellido}
-                  onChange={(e) => setApellido(e.target.value.toUpperCase())}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3.5 py-2.5 text-xs font-bold text-slate-900 focus:border-blue-500 focus:bg-white focus:outline-none dark:border-slate-800 dark:bg-slate-800 dark:text-white uppercase"
-                  autoFocus
-                />
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Tu apellido será tu identificador visible en los cuadrantes y partes de servicio.
+                <div className="relative">
+                  <Tag className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                  <input
+                    type="text"
+                    required
+                    value={alias}
+                    onChange={(e) => setAlias(e.target.value)}
+                    placeholder="Ej: Halcón-42, BrisaNorte, Turno07..."
+                    className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 py-2 pl-9 pr-3 text-sm text-slate-900 dark:text-white"
+                  />
+                </div>
+                <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                  No tiene que coincidir con tu nombre ni con tu primer apellido.
                 </p>
               </div>
 
-              {/* Rol */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 uppercase tracking-wider">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Rol Operativo
                 </label>
-                <div className="grid grid-cols-2 gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => setRol('ROL 1')}
-                    className={`p-3 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
-                      rol === 'ROL 1'
-                        ? 'border-blue-600 bg-blue-50/60 dark:bg-blue-950/40 text-blue-950 dark:text-blue-200 ring-2 ring-blue-500/20'
-                        : 'border-slate-200 bg-slate-50/30 text-slate-700 dark:border-slate-800 dark:text-slate-300 hover:bg-slate-50'
-                    }`}
-                  >
-                    <span className="text-xs font-black">ROL 1</span>
-                    <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-                      Usuario de Rol 1
-                    </span>
-                  </button>
+                <select
+                  value={empleo}
+                  onChange={(e) => setEmpleo(e.target.value as Empleo)}
+                  className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 py-2 px-3 text-sm text-slate-900 dark:text-white"
+                >
+                  <option value="ROL 1">ROL 1</option>
+                  <option value="ROL 2">ROL 2</option>
+                </select>
+              </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setRol('ROL 2')}
-                    className={`p-3 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
-                      rol === 'ROL 2'
-                        ? 'border-blue-600 bg-blue-50/60 dark:bg-blue-950/40 text-blue-950 dark:text-blue-200 ring-2 ring-blue-500/20'
-                        : 'border-slate-200 bg-slate-50/30 text-slate-700 dark:border-slate-800 dark:text-slate-300 hover:bg-slate-50'
-                    }`}
-                  >
-                    <span className="text-xs font-black">ROL 2</span>
-                    <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-                      Usuario de Rol 2
-                    </span>
-                  </button>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Usuario de acceso
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="Mínimo 4 caracteres"
+                  className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 py-2 px-3 text-sm text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Contraseña segura (mín. {MIN_PASSWORD_LENGTH} caracteres)
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                  <input
+                    type="password"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Mayúscula, minúscula, número y símbolo"
+                    className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 py-2 pl-9 pr-3 text-sm text-slate-900 dark:text-white"
+                  />
                 </div>
               </div>
 
-              {/* Submit button */}
-              <div className="pt-2">
-                <button
-                  id="btn-submit-alta-publica"
-                  type="submit"
-                  disabled={loading || !apellido.trim()}
-                  className="w-full rounded-xl bg-blue-600 py-3 text-xs font-bold text-white shadow-md hover:bg-blue-700 disabled:opacity-50 transition-all cursor-pointer flex items-center justify-center gap-2"
-                >
-                  <UserCheck className="h-4 w-4" />
-                  <span>{loading ? 'Completando Alta...' : 'Confirmar Alta y Acceder al Portal'}</span>
-                </button>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Confirmar contraseña
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 py-2 px-3 text-sm text-slate-900 dark:text-white"
+                />
               </div>
 
-              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 text-center">
-                <p className="text-[10px] text-slate-400">
-                  Garantía de privacidad: No se almacenan correos ni números de teléfono personales.
-                </p>
-              </div>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+              >
+                <UserPlus className="w-4 h-4" />
+                <span>{submitting ? 'Registrando cuenta...' : 'Completar Alta Segura'}</span>
+              </button>
             </form>
           )}
-        </div>
-
-        {/* Back to Login link */}
-        <div className="text-center">
-          <a
-            href="#"
-            onClick={(e) => {
-              e.preventDefault();
-              window.history.replaceState(null, '', window.location.pathname);
-              window.location.reload();
-            }}
-            className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 underline font-medium"
-          >
-            ← Volver a la pantalla de acceso principal
-          </a>
         </div>
       </div>
     </div>

@@ -64,19 +64,19 @@ export const PREFIJOS_PROVINCIALES_ESP: ReadonlySet<string> = new Set([
   'CE',  // Ceuta
 ]);
 
-// Prefijos oficiales de Fuerzas y Cuerpos de Seguridad y Estado en España
+// Prefijos técnicos de matrículas oficiales de flotas administrativas (Reglamento General de Vehículos)
 export const PREFIJOS_OFICIALES_ESP: ReadonlySet<string> = new Set([
-  'PGC', // Guardia Civil
-  'CNP', // Cuerpo Nacional de Policía
-  'ET',  // Ejército de Tierra
-  'EA',  // Ejército del Aire
-  'FN',  // Fuerzas Navales / Armada
-  'CME', // Mossos d'Esquadra
-  'DGP', // Dirección General de Policía
-  'PMM', // Policía Municipal Madrid / Local
-  'PME', // Parque Móvil del Estado
-  'MF',  // Ministerio de Fomento
-  'MMA', // Medio Ambiente
+  'PGC',
+  'CNP',
+  'ET',
+  'EA',
+  'FN',
+  'CME',
+  'DGP',
+  'PMM',
+  'PME',
+  'MF',
+  'MMA',
 ]);
 
 /**
@@ -244,7 +244,7 @@ export const normalizarMatricula = (raw: string | number | null | undefined): Ma
 
   // 4. Identificación determinista de Formatos Oficiales Españoles:
 
-  // 4.1 Formato Oficial Fuerzas y Cuerpos de Seguridad / Estado (ej. PGC1234A, CNP98765, CME1234)
+  // 4.1 Formato Oficial de Flota Administrativa (ej. PME1234A, CME1234)
   for (const pref of PREFIJOS_OFICIALES_ESP) {
     if (normalizada.startsWith(pref)) {
       const resto = normalizada.slice(pref.length);
@@ -527,8 +527,9 @@ export const extraerCandidatosMatriculaDeCelda = (rawCelda: any): string[] => {
     }
   }
 
-  // Patrón 2: Formato Oficial Fuerzas (PGC, CNP, etc.)
-  const regexFuerzas = /(?<![A-Za-z0-9–-])\b((?:PGC|CNP|ET|EA|FN|CME|DGP|PMM|PME|MF|MMA)\s*[-–]?\s*\d{3,6}\s*[-–]?[A-Z]?)(?![-–]?[A-Za-z0-9])/gi;
+  // Patrón 2: Formato Oficial de Flota Administrativa
+  const prefijosOficialesPattern = Array.from(PREFIJOS_OFICIALES_ESP).join('|');
+  const regexFuerzas = new RegExp(`(?<![A-Za-z0-9–-])\\b((?:${prefijosOficialesPattern})\\s*[-–]?\\s*\\d{3,6}\\s*[-–]?[A-Z]?)(?![-–]?[A-Za-z0-9])`, 'gi');
   while ((match = regexFuerzas.exec(str)) !== null) {
     const rawMatch = match[1];
     const norm = normalizarMatricula(rawMatch);
@@ -699,10 +700,9 @@ export const normalizarMatriculaEntradaCamara = (
     }
   }
 
-  // Patrón 3.2: Oficial Fuerzas y Cuerpos de Seguridad / Estado (PGC, CNP, etc.)
-  const matchFuerzas = sinDistintivos.match(
-    /\b(PGC|CNP|ET|EA|FN|CME|DGP|PMM|PME|MF|MMA)\s*(\d{3,6}\s*[A-Z]?)\b/
-  );
+  // Patrón 3.2: Formato Oficial de Flota Administrativa
+  const regexCamaraOficial = new RegExp(`\\b(${Array.from(PREFIJOS_OFICIALES_ESP).join('|')})\\s*(\\d{3,6}\\s*[A-Z]?)\\b`);
+  const matchFuerzas = sinDistintivos.match(regexCamaraOficial);
   if (matchFuerzas) {
     const can = matchFuerzas[1] + matchFuerzas[2].replace(/\s+/g, '');
     const norm = normalizarMatricula(can);
