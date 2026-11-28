@@ -28,9 +28,8 @@ import {
   FileText,
   UserCheck,
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 import { useAuth } from '../../firebase/context';
-import { evaluarPermisoMatriculas } from '../../services/matriculas/matriculaSecurityGuard';
 import {
   normalizarMatricula,
 } from '../../services/matriculas/matriculaNormalizerService';
@@ -60,6 +59,74 @@ import {
   FilaExcelRaw,
 } from '../../services/matriculas/matriculaDataService';
 import { MatriculaScannerModal } from './MatriculaScannerModal';
+import { getApprovedVisibleAlias } from '../../utils/aliasHelper';
+
+export type MatriculasSubTab =
+  | 'consulta'
+  | 'actualizar_excel'
+  | 'alta_manual'
+  | 'auditoria'
+  | 'ocr';
+
+export interface MatriculasUiVisibility {
+  esAdminAutorizado: boolean;
+  visibleTabs: MatriculasSubTab[];
+  canViewConsulta: boolean;
+  canUseOcr: boolean;
+  canViewActualizarExcel: boolean;
+  canViewAltaManual: boolean;
+  canViewAuditoria: boolean;
+  canModifyOrDeleteCatalogo: boolean;
+}
+
+/**
+ * Resuelve la visibilidad de las opciones de interfaz del módulo administrativo de matrículas.
+ * Regla estricta:
+ * - `MatriculasModuleView` (listado, alta manual, edición, importación Excel, baja lógica y auditoría)
+ *   está reservado EXCLUSIVAMENTE a `ADMIN` (`isAdmin === true && rol === 'ADMIN'`).
+ * - Los usuarios ordinarios (U.S., U.G. o anónimos) NO acceden a `MatriculasModuleView`; los usuarios
+ *   de U.S. utilizan exclusivamente `MatriculaScannerModal` (comprobación puntual binaria vía servidor).
+ */
+export const resolverVisibilidadUIMatriculas = (params: {
+  isAdmin: boolean;
+  rol?: string | null;
+  tipoServicio?: string | null;
+}): MatriculasUiVisibility => {
+  const esAdminAutorizado = Boolean(params.isAdmin && params.rol === 'ADMIN');
+  if (!esAdminAutorizado) {
+    return {
+      esAdminAutorizado: false,
+      visibleTabs: [],
+      canViewConsulta: false,
+      canUseOcr: false,
+      canViewActualizarExcel: false,
+      canViewAltaManual: false,
+      canViewAuditoria: false,
+      canModifyOrDeleteCatalogo: false,
+    };
+  }
+
+  return {
+    esAdminAutorizado: true,
+    visibleTabs: ['consulta', 'actualizar_excel', 'alta_manual', 'auditoria', 'ocr'],
+    canViewConsulta: true,
+    canUseOcr: true,
+    canViewActualizarExcel: true,
+    canViewAltaManual: true,
+    canViewAuditoria: true,
+    canModifyOrDeleteCatalogo: true,
+  };
+};
+
+export const normalizarSubTabPermitida = (
+  requestedTab: MatriculasSubTab,
+  visibilidad: MatriculasUiVisibility
+): MatriculasSubTab => {
+  if (visibilidad.esAdminAutorizado && visibilidad.visibleTabs.includes(requestedTab)) {
+    return requestedTab;
+  }
+  return 'consulta';
+};
 
 export const MatriculasModuleView: React.FC = () => {
   const { currentCuenta, currentPersona, isAdmin } = useAuth();
@@ -67,19 +134,27 @@ export const MatriculasModuleView: React.FC = () => {
   const userTipoServicio =
     currentPersona?.tipoServicio || (currentPersona?.grupo === 'US_SEGURIDAD' ? 'US' : 'GUARDIA');
 
-  const permiso = evaluarPermisoMatriculas(currentCuenta?.rol, userTipoServicio);
+  const visibilidadUI = resolverVisibilidadUIMatriculas({
+    isAdmin,
+    rol: currentCuenta?.rol,
+    tipoServicio: userTipoServicio,
+  });
+  const esAdminAutorizado = visibilidadUI.esAdminAutorizado;
 
   const [scannerOpen, setScannerOpen] = useState(false);
 
   const operadorSesion = useMemo(() => ({
     uid: currentCuenta?.uid || 'operador',
     email: currentCuenta?.email,
-    nombre: currentCuenta?.nombre || currentCuenta?.username || 'Operador U.S.',
+    nombre:
+      currentCuenta?.rol === 'ADMIN'
+        ? currentCuenta?.alias?.trim() || currentCuenta?.nombre || currentCuenta?.username || 'Administrador'
+        : getApprovedVisibleAlias(currentCuenta, 'US'),
     rol: currentCuenta?.rol || 'USUARIO',
   }), [currentCuenta]);
 
   // Subpestañas principales
-  const [activeSubTab, setActiveSubTab] = useState<'consulta' | 'actualizar_excel' | 'alta_manual' | 'auditoria' | 'incidencias' | 'ocr'>('consulta');
+  const [activeSubTab, setActiveSubTab] = useState<MatriculasSubTab>('consulta');
 
   // Estados de datos en tiempo real
   const [matriculas, setMatriculas] = useState<MatriculaAutorizada[]>([]);
@@ -162,6 +237,7 @@ export const MatriculasModuleView: React.FC = () => {
   };
 
   const cargarAuditoria = async () => {
+    if (!esAdminAutorizado) return;
     setLoadingAuditoria(true);
     try {
       const logs = await getAuditoriaMatriculas(150);
@@ -174,32 +250,38 @@ export const MatriculasModuleView: React.FC = () => {
   };
 
   useEffect(() => {
-    if (permiso.permitido) {
+    if (esAdminAutorizado) {
       cargarCatalogo();
     }
-  }, [permiso.permitido]);
+  }, [esAdminAutorizado]);
 
   useEffect(() => {
-    if (activeSubTab === 'auditoria') {
+    if (!esAdminAutorizado) {
+      if (modalModificarOpen) setModalModificarOpen(false);
+      if (modalBajaOpen) setModalBajaOpen(false);
+      if (matriculaSeleccionada) setMatriculaSeleccionada(null);
+    }
+  }, [esAdminAutorizado, modalModificarOpen, modalBajaOpen, matriculaSeleccionada]);
+
+  useEffect(() => {
+    if (esAdminAutorizado && activeSubTab === 'auditoria') {
       cargarAuditoria();
     }
-  }, [activeSubTab]);
+  }, [esAdminAutorizado, activeSubTab]);
 
-  // CONTROL DE ACCESO ESTRICTO: Si no tiene permiso (ej. UG), bloquear inmediatamente
-  if (!permiso.permitido) {
+  // CONTROL DE ACCESO ESTRICTO: MatriculasModuleView está reservado EXCLUSIVAMENTE a ADMIN.
+  // Los usuarios ordinarios de U.S. acceden únicamente a MatriculaScannerModal (comprobación puntual).
+  if (!esAdminAutorizado) {
     return (
       <div className="p-8 max-w-2xl mx-auto my-12 bg-white dark:bg-slate-900 border border-rose-200 dark:border-rose-900/60 rounded-3xl text-center space-y-4 shadow-sm">
         <div className="w-14 h-14 mx-auto rounded-2xl bg-rose-100 dark:bg-rose-950/60 flex items-center justify-center text-rose-600 dark:text-rose-400">
           <Shield className="w-7 h-7" />
         </div>
         <h2 className="text-lg font-black text-slate-900 dark:text-white">
-          Acceso Restringido al Módulo de Matrículas
+          Acceso Restringido — Administración Exclusiva
         </h2>
         <p className="text-sm text-slate-600 dark:text-slate-400">
-          {permiso.motivo}.
-        </p>
-        <p className="text-xs text-slate-500">
-          Perfil detectado: <span className="font-mono font-bold">{permiso.perfilDetectado}</span>.
+          La gestión y consulta del listado de matrículas está reservada exclusivamente a Administración.
         </p>
       </div>
     );
@@ -232,6 +314,7 @@ export const MatriculasModuleView: React.FC = () => {
   // Manejo de Alta Manual
   const handleEjecutarAltaManual = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!esAdminAutorizado) return;
     if (!previewAltaNormalizacion || !previewAltaNormalizacion.matriculaNormalizada) {
       setAltaMensaje({ tipo: 'error', texto: 'Introduzca una matrícula válida.' });
       return;
@@ -284,6 +367,7 @@ export const MatriculasModuleView: React.FC = () => {
 
   // Manejo de Modificación
   const handleAbrirModificar = (m: MatriculaAutorizada) => {
+    if (!esAdminAutorizado) return;
     setMatriculaSeleccionada(m);
     setEditForm({
       titular: m.titular || '',
@@ -297,7 +381,7 @@ export const MatriculasModuleView: React.FC = () => {
   };
 
   const handleGuardarModificacion = async () => {
-    if (!matriculaSeleccionada) return;
+    if (!esAdminAutorizado || !matriculaSeleccionada) return;
     setAccionEnCurso(true);
     try {
       await modificarMatricula(
@@ -318,13 +402,14 @@ export const MatriculasModuleView: React.FC = () => {
 
   // Manejo de Desactivación (Baja Lógica)
   const handleAbrirBaja = (m: MatriculaAutorizada) => {
+    if (!esAdminAutorizado) return;
     setMatriculaSeleccionada(m);
     setMotivoBajaInput('');
     setModalBajaOpen(true);
   };
 
   const handleConfirmarBaja = async () => {
-    if (!matriculaSeleccionada) return;
+    if (!esAdminAutorizado || !matriculaSeleccionada) return;
     if (!motivoBajaInput.trim()) {
       alert('Debe especificar un motivo para la baja lógica.');
       return;
@@ -344,6 +429,7 @@ export const MatriculasModuleView: React.FC = () => {
 
   // Manejo de Reactivación
   const handleReactivar = async (m: MatriculaAutorizada) => {
+    if (!esAdminAutorizado) return;
     if (!window.confirm(`¿Reactivar la matrícula ${m.matriculaNormalizada} en el catálogo autorizado?`)) {
       return;
     }
@@ -377,7 +463,8 @@ export const MatriculasModuleView: React.FC = () => {
   }> => {
     if (archivoExcelSeleccionado) {
       const data = await archivoExcelSeleccionado.arrayBuffer();
-      const workbook = XLSX.read(data, { type: 'array' });
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(data);
       const resultado = await escanearMatriculasDesdeLibroExcel(workbook);
       return {
         items: resultado.items,
@@ -405,6 +492,7 @@ export const MatriculasModuleView: React.FC = () => {
   };
 
   const handleAnalizarYReconciliar = async () => {
+    if (!esAdminAutorizado) return;
     setAnalizandoExcel(true);
     setResumenReconciliacion(null);
     setMetricasEscaneo(null);
@@ -497,7 +585,7 @@ export const MatriculasModuleView: React.FC = () => {
 
   // Persistir cambios reconciliados en Firestore
   const handleConfirmarPersistenciaLotes = async () => {
-    if (!resumenReconciliacion) return;
+    if (!esAdminAutorizado || !resumenReconciliacion) return;
 
     // Recoger todas las operaciones seleccionadas para aplicar
     const operaciones: FilaReconciliacion[] = [
@@ -581,11 +669,11 @@ export const MatriculasModuleView: React.FC = () => {
                   Módulo de Gestión de Matrículas
                 </h1>
                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300">
-                  U.S. / Seguridad
+                  U.S.
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Catálogo vivo de vehículos autorizados, reconciliación semanal desde Excel y trazabilidad append-only.
+                Gestión administrativa exclusiva de matrículas registradas, reconciliación desde Excel y trazabilidad append-only.
               </p>
             </div>
           </div>
@@ -608,7 +696,7 @@ export const MatriculasModuleView: React.FC = () => {
             <RefreshCw className={`w-4 h-4 ${loadingMatriculas ? 'animate-spin' : ''}`} />
           </button>
           <span className="text-xs font-semibold px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-            {isAdmin ? 'Modo Administrador' : 'Modo Operador U.S.'}
+            {esAdminAutorizado ? 'Modo Administrador' : 'Modo Operador U.S.'}
           </span>
         </div>
       </div>
@@ -630,41 +718,47 @@ export const MatriculasModuleView: React.FC = () => {
           </span>
         </button>
 
-        <button
-          onClick={() => setActiveSubTab('actualizar_excel')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
-            activeSubTab === 'actualizar_excel'
-              ? 'bg-slate-900 text-white shadow-xs dark:bg-white dark:text-slate-900'
-              : 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'
-          }`}
-        >
-          <FileSpreadsheet className="w-4 h-4" />
-          <span>Actualizar catálogo desde Excel</span>
-        </button>
+        {visibilidadUI.canViewActualizarExcel && (
+          <button
+            onClick={() => setActiveSubTab('actualizar_excel')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+              activeSubTab === 'actualizar_excel'
+                ? 'bg-slate-900 text-white shadow-xs dark:bg-white dark:text-slate-900'
+                : 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'
+            }`}
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            <span>Actualizar catálogo desde Excel</span>
+          </button>
+        )}
 
-        <button
-          onClick={() => setActiveSubTab('alta_manual')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
-            activeSubTab === 'alta_manual'
-              ? 'bg-slate-900 text-white shadow-xs dark:bg-white dark:text-slate-900'
-              : 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'
-          }`}
-        >
-          <Plus className="w-4 h-4" />
-          <span>Alta Manual</span>
-        </button>
+        {visibilidadUI.canViewAltaManual && (
+          <button
+            onClick={() => setActiveSubTab('alta_manual')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+              activeSubTab === 'alta_manual'
+                ? 'bg-slate-900 text-white shadow-xs dark:bg-white dark:text-slate-900'
+                : 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'
+            }`}
+          >
+            <Plus className="w-4 h-4" />
+            <span>Alta Manual</span>
+          </button>
+        )}
 
-        <button
-          onClick={() => setActiveSubTab('auditoria')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
-            activeSubTab === 'auditoria'
-              ? 'bg-slate-900 text-white shadow-xs dark:bg-white dark:text-slate-900'
-              : 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'
-          }`}
-        >
-          <History className="w-4 h-4" />
-          <span>Historial y Auditoría</span>
-        </button>
+        {visibilidadUI.canViewAuditoria && (
+          <button
+            onClick={() => setActiveSubTab('auditoria')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+              activeSubTab === 'auditoria'
+                ? 'bg-slate-900 text-white shadow-xs dark:bg-white dark:text-slate-900'
+                : 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'
+            }`}
+          >
+            <History className="w-4 h-4" />
+            <span>Historial y Auditoría</span>
+          </button>
+        )}
 
         <button
           onClick={() => setActiveSubTab('ocr')}
@@ -748,13 +842,15 @@ export const MatriculasModuleView: React.FC = () => {
                 <option value="FORMATO_GENERICO">Formato Genérico</option>
               </select>
 
-              <button
-                onClick={() => setActiveSubTab('alta_manual')}
-                className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-xs"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Añadir</span>
-              </button>
+              {visibilidadUI.canViewAltaManual && (
+                <button
+                  onClick={() => setActiveSubTab('alta_manual')}
+                  className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Añadir</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -768,13 +864,15 @@ export const MatriculasModuleView: React.FC = () => {
                   <th className="px-4 py-3">Vehículo</th>
                   <th className="px-4 py-3">Estado</th>
                   <th className="px-4 py-3">Origen</th>
-                  <th className="px-4 py-3 text-right">Acciones</th>
+                  {visibilidadUI.canModifyOrDeleteCatalogo && (
+                    <th className="px-4 py-3 text-right">Acciones</th>
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium text-slate-700 dark:text-slate-300">
                 {loadingMatriculas ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-12 text-center text-slate-400">
+                    <td colSpan={visibilidadUI.canModifyOrDeleteCatalogo ? 7 : 6} className="px-4 py-12 text-center text-slate-400">
                       <div className="flex flex-col items-center gap-2">
                         <RefreshCw className="w-6 h-6 animate-spin text-blue-500" />
                         <span>Cargando catálogo maestro desde Firestore...</span>
@@ -783,7 +881,7 @@ export const MatriculasModuleView: React.FC = () => {
                   </tr>
                 ) : matriculasFiltradas.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
+                    <td colSpan={visibilidadUI.canModifyOrDeleteCatalogo ? 7 : 6} className="px-4 py-8 text-center text-slate-400">
                       No se encontraron matrículas con los criterios especificados.
                     </td>
                   </tr>
@@ -837,37 +935,39 @@ export const MatriculasModuleView: React.FC = () => {
                       <td className="px-4 py-3 text-[11px] text-slate-500">
                         {m.origen}
                       </td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            onClick={() => handleAbrirModificar(m)}
-                            disabled={accionEnCurso}
-                            className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition cursor-pointer"
-                            title="Modificar datos informativos"
-                          >
-                            <Edit3 className="w-3.5 h-3.5" />
-                          </button>
-                          {m.activo ? (
+                      {visibilidadUI.canModifyOrDeleteCatalogo && (
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
                             <button
-                              onClick={() => handleAbrirBaja(m)}
+                              onClick={() => handleAbrirModificar(m)}
                               disabled={accionEnCurso}
-                              className="p-1.5 rounded-lg border border-rose-200 dark:border-rose-900/60 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 transition cursor-pointer"
-                              title="Dar de baja lógica"
+                              className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition cursor-pointer"
+                              title="Modificar datos informativos"
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
+                              <Edit3 className="w-3.5 h-3.5" />
                             </button>
-                          ) : (
-                            <button
-                              onClick={() => handleReactivar(m)}
-                              disabled={accionEnCurso}
-                              className="p-1.5 rounded-lg border border-emerald-200 dark:border-emerald-900/60 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 transition cursor-pointer"
-                              title="Reactivar matrícula"
-                            >
-                              <RotateCcw className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
+                            {m.activo ? (
+                              <button
+                                onClick={() => handleAbrirBaja(m)}
+                                disabled={accionEnCurso}
+                                className="p-1.5 rounded-lg border border-rose-200 dark:border-rose-900/60 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 transition cursor-pointer"
+                                title="Dar de baja lógica"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleReactivar(m)}
+                                disabled={accionEnCurso}
+                                className="p-1.5 rounded-lg border border-emerald-200 dark:border-emerald-900/60 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 transition cursor-pointer"
+                                title="Reactivar matrícula"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))
                 )}
@@ -880,7 +980,7 @@ export const MatriculasModuleView: React.FC = () => {
       {/* ========================================================================= */}
       {/* SUBPESTAÑA 2: ACTUALIZAR CATÁLOGO DESDE EXCEL (RECONCILIACIÓN SEMANAL)   */}
       {/* ========================================================================= */}
-      {activeSubTab === 'actualizar_excel' && (
+      {visibilidadUI.canViewActualizarExcel && activeSubTab === 'actualizar_excel' && (
         <div className="space-y-6">
           <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
             <div>
@@ -1039,7 +1139,7 @@ export const MatriculasModuleView: React.FC = () => {
                     </div>
                     <p className="mt-1 text-amber-800 dark:text-amber-300">
                       Se han detectado {resumenReconciliacion.ausentes.length} matrículas que estaban activas en el catálogo previo pero no aparecen en el nuevo archivo.
-                      Por seguridad, <strong>ninguna matrícula se desactivará automáticamente</strong>.
+                      Por protección operativa, <strong>ninguna matrícula se desactivará automáticamente</strong>.
                     </p>
                   </div>
                 </div>
@@ -1397,7 +1497,7 @@ export const MatriculasModuleView: React.FC = () => {
       {/* ========================================================================= */}
       {/* SUBPESTAÑA 3: ALTA MANUAL CON VALIDACIÓN ESTRICTA Y AUDITORÍA             */}
       {/* ========================================================================= */}
-      {activeSubTab === 'alta_manual' && (
+      {visibilidadUI.canViewAltaManual && activeSubTab === 'alta_manual' && (
         <div className="max-w-2xl mx-auto bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-6">
           <div>
             <h2 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
@@ -1436,7 +1536,7 @@ export const MatriculasModuleView: React.FC = () => {
                 required
                 value={altaInputMatricula}
                 onChange={(e) => setAltaInputMatricula(e.target.value)}
-                placeholder="Ej. 1234BBB, M-1234-AB, PGC-1234-A..."
+                placeholder="Ej. 1234BBB, M-1234-AB, PME-1234-A..."
                 className="w-full px-4 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono font-bold text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               />
 
@@ -1527,7 +1627,7 @@ export const MatriculasModuleView: React.FC = () => {
                   type="text"
                   value={altaForm.departamento}
                   onChange={(e) => setAltaForm({ ...altaForm, departamento: e.target.value })}
-                  placeholder="Ej. Seguridad, Mantenimiento..."
+                  placeholder="Ej. Flota, Mantenimiento..."
                   className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs"
                 />
               </div>
@@ -1616,7 +1716,7 @@ export const MatriculasModuleView: React.FC = () => {
       {/* ========================================================================= */}
       {/* SUBPESTAÑA 4: AUDITORÍA INMUTABLE (APPEND-ONLY)                           */}
       {/* ========================================================================= */}
-      {activeSubTab === 'auditoria' && (
+      {visibilidadUI.canViewAuditoria && activeSubTab === 'auditoria' && (
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="relative flex-1 max-w-md">
@@ -1770,7 +1870,7 @@ export const MatriculasModuleView: React.FC = () => {
       {/* ========================================================================= */}
       {/* MODAL: MODIFICAR DATOS INFORMATIVOS                                       */}
       {/* ========================================================================= */}
-      {modalModificarOpen && matriculaSeleccionada && (
+      {visibilidadUI.canModifyOrDeleteCatalogo && modalModificarOpen && matriculaSeleccionada && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4">
           <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 max-w-lg w-full p-6 space-y-4 shadow-xl">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
@@ -1894,7 +1994,7 @@ export const MatriculasModuleView: React.FC = () => {
       {/* ========================================================================= */}
       {/* MODAL: BAJA LÓGICA CON MOTIVO OBLIGATORIO                                 */}
       {/* ========================================================================= */}
-      {modalBajaOpen && matriculaSeleccionada && (
+      {visibilidadUI.canModifyOrDeleteCatalogo && modalBajaOpen && matriculaSeleccionada && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4">
           <div className="bg-white dark:bg-slate-900 rounded-3xl border border-rose-200 dark:border-rose-900 max-w-md w-full p-6 space-y-4 shadow-xl">
             <div className="flex items-center gap-3 text-rose-600">

@@ -164,7 +164,7 @@ function generarHojaCuadranteUSParaDocumento(
   const rowTitle = wsCuadrante.getRow(1);
   rowTitle.height = 28;
   const cellTitle = wsCuadrante.getCell(1, 1);
-  cellTitle.value = `UNIDAD DE SEGURIDAD (U.S.) — CUADRANTE DE SERVICIOS — ${mesInfo.nombre.toUpperCase()} (MODIFICACIÓN: ${documento.codigoVerificacion})`;
+  cellTitle.value = `U.S. — CUADRANTE DE SERVICIOS — ${mesInfo.nombre.toUpperCase()} (MODIFICACIÓN: ${documento.codigoVerificacion})`;
   cellTitle.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FFFFFFFF' } };
   cellTitle.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F172A' } };
   cellTitle.alignment = { vertical: 'middle', horizontal: 'center' };
@@ -469,8 +469,8 @@ export const generarDocumentoCambioExcelData = async (
     wsCambio.mergeCells('B2:E2');
     const cellT1 = wsCambio.getCell('B2');
     cellT1.value = isUS
-      ? 'UNIDAD DE SEGURIDAD (U.S.) — SERVICIOS DE SEGURIDAD Y VIGILANCIA'
-      : `${NOMBRE_GRUPO_UG} — GRUPO DE GUARDIA Y SEGURIDAD`;
+      ? 'U.S. — SERVICIOS DE 12 HORAS'
+      : `${NOMBRE_GRUPO_UG} — U.G. (24H)`;
     cellT1.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
     cellT1.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F172A' } }; // Slate 900
     cellT1.alignment = { vertical: 'middle', horizontal: 'center' };
@@ -791,7 +791,7 @@ export const generarDocumentoCambioExcelData = async (
     });
 
     if (isUS) {
-      // HOJA 2 PARA UNIDAD DE SEGURIDAD (U.S.)
+      // HOJA 2 PARA U.S.
       generarHojaCuadranteUSParaDocumento(wsCuadrante, cuadrante, servicios, personas, documento, mesInfo);
     } else {
       // HOJA 2 PARA UNIDAD DE GESTIÓN (UG) — PRESERVADA ÍNTEGRAMENTE
@@ -1223,7 +1223,7 @@ export const generarDocumentoCambioExcelData = async (
     const filaLeyenda = 6 + plantillaOrdenada.length + 1;
     wsCuadrante.mergeCells(filaLeyenda, 1, filaLeyenda, totalCols);
     const cellLeyenda = wsCuadrante.getCell(filaLeyenda, 1);
-    cellLeyenda.value = `LEYENDA: S = Guardia 24h Activa (Azul) | S* = Asignación Resultante de Cambio Autorizado (Borde Dorado) | S(C) = Servicio Cedido por Permuta | I = Imaginaria 24h (Ámbar) | P = Patrulla U.G. (Verde Azulado) | C = Cobertura Médica (Esmeralda) | B = Baja Médica (Rojo) | L = Libre (Gris)`;
+    cellLeyenda.value = `LEYENDA: S = Guardia 24h Activa (Azul) | S* = Asignación Resultante de Cambio Autorizado (Borde Dorado) | S(C) = Servicio Cedido por Permuta | I = Imaginaria 24h (Ámbar) | P = Patrulla U.G. (Verde Azulado) | C = Cobertura Ausencia Sobrevenida (Esmeralda) | B = Ausencia Sobrevenida (Rojo) | L = Libre (Gris)`;
     cellLeyenda.font = { name: 'Calibri', size: 8, italic: true, color: { argb: 'FF334155' } };
     cellLeyenda.alignment = { vertical: 'middle', horizontal: 'center' };
     cellLeyenda.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };

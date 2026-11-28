@@ -879,7 +879,7 @@ assert(
 // -------------------------------------------------------------
 console.log('\n--- 13. Scanner de Cámara y Semáforo de Control de Acceso ---');
 
-// Caso 1: Matrícula autorizada y activa -> AUTORIZADA (Semáforo Verde)
+// Caso 1: Matrícula registrada y activa -> REGISTRADO
 const docAutorizadoActivo = {
   id: '1234BBB',
   matriculaNormalizada: '1234BBB',
@@ -888,11 +888,11 @@ const docAutorizadoActivo = {
 };
 const resAutorizada = evaluarEstadoAutorizacion(docAutorizadoActivo);
 assert(
-  resAutorizada === 'AUTORIZADA',
-  'SCANNER: Matrícula existente y con activo===true produce 🟢 AUTORIZADA'
+  resAutorizada === 'REGISTRADO',
+  'SCANNER: Matrícula existente y con activo===true produce REGISTRADO'
 );
 
-// Caso 2: Matrícula existente pero inactiva (baja lógica) -> NO AUTORIZADA (Semáforo Rojo)
+// Caso 2: Matrícula existente pero inactiva (baja lógica) -> NO_REGISTRADO
 const docInactivo = {
   id: '5678CCC',
   matriculaNormalizada: '5678CCC',
@@ -901,21 +901,21 @@ const docInactivo = {
 };
 const resInactiva = evaluarEstadoAutorizacion(docInactivo);
 assert(
-  resInactiva === 'NO_AUTORIZADA',
-  'SCANNER: Matrícula existente en catálogo pero inactiva produce 🔴 NO AUTORIZADA'
+  resInactiva === 'NO_REGISTRADO',
+  'SCANNER: Matrícula existente pero inactiva produce NO_REGISTRADO'
 );
 
-// Caso 3: Matrícula inexistente en la base de datos -> NO AUTORIZADA (Semáforo Rojo)
+// Caso 3: Matrícula inexistente en la base de datos -> NO_REGISTRADO
 const resInexistenteNull = evaluarEstadoAutorizacion(null);
 assert(
-  resInexistenteNull === 'NO_AUTORIZADA',
-  'SCANNER: Matrícula inexistente (null) produce 🔴 NO AUTORIZADA'
+  resInexistenteNull === 'NO_REGISTRADO',
+  'SCANNER: Matrícula inexistente (null) produce NO_REGISTRADO'
 );
 
 const resInexistenteUndefined = evaluarEstadoAutorizacion(undefined);
 assert(
-  resInexistenteUndefined === 'NO_AUTORIZADA',
-  'SCANNER: Matrícula inexistente (undefined) produce 🔴 NO AUTORIZADA'
+  resInexistenteUndefined === 'NO_REGISTRADO',
+  'SCANNER: Matrícula inexistente (undefined) produce NO_REGISTRADO'
 );
 
 // Caso 4: Lectura inválida o ruido visual -> El normalizador detecta formato no válido
@@ -950,8 +950,8 @@ assert(
 // Caso 6: Cero persistencia y privacidad garantizada
 const mockResultadoSemafaro: ResultadoConsultaScanner = {
   esLecturaValida: true,
-  estado: 'AUTORIZADA',
-  autorizada: true,
+  estado: 'REGISTRADO',
+  registrado: true,
   duracionMs: 450,
   metodo: 'LOCAL',
 };
@@ -1245,8 +1245,8 @@ const catalogoMock: Record<string, { activo: boolean }> = {
 
 const estadoManual = evaluarEstadoAutorizacion(catalogoMock[entradaManual.matriculaNormalizada]);
 const estadoCamara = evaluarEstadoAutorizacion(catalogoMock[entradaCamara1.matriculaNormalizada]);
-assert(estadoManual === 'AUTORIZADA', 'PARIDAD: Entrada manual resulta en AUTORIZADA');
-assert(estadoCamara === 'AUTORIZADA', 'PARIDAD: Entrada por cámara resulta idénticamente en AUTORIZADA');
+assert(estadoManual === 'REGISTRADO', 'PARIDAD: Entrada manual resulta en REGISTRADO');
+assert(estadoCamara === 'REGISTRADO', 'PARIDAD: Entrada por cámara resulta idénticamente en REGISTRADO');
 
 // -------------------------------------------------------------
 // RESUMEN FINAL

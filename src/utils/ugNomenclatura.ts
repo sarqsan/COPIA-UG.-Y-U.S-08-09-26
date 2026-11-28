@@ -23,10 +23,14 @@ const DEFAULT_APELLIDOS_ROL2 = [
   'MORALES', 'SUÁREZ', 'ORTEGA', 'MARÍN', 'SOTO', 'VEGA'
 ];
 
-export type PersonaLike = Persona | { nombre?: string; empleo?: Empleo | string; [key: string]: any };
+export type PersonaLike =
+  | Persona
+  | { alias?: string | null; nombre?: string; empleo?: Empleo | string; [key: string]: any };
 
 /**
- * Obtiene el apellido operativo del usuario para la U.G., eliminando cualquier prefijo de rol.
+ * Obtiene la identificación visible del usuario para la U.G.
+ * Prioriza siempre el alias libre elegido por el usuario (sin obligar a coincidir con nombre o apellido);
+ * si no dispone de alias explícito, conserva compatibilidad con el valor histórico de `nombre`.
  */
 export const getApellidoUG = (personaOrNombre?: PersonaLike | string | null): string => {
   if (!personaOrNombre) return 'USUARIO';
@@ -36,6 +40,9 @@ export const getApellidoUG = (personaOrNombre?: PersonaLike | string | null): st
   if (typeof personaOrNombre === 'string') {
     raw = personaOrNombre;
   } else if (typeof personaOrNombre === 'object' && personaOrNombre !== null) {
+    if (typeof personaOrNombre.alias === 'string' && personaOrNombre.alias.trim().length > 0) {
+      return personaOrNombre.alias.trim();
+    }
     raw = typeof personaOrNombre.nombre === 'string' ? personaOrNombre.nombre : '';
     empHint = typeof personaOrNombre.empleo === 'string' ? personaOrNombre.empleo : undefined;
   }
@@ -67,8 +74,8 @@ export const getApellidoUG = (personaOrNombre?: PersonaLike | string | null): st
 };
 
 /**
- * Formatea la identificación reglamentaria de un usuario de la U.G.:
- * APELLIDO — ROL 1 / ROL 2 (Ejemplo: "ARQUERO — ROL 1")
+ * Formatea la identificación operativa de un usuario de la U.G.:
+ * APELLIDO — ROL 1 / ROL 2 (Ejemplo: "APELLIDO — ROL 1")
  */
 export const formatUsuarioUG = (
   personaOrNombre?: PersonaLike | string | null,

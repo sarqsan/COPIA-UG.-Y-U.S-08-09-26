@@ -4,53 +4,20 @@ import { AdminLayout } from './components/layout/AdminLayout';
 import { UserPortalPage } from './pages/UserPortalPage';
 import { LoginPage } from './pages/LoginPage';
 import { AltaPublicaView } from './components/auth/AltaPublicaView';
+import { AvisoProteccionDatosModal } from './components/auth/AvisoProteccionDatosModal';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 
-const parseLoginParams = () => {
-  if (typeof window === 'undefined') return { isAcceso: false, personaId: null };
-  const hash = window.location.hash || '';
-  const search = window.location.search || '';
-  let queryStr = '';
-  if (hash.includes('?')) {
-    queryStr = hash.substring(hash.indexOf('?'));
-  } else if (search) {
-    queryStr = search;
-  } else if (hash.startsWith('#') && hash.includes('=')) {
-    queryStr = '?' + hash.substring(1);
-  }
-  const params = new URLSearchParams(queryStr);
-  const personaId = params.get('p') || params.get('personaId') || params.get('id');
-  const isAcceso = hash.includes('acceso') || search.includes('acceso') || !!personaId;
-  return { isAcceso, personaId };
-};
-
 const AppContent: React.FC = () => {
-  const { currentCuenta, loading, isAdmin, isUsuario } = useAuth();
+  const { currentCuenta, loading, isAdmin, isUsuario, dataProtectionAccepted } = useAuth();
   const [isAltaRoute, setIsAltaRoute] = useState<boolean>(() => {
     return window.location.hash.startsWith('#alta') || window.location.search.includes('alta=true');
   });
 
-  const [forceLoginRoute, setForceLoginRoute] = useState<boolean>(() => {
-    const { isAcceso, personaId } = parseLoginParams();
-    if (isAcceso && personaId) {
-      const activeUid = localStorage.getItem('app_active_uid');
-      if (activeUid && !activeUid.includes(personaId)) {
-        return true;
-      }
-    }
-    return false;
-  });
-
   useEffect(() => {
     const handleHashChange = () => {
-      setIsAltaRoute(window.location.hash.startsWith('#alta') || window.location.search.includes('alta=true'));
-      const { isAcceso, personaId } = parseLoginParams();
-      if (isAcceso && personaId) {
-        const activeUid = localStorage.getItem('app_active_uid');
-        if (activeUid && !activeUid.includes(personaId)) {
-          setForceLoginRoute(true);
-        }
-      }
+      setIsAltaRoute(
+        window.location.hash.startsWith('#alta') || window.location.search.includes('alta=true')
+      );
     };
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
@@ -66,30 +33,35 @@ const AppContent: React.FC = () => {
         <div className="text-center space-y-3">
           <div className="mx-auto h-9 w-9 animate-spin rounded-full border-3 border-slate-700 border-t-blue-500" />
           <p className="text-xs font-semibold text-slate-400">
-            Cargando Portal U.G....
+            Cargando Portal U.G. / U.S....
           </p>
         </div>
       </div>
     );
   }
 
-  if (!currentCuenta || forceLoginRoute) {
-    return <LoginPage onLoginComplete={() => setForceLoginRoute(false)} />;
+  if (!currentCuenta) {
+    return <LoginPage />;
+  }
+
+  // BLOQUE 4: Bloqueo obligatorio en frontend si no existe aceptación vigente acreditada por el servidor.
+  // No es eludible por hash, URL interna, recarga ni tipo de perfil (ADMIN, U.G. o U.S.).
+  if (!dataProtectionAccepted) {
+    return <AvisoProteccionDatosModal />;
   }
 
   if (isAdmin) {
     return <AdminLayout />;
   }
 
-  // Cualquier cuenta activa que no sea Admin ve el portal de usuario
   if (isUsuario || currentCuenta.rol !== 'ADMIN') {
     return <UserPortalPage />;
   }
 
-  return <LoginPage onLoginComplete={() => setForceLoginRoute(false)} />;
+  return <LoginPage />;
 };
 
-export default function App() {
+export function App() {
   return (
     <ErrorBoundary>
       <AuthProvider>
@@ -98,3 +70,5 @@ export default function App() {
     </ErrorBoundary>
   );
 }
+
+export default App;

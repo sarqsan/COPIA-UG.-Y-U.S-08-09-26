@@ -25,10 +25,10 @@ export const HistorialPage: React.FC<HistorialPageProps> = ({ logs }) => {
         <Shield className="h-5 w-5 shrink-0 text-blue-600 mt-0.5" />
         <div className="space-y-1">
           <p className="font-bold text-slate-900 dark:text-white">
-            Seguridad & Reglas de Inmutabilidad
+            Integridad y Reglas de Inmutabilidad
           </p>
           <p className="text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
-            Cada acción de alta, modificación, activación o importación queda firmada con el UID y nombre del administrador que la ejecutó. Las reglas de seguridad de Firestore impiden que los registros de auditoría sean alterados o eliminados.
+            Cada acción de alta, modificación, activación o importación queda firmada con el UID y nombre del administrador que la ejecutó. Las reglas de acceso de Firestore impiden que los registros de auditoría sean alterados o eliminados.
           </p>
         </div>
       </div>

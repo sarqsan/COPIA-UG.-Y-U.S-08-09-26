@@ -11,6 +11,7 @@ import {
 import { generarYDescargarDocumentoCambioExcel } from '../../services/documentoCambioExcelService';
 import { getServiciosByCuadranteId, getCuadrantes } from '../../services/cuadranteService';
 import { getPersonas } from '../../services/personasService';
+import { resolveApprovedAliasById } from '../../utils/aliasHelper';
 import { enviarDocumentoCambioPorGmail } from '../../services/emailCambioEnvioService';
 import { comprobarEnvioPrevio } from '../../services/emailPersonalConfigService';
 import {
@@ -375,7 +376,7 @@ export const DetalleAprobacionCambioModal: React.FC<DetalleAprobacionCambioModal
               </div>
               <div>
                 <span className={`text-[9px] sm:text-[10px] font-black uppercase tracking-wider block ${solicitud && getUnidadSolicitud(solicitud) === 'US' ? 'text-teal-400' : 'text-blue-400'}`}>
-                  {solicitud && getUnidadSolicitud(solicitud) === 'US' ? 'U.S. SEGURIDAD — Gestión y Autorización de Administración' : `${NOMBRE_GRUPO_UG} — Gestión y Autorización de Administración`}
+                  {solicitud && getUnidadSolicitud(solicitud) === 'US' ? 'U.S. — Gestión y Autorización de Administración' : `${NOMBRE_GRUPO_UG} — Gestión y Autorización de Administración`}
                 </span>
                 <h3 className="text-sm sm:text-base font-black truncate">
                   {solicitud && getUnidadSolicitud(solicitud) === 'US' ? 'Solicitud de Permuta / Cambio de Turno (U.S.)' : 'Solicitud de Cambio de Servicio (U.G.)'}
@@ -419,7 +420,7 @@ export const DetalleAprobacionCambioModal: React.FC<DetalleAprobacionCambioModal
                     <ShieldCheck className="w-5 h-5 shrink-0" />
                     <div>
                       <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider block opacity-75">
-                        Estado Actual del Trámite ({getUnidadSolicitud(solicitud) === 'US' ? 'U.S. - SEGURIDAD' : NOMBRE_GRUPO_UG})
+                        Estado Actual del Trámite ({getUnidadSolicitud(solicitud) === 'US' ? 'U.S.' : NOMBRE_GRUPO_UG})
                       </span>
                       <span className="text-xs font-black">
                         {solicitud.estado === 'PENDIENTE_ADMIN'
@@ -491,7 +492,9 @@ export const DetalleAprobacionCambioModal: React.FC<DetalleAprobacionCambioModal
                       </span>
                     </div>
                     <div className="text-sm font-bold text-slate-900 dark:text-white">
-                      {getUnidadSolicitud(solicitud) === 'US' ? solicitud.solicitanteNombre : formatUsuarioUG(solicitud.solicitanteNombre, solicitud.solicitanteEmpleo)}
+                      {getUnidadSolicitud(solicitud) === 'US'
+                        ? resolveApprovedAliasById(personas, solicitud.solicitantePersonaId, 'US')
+                        : formatUsuarioUG(solicitud.solicitanteNombre, solicitud.solicitanteEmpleo)}
                     </div>
                     <div className="text-xs text-slate-500">
                       Grupo: <strong>{solicitud.solicitanteGrupo || (getUnidadSolicitud(solicitud) === 'US' ? 'US_SEGURIDAD' : 'U.G.')}</strong>
@@ -515,7 +518,9 @@ export const DetalleAprobacionCambioModal: React.FC<DetalleAprobacionCambioModal
                       </span>
                     </div>
                     <div className="text-sm font-bold text-slate-900 dark:text-white">
-                      {getUnidadSolicitud(solicitud) === 'US' ? solicitud.destinatarioNombre : formatUsuarioUG(solicitud.destinatarioNombre, solicitud.destinatarioEmpleo)}
+                      {getUnidadSolicitud(solicitud) === 'US'
+                        ? resolveApprovedAliasById(personas, solicitud.destinatarioPersonaId, 'US')
+                        : formatUsuarioUG(solicitud.destinatarioNombre, solicitud.destinatarioEmpleo)}
                     </div>
                     <div className="text-xs text-slate-500">
                       Grupo: <strong>{solicitud.destinatarioGrupo || (getUnidadSolicitud(solicitud) === 'US' ? 'US_SEGURIDAD' : 'U.G.')}</strong>
@@ -554,7 +559,10 @@ export const DetalleAprobacionCambioModal: React.FC<DetalleAprobacionCambioModal
                         Tipo: <strong>{getDescripcionTurnoSolicitud(solicitud, false)}</strong>
                       </div>
                       <div className="mt-2 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
-                        ↳ Realizará: {getUnidadSolicitud(solicitud) === 'US' ? solicitud.destinatarioNombre : formatUsuarioUG(solicitud.destinatarioNombre, solicitud.destinatarioEmpleo)}
+                        ↳ Realizará:{' '}
+                        {getUnidadSolicitud(solicitud) === 'US'
+                          ? resolveApprovedAliasById(personas, solicitud.destinatarioPersonaId, 'US')
+                          : formatUsuarioUG(solicitud.destinatarioNombre, solicitud.destinatarioEmpleo)}
                       </div>
                     </div>
 
@@ -572,7 +580,10 @@ export const DetalleAprobacionCambioModal: React.FC<DetalleAprobacionCambioModal
                             Tipo: <strong>{getDescripcionTurnoSolicitud(solicitud, true)}</strong>
                           </div>
                           <div className="mt-2 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
-                            ↳ Realizará: {getUnidadSolicitud(solicitud) === 'US' ? solicitud.solicitanteNombre : formatUsuarioUG(solicitud.solicitanteNombre, solicitud.solicitanteEmpleo)}
+                            ↳ Realizará:{' '}
+                            {getUnidadSolicitud(solicitud) === 'US'
+                              ? resolveApprovedAliasById(personas, solicitud.solicitantePersonaId, 'US')
+                              : formatUsuarioUG(solicitud.solicitanteNombre, solicitud.solicitanteEmpleo)}
                           </div>
                         </>
                       ) : (
@@ -641,7 +652,7 @@ export const DetalleAprobacionCambioModal: React.FC<DetalleAprobacionCambioModal
                       {yaEnviadoEmail && (
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-200 text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200">
                           <CheckCircle className="w-3 h-3" />
-                          Remitido a Personal (sarqsan2@gmail.com)
+                          Remitido a Personal (cuenta de correo configurada)
                         </span>
                       )}
                     </div>
@@ -683,7 +694,7 @@ export const DetalleAprobacionCambioModal: React.FC<DetalleAprobacionCambioModal
                         onClick={() => handleEnviarEmailPersonal()}
                         disabled={enviandoEmail}
                         className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs min-h-[44px] disabled:opacity-50"
-                        title="Enviar el Excel a Personal vía Gmail (sarqsan2@gmail.com)"
+                        title="Enviar el Excel a Personal vía Gmail (cuenta configurada)"
                       >
                         <Mail className="w-3.5 h-3.5" />
                         {enviandoEmail

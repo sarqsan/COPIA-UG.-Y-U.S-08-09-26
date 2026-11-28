@@ -165,7 +165,7 @@ export const ImportarExcelPage: React.FC<ImportarExcelPageProps> = ({
             }`}
           >
             <Shield className="w-3.5 h-3.5" />
-            <span>U.S. Seguridad (12h)</span>
+            <span>U.S. (12h)</span>
           </button>
         </div>
       </div>

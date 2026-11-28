@@ -178,7 +178,7 @@ export interface CuadranteSimulacionUSResult {
 }
 
 /**
- * Estado de continuidad de rotación entre meses consecutivos para la Unidad de Seguridad (U.S.).
+ * Estado de continuidad de rotación entre meses consecutivos para U.S..
  * REGLA FUNDAMENTAL: Se basa exclusivamente en las asignaciones ORIGINALES generadas por el motor.
  * Ni las modificaciones manuales posteriores de administradores ni las sustituciones por incidencia
  * contaminan la semilla de rotación ni el estado saliente de noche del mes siguiente.

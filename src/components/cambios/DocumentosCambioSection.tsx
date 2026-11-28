@@ -5,6 +5,8 @@ import { generarYDescargarDocumentoCambioExcel } from '../../services/documentoC
 import { enviarDocumentoCambioPorGmail } from '../../services/emailCambioEnvioService';
 import { obtenerRegistrosEnvio } from '../../services/emailPersonalConfigService';
 import { getRolUG, getApellidoUG, NOMBRE_GRUPO_UG } from '../../utils/ugNomenclatura';
+import { resolveApprovedAliasById } from '../../utils/aliasHelper';
+import { useAuth } from '../../firebase/context';
 import { VerDocumentoCambioModal } from './VerDocumentoCambioModal';
 import {
   FileText,
@@ -34,6 +36,7 @@ export const DocumentosCambioSection: React.FC<DocumentosCambioSectionProps> = (
   currentPersona,
   isAdmin = false,
 }) => {
+  const { personas: sessionPersonas } = useAuth();
   const [documentos, setDocumentos] = useState<DocumentoCambioFirmado[]>([]);
   const [cargando, setCargando] = useState<boolean>(true);
   const [busqueda, setBusqueda] = useState<string>('');
@@ -121,13 +124,30 @@ export const DocumentosCambioSection: React.FC<DocumentosCambioSectionProps> = (
     };
   }, [currentPersona, isAdmin]);
 
+  const isDocUS = (doc: DocumentoCambioFirmado) =>
+    doc.personaA.grupo === 'US_SEGURIDAD' ||
+    doc.personaB.grupo === 'US_SEGURIDAD' ||
+    (doc.personaA.grupo as string) === 'U.S.' ||
+    (doc.personaB.grupo as string) === 'U.S.';
+
+  const getDocVisibleName = (
+    doc: DocumentoCambioFirmado,
+    party: 'A' | 'B'
+  ): string => {
+    const p = party === 'A' ? doc.personaA : doc.personaB;
+    if (isDocUS(doc)) {
+      return resolveApprovedAliasById(sessionPersonas, p.id, 'US');
+    }
+    return p.nombre;
+  };
+
   const docsFiltrados = documentos.filter((doc) => {
     const q = busqueda.toLowerCase().trim();
     if (!q) return true;
     return (
       doc.codigoVerificacion.toLowerCase().includes(q) ||
-      doc.personaA.nombre.toLowerCase().includes(q) ||
-      doc.personaB.nombre.toLowerCase().includes(q) ||
+      getDocVisibleName(doc, 'A').toLowerCase().includes(q) ||
+      getDocVisibleName(doc, 'B').toLowerCase().includes(q) ||
       doc.fechaServicioA.includes(q) ||
       (doc.fechaServicioB && doc.fechaServicioB.includes(q)) ||
       doc.motivo.toLowerCase().includes(q)
@@ -270,7 +290,7 @@ export const DocumentosCambioSection: React.FC<DocumentosCambioSectionProps> = (
                         Cede Servicio:
                       </span>
                       <div className="font-bold text-slate-900 dark:text-white">
-                        {doc.personaA.nombre} ({doc.personaA.empleo})
+                        {getDocVisibleName(doc, 'A')} ({doc.personaA.empleo})
                       </div>
                       <div className="text-[11px] text-slate-600 dark:text-slate-400 flex items-center gap-1">
                         <Calendar className="w-3 h-3 text-blue-500" />
@@ -283,7 +303,7 @@ export const DocumentosCambioSection: React.FC<DocumentosCambioSectionProps> = (
                         Realiza Servicio:
                       </span>
                       <div className="font-bold text-slate-900 dark:text-white">
-                        {doc.personaB.nombre} ({doc.personaB.empleo})
+                        {getDocVisibleName(doc, 'B')} ({doc.personaB.empleo})
                       </div>
                       <div className="text-[11px] text-slate-600 dark:text-slate-400 flex items-center gap-1 justify-end">
                         <Calendar className="w-3 h-3 text-indigo-500" />
@@ -379,7 +399,7 @@ export const DocumentosCambioSection: React.FC<DocumentosCambioSectionProps> = (
                     onClick={() => handleEnviarEmailPersonal(doc)}
                     disabled={enviandoEmailId === doc.id}
                     className="w-full py-2.5 px-3 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
-                    title="Enviar o reenviar el Excel de este cambio a Personal vía Gmail (sarqsan2@gmail.com)"
+                    title="Enviar o reenviar el Excel de este cambio a Personal vía Gmail (cuenta configurada)"
                   >
                     <Mail className="w-4 h-4" />
                     {enviandoEmailId === doc.id

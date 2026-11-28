@@ -129,7 +129,7 @@ export const RespaldosModuleView: React.FC<RespaldosModuleViewProps> = ({
   // Acción: Restaurar Estado del Día Anterior
   const handleRestaurarDiaAnterior = async (tipo: TipoServicio) => {
     if (!isAdmin) {
-      alert('Operación restringida: Solo un administrador puede restaurar copias de seguridad.');
+      alert('Operación restringida: Solo un administrador puede restaurar copias de respaldo.');
       return;
     }
 
@@ -140,7 +140,7 @@ export const RespaldosModuleView: React.FC<RespaldosModuleViewProps> = ({
       const backupAyer = await obtenerRespaldoDiaAnterior(tipo);
       if (!backupAyer) {
         setErrorMsg(
-          `No se encontró ninguna copia de seguridad previa disponible para ${tipo === 'US' ? 'la Unidad de Seguridad (U.S.)' : 'la Unidad de Guardia (U.G.)'}. Cree una copia manual primero.`
+          `No se encontró ninguna copia de respaldo previa disponible para ${tipo === 'US' ? 'U.S.' : 'U.G.'}. Cree una copia manual primero.`
         );
         setProcesando(false);
         return;
@@ -314,7 +314,7 @@ export const RespaldosModuleView: React.FC<RespaldosModuleViewProps> = ({
 
         <div className="p-3.5 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500">Seguridad Pre-Restauración</span>
+            <span className="text-xs font-semibold text-slate-500">Respaldo Pre-Restauración</span>
             <Shield className="w-4 h-4 text-purple-500" />
           </div>
           <div className="text-2xl font-black text-purple-600 dark:text-purple-400 mt-1">
@@ -357,7 +357,7 @@ export const RespaldosModuleView: React.FC<RespaldosModuleViewProps> = ({
                   : 'text-slate-600 dark:text-slate-400'
               }`}
             >
-              U.S. (Seguridad)
+              U.S.
             </button>
           </div>
         </div>
@@ -399,7 +399,7 @@ export const RespaldosModuleView: React.FC<RespaldosModuleViewProps> = ({
               ) : respaldos.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="py-8 text-center text-slate-400">
-                    No se han encontrado copias de seguridad registradas para el filtro seleccionado.
+                    No se han encontrado copias de respaldo registradas para el filtro seleccionado.
                   </td>
                 </tr>
               ) : (
@@ -434,7 +434,7 @@ export const RespaldosModuleView: React.FC<RespaldosModuleViewProps> = ({
                           }`}
                         >
                           <Shield className="w-3 h-3" />
-                          {esUS ? 'U.S. Seguridad' : 'U.G. Guardia'}
+                          {esUS ? 'U.S.' : 'U.G.'}
                         </span>
                       </td>
 
@@ -455,7 +455,7 @@ export const RespaldosModuleView: React.FC<RespaldosModuleViewProps> = ({
                         {esEmergencia && (
                           <span className="inline-flex items-center gap-1 text-purple-600 dark:text-purple-400 font-semibold">
                             <Shield className="w-3 h-3" />
-                            Seguridad Previa
+                            Respaldo Previo
                           </span>
                         )}
                       </td>
@@ -549,7 +549,7 @@ export const RespaldosModuleView: React.FC<RespaldosModuleViewProps> = ({
                 “Esta operación restaurará los datos operativos al estado existente en la copia de respaldo seleccionada. Los datos operativos creados o modificados posteriormente podrán ser sustituidos. El histórico de auditoría y los respaldos no serán eliminados.”
               </p>
               <div className="text-[11px] text-amber-700 dark:text-amber-300 font-medium">
-                • Ámbito afectado: <strong>{modalConfirmarRestauracion.tipoServicio === 'US' ? 'Unidad de Seguridad (U.S.)' : 'Unidad de Guardia (U.G.)'}</strong>.
+                • Ámbito afectado: <strong>{modalConfirmarRestauracion.tipoServicio === 'US' ? 'U.S.' : 'U.G.'}</strong>.
                 <br />
                 • Aislamiento garantizado: La otra unidad <strong>NO</strong> sufrirá ninguna modificación.
                 <br />
@@ -648,7 +648,7 @@ export const RespaldosModuleView: React.FC<RespaldosModuleViewProps> = ({
                 Validación: <span className="font-bold text-emerald-600 dark:text-emerald-400">CORRECTA</span>
               </div>
               <div className="text-slate-600 dark:text-slate-300">
-                Backup de seguridad creado: <span className="font-bold text-purple-600 dark:text-purple-400">{resultadoRestauracion.backupEmergenciaId}</span>
+                Respaldo de contingencia creado: <span className="font-bold text-purple-600 dark:text-purple-400">{resultadoRestauracion.backupEmergenciaId}</span>
               </div>
             </div>
 
@@ -693,7 +693,7 @@ export const RespaldosModuleView: React.FC<RespaldosModuleViewProps> = ({
               <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl">
                 <span className="text-slate-400 block">Ámbito de Unidad</span>
                 <span className="font-bold text-slate-900 dark:text-white">
-                  {respaldoDetalle.tipoServicio === 'US' ? 'U.S. Seguridad (12h)' : 'U.G. Guardia (24h)'}
+                  {respaldoDetalle.tipoServicio === 'US' ? 'U.S. (12h)' : 'U.G. (24h)'}
                 </span>
               </div>
               <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl">

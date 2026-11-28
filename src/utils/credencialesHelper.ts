@@ -2,9 +2,8 @@ import { Persona, Cuenta, Empleo } from '../types';
 import { getApellidoUG } from './ugNomenclatura';
 
 /**
- * Normaliza el apellido para su uso en identificadores y contraseñas:
- * minúsculas, sin tildes, sin espacios y sin caracteres especiales.
- * Ej: "SÁNCHEZ" -> "sanchez", "GARCÍA" -> "garcia", "LÓPEZ" -> "lopez"
+ * Normaliza el apellido para sugerencia de identificador de usuario (NUNCA usado como contraseña).
+ * Remediación R-13: eliminadas contraseñas predecibles (<apellido><rol>) y credenciales en enlaces WhatsApp.
  */
 export const normalizarApellidoParaLogin = (apellidoOrNombre: string): string => {
   if (!apellidoOrNombre) return '';
@@ -18,11 +17,6 @@ export const normalizarApellidoParaLogin = (apellidoOrNombre: string): string =>
     .replace(/[^a-z0-9]/g, '');
 };
 
-/**
- * Obtiene el sufijo de rol en formato minúsculas sin espacios:
- * ROL 1 -> "rol1"
- * ROL 2 -> "rol2"
- */
 export const getRolSuffixParaLogin = (empleo: Empleo | string): string => {
   const norm = (empleo || '').toUpperCase();
   if (norm === 'ROL 1' || norm === 'ROL1' || norm === '1') {
@@ -33,7 +27,6 @@ export const getRolSuffixParaLogin = (empleo: Empleo | string): string => {
 
 export interface CredencialesGeneradas {
   usernameInicial: string;
-  passwordInicial: string;
   emailInicial: string;
   urlAccesoDirecto: string;
   mensajeWhatsApp: string;
@@ -41,43 +34,51 @@ export interface CredencialesGeneradas {
 }
 
 /**
- * Genera las credenciales iniciales normalizadas y el mensaje para un usuario:
- * Usuario inicial: apellido+rol (ej: sanchezrol1, garciarol1, ruizrol2)
- * Contraseña inicial: apellido+rol (ej: sanchezrol1, garciarol1, ruizrol2)
+ * Genera el mensaje operativo seguro sin contraseñas en claro ni parámetros ?p=<personaId> (R-13).
+ * Cuando el administrador genera un token de invitación de un solo uso en el servidor, se incluye
+ * el enlace de alta temporal (`#alta?token=...`) con expiración de 24h y sin exponer secretos.
  */
 export const getCredencialesParaPersona = (
   persona: Persona,
-  cuenta?: Cuenta | null
+  cuenta?: Cuenta | null,
+  inviteToken?: string
 ): CredencialesGeneradas => {
   const cleanApellido = normalizarApellidoParaLogin(persona.nombre);
   const rolSuffix = getRolSuffixParaLogin(persona.empleo);
-  const credencialDefault = `${cleanApellido}${rolSuffix}`;
-  
-  const usernameInicial = credencialDefault;
-  const passwordInicial = credencialDefault;
-  const emailInicial = `${cleanApellido}.${rolSuffix}@portal.es`;
+  const usernameInicial = cuenta?.username || `${cleanApellido}${rolSuffix}`;
+  const emailInicial = `${cleanApellido}.${rolSuffix}@portal.local`;
 
-  const baseUrl = window.location.origin + window.location.pathname;
-  const urlAccesoDirecto = `${baseUrl}#acceso?p=${encodeURIComponent(persona.id)}`;
+  const baseUrl =
+    typeof window !== 'undefined'
+      ? window.location.origin + window.location.pathname
+      : 'https://portal.local/';
 
+  // Nunca incrustar ?p=<personaId> ni contraseñas en URLs (R-13)
+  const urlAccesoDirecto = inviteToken
+    ? `${baseUrl}#alta?token=${encodeURIComponent(inviteToken)}`
+    : baseUrl;
+
+  const unidadTexto = persona.grupo === 'US_SEGURIDAD' ? 'U.S.' : 'U.G.';
   const rolTexto = persona.empleo === 'ROL 1' ? 'ROL 1' : 'ROL 2';
   const nombreDisplay = persona.nombre.toUpperCase();
 
-  const mensajeWhatsApp = `👋 Hola ${nombreDisplay} (${rolTexto}), aquí tienes tu enlace para acceder al sistema de Cuadrantes y Servicios del Grupo (U.G.):
+  const mensajeWhatsApp = inviteToken
+    ? `Hola ${nombreDisplay} (${rolTexto} · ${unidadTexto}), aquí tienes tu invitación personal de un solo uso (válida 24h) para activar tu acceso al Portal de Cuadrantes:
 
-🔗 *Enlace de acceso:*
+Enlace seguro de activación:
 ${urlAccesoDirecto}
 
-👤 *Usuario inicial:* \`${usernameInicial}\`
-🔑 *Contraseña inicial:* \`${passwordInicial}\`
+Al abrir el enlace podrás elegir tu usuario y definir una contraseña segura personal (mínimo 12 caracteres con mayúsculas, minúsculas, número y símbolo). No compartas este enlace con terceros.`
+    : `Hola ${nombreDisplay} (${rolTexto} · ${unidadTexto}), puedes acceder al Portal de Cuadrantes en:
 
-⚠️ *Importante:* Al entrar por primera vez se te pedirá actualizar tu usuario y contraseña por motivos de seguridad. Dentro podrás consultar tu cuadrante, guardias asignadas (24h), imaginarias y tramitar cambios de servicio.`;
+${urlAccesoDirecto}
+
+Utiliza tu usuario personal y tu contraseña segura. Si todavía no tienes cuenta activada, solicita a Administración un enlace de invitación de un solo uso.`;
 
   const requiereCambio = cuenta ? cuenta.requiereCambioCredenciales !== false : true;
 
   return {
     usernameInicial,
-    passwordInicial,
     emailInicial,
     urlAccesoDirecto,
     mensajeWhatsApp,

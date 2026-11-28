@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
-import { KeyRound, Lock, CheckCircle2, AlertCircle, X, Eye, EyeOff, User } from 'lucide-react';
+import { KeyRound, Lock, CheckCircle2, AlertCircle, X, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../../firebase/context';
 import { actualizarCredencialesUsuario } from '../../services/cuentasService';
+import { validateStrongPassword, MIN_PASSWORD_LENGTH } from '../../utils/passwordPolicy';
+import { getVisibleAlias } from '../../utils/aliasHelper';
 
 interface CambiarPasswordModalProps {
   isOpen: boolean;
@@ -9,9 +11,9 @@ interface CambiarPasswordModalProps {
 }
 
 export const CambiarPasswordModal: React.FC<CambiarPasswordModalProps> = ({ isOpen, onClose }) => {
-  const { currentCuenta, currentPersona, rol } = useAuth();
+  const { currentCuenta, currentPersona, isImpersonating } = useAuth();
 
-  const [nuevoUsername, setNuevoUsername] = useState(currentCuenta?.username || '');
+  const [currentPassword, setCurrentPassword] = useState('');
   const [nuevaPassword, setNuevaPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -21,15 +23,26 @@ export const CambiarPasswordModal: React.FC<CambiarPasswordModalProps> = ({ isOp
 
   if (!isOpen || !currentCuenta) return null;
 
+  const aliasVisible = getVisibleAlias(currentPersona || currentCuenta);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nuevaPassword.trim()) {
-      setError('Introduce la nueva contraseña');
+    if (isImpersonating) {
+      setError('Acción bloqueada: el modo "Ver como usuario" es de solo lectura.');
       return;
     }
 
-    if (nuevaPassword.length < 4) {
-      setError('La contraseña debe tener un mínimo de 4 caracteres.');
+    if (!currentCuenta.requiereCambioCredenciales && !currentPassword) {
+      setError('Debes introducir tu contraseña actual para confirmar el cambio.');
+      return;
+    }
+
+    const policy = validateStrongPassword(nuevaPassword, {
+      username: currentCuenta.username,
+      nombre: aliasVisible,
+    });
+    if (!policy.valid) {
+      setError(policy.errors.join(' '));
       return;
     }
 
@@ -42,15 +55,23 @@ export const CambiarPasswordModal: React.FC<CambiarPasswordModalProps> = ({ isOp
     setError(null);
 
     try {
-      const usernameToSave = nuevoUsername.trim() || currentCuenta.username || currentCuenta.uid;
-      await actualizarCredencialesUsuario(currentCuenta.uid, usernameToSave, nuevaPassword);
+      const usernameToSave = currentCuenta.username || currentCuenta.uid;
+      await actualizarCredencialesUsuario(
+        currentCuenta.uid,
+        usernameToSave,
+        nuevaPassword,
+        currentPassword || undefined
+      );
       setSuccess(true);
       setTimeout(() => {
         setSuccess(false);
+        setCurrentPassword('');
+        setNuevaPassword('');
+        setConfirmPassword('');
         onClose();
-      }, 1800);
+      }, 1600);
     } catch (err: any) {
-      setError(err.message || 'Error al guardar la nueva contraseña.');
+      setError(err?.message || 'Error al guardar la nueva contraseña.');
     } finally {
       setLoading(false);
     }
@@ -59,7 +80,6 @@ export const CambiarPasswordModal: React.FC<CambiarPasswordModalProps> = ({ isOp
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4">
       <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 max-w-md w-full overflow-hidden flex flex-col">
-        {/* Header */}
         <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-blue-500/20 text-blue-400 rounded-lg">
@@ -68,7 +88,7 @@ export const CambiarPasswordModal: React.FC<CambiarPasswordModalProps> = ({ isOp
             <div>
               <h3 className="text-base font-bold">Cambiar Contraseña</h3>
               <p className="text-xs text-slate-300">
-                {rol === 'ADMIN' ? 'Seguridad de Administrador' : 'Seguridad de tu Cuenta Personal'}
+                Política robusta: mínimo {MIN_PASSWORD_LENGTH} caracteres con complejidad
               </p>
             </div>
           </div>
@@ -80,16 +100,12 @@ export const CambiarPasswordModal: React.FC<CambiarPasswordModalProps> = ({ isOp
           </button>
         </div>
 
-        {/* Content */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {success ? (
             <div className="p-4 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl text-center space-y-2">
               <CheckCircle2 className="w-8 h-8 text-emerald-600 mx-auto" />
               <p className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
                 ¡Contraseña actualizada correctamente!
-              </p>
-              <p className="text-[11px] text-emerald-700/80 dark:text-emerald-400/80">
-                Utiliza tu nueva clave en tu próximo inicio de sesión.
               </p>
             </div>
           ) : (
@@ -101,29 +117,29 @@ export const CambiarPasswordModal: React.FC<CambiarPasswordModalProps> = ({ isOp
                 </div>
               )}
 
-              {/* Info actual */}
               <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300">
-                <p className="text-[10px] uppercase font-bold text-slate-400">Cuenta activa:</p>
+                <p className="text-[10px] uppercase font-bold text-slate-400">Perfil activo:</p>
                 <p className="font-bold text-slate-900 dark:text-white">
-                  {currentPersona ? currentPersona.nombre : currentCuenta.nombre}
+                  Alias: {aliasVisible}
                 </p>
-                <p className="text-[11px] text-slate-500 font-mono">
-                  Identificador / Usuario: {currentCuenta.username || currentCuenta.uid}
+                <p className="text-[11px] text-slate-500">
+                  Para cambiar tu alias visible utiliza la opción «Mi Perfil / Alias».
                 </p>
               </div>
 
-              {rol !== 'ADMIN' && (
+              {!currentCuenta.requiereCambioCredenciales && (
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Usuario / Alias (Opcional):
+                    Contraseña actual:
                   </label>
                   <div className="relative">
-                    <User className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                    <Lock className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
                     <input
-                      type="text"
-                      value={nuevoUsername}
-                      onChange={(e) => setNuevoUsername(e.target.value)}
-                      placeholder="Tu nombre de usuario"
+                      type="password"
+                      required
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      placeholder="Introduce tu contraseña actual"
                       className="w-full text-xs font-medium text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl py-2 pl-9 pr-3 focus:outline-none focus:border-blue-500"
                     />
                   </div>
@@ -132,7 +148,7 @@ export const CambiarPasswordModal: React.FC<CambiarPasswordModalProps> = ({ isOp
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Nueva Contraseña:
+                  Nueva Contraseña (mín. {MIN_PASSWORD_LENGTH} caracteres):
                 </label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
@@ -141,7 +157,7 @@ export const CambiarPasswordModal: React.FC<CambiarPasswordModalProps> = ({ isOp
                     required
                     value={nuevaPassword}
                     onChange={(e) => setNuevaPassword(e.target.value)}
-                    placeholder="Mínimo 4 caracteres"
+                    placeholder="Mayúscula, minúscula, número y símbolo"
                     className="w-full text-xs font-medium text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl py-2 pl-9 pr-10 focus:outline-none focus:border-blue-500"
                   />
                   <button
@@ -181,7 +197,7 @@ export const CambiarPasswordModal: React.FC<CambiarPasswordModalProps> = ({ isOp
                 </button>
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={loading || isImpersonating}
                   className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md transition disabled:opacity-50 cursor-pointer"
                 >
                   {loading ? 'Guardando...' : 'Guardar Contraseña'}

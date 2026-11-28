@@ -3,6 +3,7 @@ import { db } from '../firebase/config';
 import { Persona } from '../types';
 import { ServicioDiaUS, AusenciaDiaUS } from '../types/usTypes';
 import { formatearFechaVisual } from './ausenciasUSService';
+import { assertNotImpersonating } from '../utils/impersonationGuard';
 
 export interface RegistroImaginariaActivadaUS {
   id: string; // 'IMAG-ACT-{personaId}-{fecha}'
@@ -64,6 +65,7 @@ export const registrarImaginariaActivadaUS = async (params: {
   tipoTurnoCubierto?: 'DIURNO' | 'NOCTURNO' | 'GUARDIA';
   titularSustituidoNombre?: string;
 }): Promise<RegistroImaginariaActivadaUS> => {
+  assertNotImpersonating('registrarImaginariaActivadaUS');
   loadCache();
   const {
     personaId,
@@ -150,6 +152,7 @@ export const marcarImaginariasCompensadasUS = async (
     motivo: string;
   }[]
 ): Promise<void> => {
+  assertNotImpersonating('marcarImaginariasCompensadasUS');
   loadCache();
   for (const c of compensaciones) {
     const reg = memoryImaginariasActivadasCache.find((r) => r.id === c.registroId);

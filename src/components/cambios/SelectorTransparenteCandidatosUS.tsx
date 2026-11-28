@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { getApprovedAliasUS } from '../../utils/aliasHelper';
 import {
   EvaluacionCandidatoUS,
   ResultadoTransparenciaCandidatosUS,
@@ -292,7 +293,7 @@ export const SelectorTransparenteCandidatosUS: React.FC<SelectorTransparenteCand
                           />
                           <div>
                             <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                              <span>{c.persona.nombre}</span>
+                              <span>{getApprovedAliasUS(c.persona)}</span>
                               <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 font-semibold">
                                 {c.persona.grupo || 'U.S.'}
                               </span>
@@ -327,7 +328,7 @@ export const SelectorTransparenteCandidatosUS: React.FC<SelectorTransparenteCand
                   <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl space-y-2 mt-2">
                     <label className="block text-xs font-bold text-blue-900 flex items-center gap-1.5">
                       <ArrowRightLeft className="w-3.5 h-3.5 text-blue-600" />
-                      <span>Servicio de {compSeleccionado.persona.nombre} que asumirás tú:</span>
+                      <span>Servicio de {getApprovedAliasUS(compSeleccionado.persona)} que asumirás tú:</span>
                     </label>
 
                     {compSeleccionado.serviciosViables.length === 0 ? (
@@ -386,7 +387,7 @@ export const SelectorTransparenteCandidatosUS: React.FC<SelectorTransparenteCand
                       <div className="flex items-center justify-between">
                         <div>
                           <div className="font-bold text-slate-800 flex items-center gap-1.5">
-                            <span>{c.persona.nombre}</span>
+                            <span>{getApprovedAliasUS(c.persona)}</span>
                             <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-200 text-slate-600">
                               {c.persona.grupo || 'U.S.'}
                             </span>
@@ -465,7 +466,7 @@ export const SelectorTransparenteCandidatosUS: React.FC<SelectorTransparenteCand
                       <div className="flex items-center justify-between">
                         <div>
                           <div className="font-bold text-slate-900 flex items-center gap-1.5">
-                            <span className="line-through text-slate-400">{c.persona.nombre}</span>
+                            <span className="line-through text-slate-400">{getApprovedAliasUS(c.persona)}</span>
                             <span className="text-[10px] px-1.5 py-0.2 rounded bg-rose-100 text-rose-800 font-bold">
                               No Seleccionable
                             </span>

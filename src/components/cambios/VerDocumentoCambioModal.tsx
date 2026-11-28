@@ -4,6 +4,8 @@ import { getDocumentoFirmado } from '../../services/cambiosService';
 import { generarYDescargarDocumentoCambioExcel } from '../../services/documentoCambioExcelService';
 import { enviarDocumentoCambioPorGmail } from '../../services/emailCambioEnvioService';
 import { comprobarEnvioPrevio } from '../../services/emailPersonalConfigService';
+import { useAuth } from '../../firebase/context';
+import { resolveApprovedAliasById } from '../../utils/aliasHelper';
 import {
   FileCheck,
   Printer,
@@ -34,6 +36,7 @@ export const VerDocumentoCambioModal: React.FC<VerDocumentoCambioModalProps> = (
   documentoId,
   documentoDirecto,
 }) => {
+  const { personas: sessionPersonas } = useAuth();
   const [doc, setDoc] = useState<DocumentoCambioFirmado | null>(documentoDirecto || null);
   const [loading, setLoading] = useState(false);
   const [descargandoExcel, setDescargandoExcel] = useState(false);
@@ -105,6 +108,24 @@ export const VerDocumentoCambioModal: React.FC<VerDocumentoCambioModalProps> = (
 
   if (!isOpen) return null;
 
+  const isDocUS = Boolean(
+    doc &&
+      (doc.personaA.grupo === 'US_SEGURIDAD' ||
+        doc.personaB.grupo === 'US_SEGURIDAD' ||
+        (doc.personaA.grupo as string) === 'U.S.' ||
+        (doc.personaB.grupo as string) === 'U.S.')
+  );
+  const nombreVisibleA = doc
+    ? isDocUS
+      ? resolveApprovedAliasById(sessionPersonas, doc.personaA.id, 'US')
+      : doc.personaA.nombre
+    : '';
+  const nombreVisibleB = doc
+    ? isDocUS
+      ? resolveApprovedAliasById(sessionPersonas, doc.personaB.id, 'US')
+      : doc.personaB.nombre
+    : '';
+
   const handleDescargarExcel = async () => {
     if (!doc) return;
     setDescargandoExcel(true);
@@ -134,22 +155,22 @@ REF DOCUMENTO: ${doc.id}
 1. DATOS DEL SERVICIO Y PERSONAL INTERVINIENTE:
 --------------------------------------------------------------------------------
 SOLICITANTE (Cede el servicio):
-- Nombre: ${doc.personaA.nombre}
+- Alias: ${nombreVisibleA}
 - Rol: ${doc.personaA.empleo} | Grupo: ${doc.personaA.grupo}
-- Fecha cedida: ${doc.fechaServicioA} (09:00 a 09:00)
+- Fecha cedida: ${doc.fechaServicioA}
 
 DESTINATARIO (Realiza el servicio):
-- Nombre: ${doc.personaB.nombre}
+- Alias: ${nombreVisibleB}
 - Rol: ${doc.personaB.empleo} | Grupo: ${doc.personaB.grupo}
-- Devolución acordada: ${doc.fechaServicioB ? `${doc.fechaServicioB} (09:00 a 09:00)` : 'Sin devolución fijada'}
+- Devolución acordada: ${doc.fechaServicioB ? `${doc.fechaServicioB}` : 'Sin devolución fijada'}
 
 MOTIVO DECLARADO:
 ${doc.motivo}
 
 2. REGISTRO DE FIRMAS ELECTRÓNICAS Y RESOLUCIÓN DE ADMINISTRACIÓN:
 --------------------------------------------------------------------------------
-[x] FIRMA SOLICITANTE: ${doc.personaA.nombre} (Fecha: ${new Date(doc.personaA.fechaFirma).toLocaleString('es-ES')})
-[x] CONFORMIDAD COMPAÑERO: ${doc.personaB.nombre} (Fecha: ${new Date(doc.personaB.fechaFirma).toLocaleString('es-ES')})
+[x] FIRMA SOLICITANTE: ${nombreVisibleA} (Fecha: ${new Date(doc.personaA.fechaFirma).toLocaleString('es-ES')})
+[x] CONFORMIDAD COMPAÑERO: ${nombreVisibleB} (Fecha: ${new Date(doc.personaB.fechaFirma).toLocaleString('es-ES')})
 [x] AUTORIZACIÓN ADMINISTRACIÓN: ${doc.autorizacionAdmin.adminNombre} (Fecha: ${new Date(doc.autorizacionAdmin.fechaAutorizacion).toLocaleString('es-ES')})
     ESTADO: AUTORIZADO Y RATIFICADO EN CUADRANTE
 
@@ -285,13 +306,13 @@ Documento firmado electrónicamente según el protocolo de la Unidad.
                       <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
                         SOLICITANTE (Cede el servicio):
                       </span>
-                      <div className="font-black text-slate-900 text-sm">{doc.personaA.nombre}</div>
+                      <div className="font-black text-slate-900 text-sm">{nombreVisibleA}</div>
                       <div className="text-[11px] text-slate-700">
                         Rol: <strong>{doc.personaA.empleo}</strong> | Grupo:{' '}
                         <strong>{doc.personaA.grupo}</strong>
                       </div>
                       <div className="text-[11px] text-slate-700">
-                        Fecha cedida: <strong>{doc.fechaServicioA}</strong> (09:00 a 09:00)
+                        Fecha cedida: <strong>{doc.fechaServicioA}</strong>
                       </div>
                     </div>
 
@@ -299,7 +320,7 @@ Documento firmado electrónicamente según el protocolo de la Unidad.
                       <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
                         DESTINATARIO (Realiza el servicio):
                       </span>
-                      <div className="font-black text-slate-900 text-sm">{doc.personaB.nombre}</div>
+                      <div className="font-black text-slate-900 text-sm">{nombreVisibleB}</div>
                       <div className="text-[11px] text-slate-700">
                         Rol: <strong>{doc.personaB.empleo}</strong> | Grupo:{' '}
                         <strong>{doc.personaB.grupo}</strong>
@@ -307,7 +328,7 @@ Documento firmado electrónicamente según el protocolo de la Unidad.
                       <div className="text-[11px] text-slate-700">
                         {doc.fechaServicioB ? (
                           <>
-                            Devolución acordada: <strong>{doc.fechaServicioB}</strong> (09:00 a 09:00)
+                            Devolución acordada: <strong>{doc.fechaServicioB}</strong>
                           </>
                         ) : (
                           <span className="text-slate-500 italic">Sin devolución fijada</span>
@@ -336,7 +357,7 @@ Documento firmado electrónicamente según el protocolo de la Unidad.
                       <ShieldCheck className="w-4 h-4 text-emerald-600 mx-auto" />
                       <span className="font-black text-slate-800 block">Firma Solicitante</span>
                       <span className="text-slate-600 font-medium block truncate">
-                        {doc.personaA.nombre}
+                        {nombreVisibleA}
                       </span>
                       <span className="text-[9px] font-mono text-emerald-700 block font-bold">
                         REGISTRADA
@@ -351,7 +372,7 @@ Documento firmado electrónicamente según el protocolo de la Unidad.
                       <ShieldCheck className="w-4 h-4 text-emerald-600 mx-auto" />
                       <span className="font-black text-slate-800 block">Conformidad Compañero</span>
                       <span className="text-slate-600 font-medium block truncate">
-                        {doc.personaB.nombre}
+                        {nombreVisibleB}
                       </span>
                       <span className="text-[9px] font-mono text-emerald-700 block font-bold">
                         ACEPTADA
@@ -378,10 +399,22 @@ Documento firmado electrónicamente según el protocolo de la Unidad.
                   </div>
                 </div>
 
-                {/* Pie de página con validez */}
-                <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-2 text-[9px] text-slate-500 font-mono">
-                  <span>Documento firmado electrónicamente según el protocolo de la Unidad.</span>
-                  <span>Ref: {doc.id}</span>
+                {/* Pie de página con transparencia jurídica eIDAS e integridad criptográfica (R-05) */}
+                <div className="pt-4 border-t border-slate-200 space-y-1.5 text-[9px] text-slate-600 font-mono">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1">
+                    <span>
+                      <strong>Naturaleza jurídica:</strong> Aceptación electrónica interna con trazabilidad
+                      {doc.sha256Contenido ? ' e integridad criptográfica SHA-256' : ' histórica v1 preservada'}.
+                      No constituye firma electrónica avanzada ni cualificada (Reglamento UE 910/2014 eIDAS).
+                    </span>
+                    <span className="shrink-0">Ref: {doc.id} · v{doc.versionDocumento || 1}</span>
+                  </div>
+                  {doc.sha256Contenido && (
+                    <div className="text-[8px] text-slate-500 break-all">
+                      SHA-256: {doc.sha256Contenido}
+                      {doc.selladoEnServidor ? ' · Sello HMAC-SHA256 emitido por servidor' : ''}
+                    </div>
+                  )}
                 </div>
               </div>
             </>
@@ -437,7 +470,7 @@ Documento firmado electrónicamente según el protocolo de la Unidad.
               onClick={handleEnviarPersonal}
               disabled={enviandoEmail || !doc}
               className="w-full sm:w-auto px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md min-h-[44px] disabled:opacity-50"
-              title="Remitir el Excel de este cambio al correo de Personal vía Gmail (sarqsan2@gmail.com)"
+              title="Remitir el Excel de este cambio al correo de Personal vía Gmail (cuenta configurada)"
             >
               <Mail className="w-4 h-4" />
               {enviandoEmail

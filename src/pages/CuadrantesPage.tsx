@@ -134,7 +134,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
 
   // Estado de parámetros de generación
   const [nombreCuadrante, setNombreCuadrante] = useState(
-    isUS ? 'Cuadrante Unidad de Seguridad (U.S.) 2026 - 2027' : 'Cuadrante Guardias 2026 - 2027'
+    isUS ? 'Cuadrante U.S. 2026 - 2027' : 'Cuadrante Guardias 2026 - 2027'
   );
   const [cicloId, setCicloId] = useState(isUS ? 'Ciclo US 2026 - 2027' : 'Ciclo 2026 - 2027');
   const [fechaInicio, setFechaInicio] = useState('2026-09-01');
@@ -223,7 +223,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
     setSimulacionActivaUS(null);
     cargarCuadrantes();
     setNombreCuadrante(
-      isUS ? 'Cuadrante Unidad de Seguridad (U.S.) 2026 - 2027' : 'Cuadrante Guardias 2026 - 2027'
+      isUS ? 'Cuadrante U.S. 2026 - 2027' : 'Cuadrante Guardias 2026 - 2027'
     );
     setCicloId(isUS ? 'Ciclo US 2026 - 2027' : 'Ciclo 2026 - 2027');
     const activos = (personas || []).filter(
@@ -384,7 +384,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
       setCreationMode('plantilla');
       alert(
         `Se han cargado ${mockForUnit.length} personas por defecto para ${
-          isUS ? 'la Unidad de Seguridad (U.S.)' : 'la Unidad de Guardia (U.G.)'
+          isUS ? 'U.S.' : 'U.G.'
         }.`
       );
     } catch (e: any) {
@@ -412,7 +412,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
 
         if (personalUS.length < 10) {
           alert(
-            `Se requieren al menos 10 personas activas en la Unidad de Seguridad para cubrir turnos diurno (2), nocturno (2), imaginaria (1) y descansos obligatorios.\nPersonal actual disponible: ${personalUS.length}.\nPuedes subir un archivo Excel con las 2 columnas (ROL y APELLIDO) o usar el botón "Cargar Plantilla Base".`
+            `Se requieren al menos 10 personas activas en U.S. para cubrir turnos diurno (2), nocturno (2), imaginaria (1) y descansos obligatorios.\nPersonal actual disponible: ${personalUS.length}.\nPuedes subir un archivo Excel con las 2 columnas (ROL y APELLIDO) o usar el botón "Cargar Plantilla Base".`
           );
           return;
         }
@@ -471,7 +471,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
         }
 
         const simUS = generarSimulacionCuadranteUS({
-          nombre: nombreCuadrante.trim() || 'Cuadrante Unidad de Seguridad (U.S.) 2026 - 2027',
+          nombre: nombreCuadrante.trim() || 'Cuadrante U.S. 2026 - 2027',
           cicloId,
           fechaInicio,
           fechaFin,
@@ -526,7 +526,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
     if (!navidadModalData) return;
     try {
       const simUS = generarSimulacionCuadranteUS({
-        nombre: nombreCuadrante.trim() || 'Cuadrante Unidad de Seguridad (U.S.) 2026 - 2027',
+        nombre: nombreCuadrante.trim() || 'Cuadrante U.S. 2026 - 2027',
         cicloId,
         fechaInicio,
         fechaFin,
@@ -569,15 +569,22 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
         const personasColRef = collection(db, 'personas');
         const snap = await getDocs(personasColRef);
         const batch = writeBatch(db);
+        const idsNuevosUG = new Set(excelPersonasGeneradas.map((p) => p.id));
+        const nowBaja = new Date().toISOString();
         snap.forEach((d) => {
           const data = d.data();
-          if (data.tipoServicio !== 'US' && data.grupo !== 'US_SEGURIDAD') {
-            batch.delete(d.ref);
+          if (data.tipoServicio !== 'US' && data.grupo !== 'US_SEGURIDAD' && !idsNuevosUG.has(d.id)) {
+            // NC-10: Baja lógica alineada con firestore.rules (allow delete: if false)
+            batch.set(
+              d.ref,
+              { activo: false, eliminadoLogico: true, eliminadoEn: nowBaja },
+              { merge: true }
+            );
           }
         });
         for (const p of excelPersonasGeneradas) {
           const docRef = doc(db, 'personas', p.id);
-          batch.set(docRef, sanitizeForFirestore(p));
+          batch.set(docRef, sanitizeForFirestore({ ...p, eliminadoLogico: false }));
         }
         await batch.commit();
       } catch (e) {
@@ -630,15 +637,22 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
         const personasColRef = collection(db, 'personas');
         const snap = await getDocs(personasColRef);
         const batch = writeBatch(db);
+        const idsNuevosUS = new Set(excelPersonasGeneradas.map((p) => p.id));
+        const nowBaja = new Date().toISOString();
         snap.forEach((d) => {
           const data = d.data();
-          if (data.tipoServicio === 'US' || data.grupo === 'US_SEGURIDAD') {
-            batch.delete(d.ref);
+          if ((data.tipoServicio === 'US' || data.grupo === 'US_SEGURIDAD') && !idsNuevosUS.has(d.id)) {
+            // NC-10: Baja lógica alineada con firestore.rules (allow delete: if false)
+            batch.set(
+              d.ref,
+              { activo: false, eliminadoLogico: true, eliminadoEn: nowBaja },
+              { merge: true }
+            );
           }
         });
         for (const p of excelPersonasGeneradas) {
           const docRef = doc(db, 'personas', p.id);
-          batch.set(docRef, sanitizeForFirestore(p));
+          batch.set(docRef, sanitizeForFirestore({ ...p, eliminadoLogico: false }));
         }
         await batch.commit();
       } catch (e) {
@@ -933,8 +947,8 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
                 <h2 className="text-base font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
                   <span>
                     {isUS
-                      ? 'Crear Cuadrante — Unidad de Seguridad (U.S. 12h)'
-                      : 'Crear Cuadrante — Unidad de Guardia (U.G. 24h)'}
+                      ? 'Crear Cuadrante — U.S. (12h)'
+                      : 'Crear Cuadrante — U.G. (24h)'}
                   </span>
                   <span
                     className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${
@@ -1088,7 +1102,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
                     <UploadCloud className="w-6 h-6" />
                   </div>
                   <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                    Haz clic aquí o arrastra tu archivo Excel (.xlsx) de la {isUS ? 'Unidad de Seguridad' : 'Unidad de Guardia'}
+                    Haz clic aquí o arrastra tu archivo Excel (.xlsx) de la {isUS ? 'U.S.' : 'U.G.'}
                   </h4>
                   <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
                     {isUS
@@ -1188,7 +1202,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
                       Personal Registrado en Sistema ({personasActivas.length} Personas Activas)
                     </h3>
                     <p className="text-[11px] text-slate-500">
-                      Se utilizará la plantilla actual de la {isUS ? 'Unidad de Seguridad' : 'Unidad de Guardia'} para la generación.
+                      Se utilizará la plantilla actual de la {isUS ? 'U.S.' : 'U.G.'} para la generación.
                     </p>
                   </div>
                 </div>
@@ -1210,7 +1224,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
                   <div className="flex items-center gap-2">
                     <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
                     <span>
-                      La {isUS ? 'Unidad de Seguridad' : 'Unidad de Guardia'} cuenta con solo {personasActivas.length} personas activas. Se requieren al menos {isUS ? 5 : 4} para rotar los turnos. Puedes cargar la plantilla por defecto o subir un Excel.
+                      La {isUS ? 'U.S.' : 'U.G.'} cuenta con solo {personasActivas.length} personas activas. Se requieren al menos {isUS ? 5 : 4} para rotar los turnos. Puedes cargar la plantilla por defecto o subir un Excel.
                     </span>
                   </div>
                 </div>
@@ -1694,8 +1708,8 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
                 <CalendarDays className="h-5 w-5 text-blue-600 dark:text-blue-400" />
                 <span>
                   {isUS
-                    ? 'Cuadrantes de Unidad de Seguridad (U.S. 12h)'
-                    : 'Gestión de Cuadrantes — Unidad de Guardia (U.G. 24h)'}
+                    ? 'Cuadrantes de U.S. (12h)'
+                    : 'Gestión de Cuadrantes — U.G. (24h)'}
                 </span>
               </h2>
               <p className="text-xs text-slate-500">
@@ -1763,7 +1777,7 @@ export const CuadrantesPage: React.FC<CuadrantesPageProps> = ({
                 <CalendarDays className="h-8 w-8" />
               </div>
               <h3 className="mt-3 text-sm font-bold text-slate-900 dark:text-slate-100">
-                No hay cuadrantes activos de {isUS ? 'Unidad de Seguridad' : 'Unidad de Guardia'}
+                No hay cuadrantes activos de {isUS ? 'U.S.' : 'U.G.'}
               </h3>
               <p className="mt-1 max-w-sm text-xs text-slate-500">
                 {isUS

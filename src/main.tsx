@@ -3,7 +3,7 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 
-// Parche de seguridad para navegadores con traductor automático o extensiones
+// Parche de estabilidad DOM para navegadores con traductor automático o extensiones
 // Evita el error 'NotFoundError: Failed to execute removeChild on Node' al manipular el DOM
 if (typeof window !== 'undefined' && typeof Node === 'function' && Node.prototype) {
   const originalRemoveChild = Node.prototype.removeChild;

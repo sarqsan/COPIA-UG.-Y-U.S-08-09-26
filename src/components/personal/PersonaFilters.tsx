@@ -107,7 +107,7 @@ export const PersonaFilters: React.FC<PersonaFiltersProps> = ({
           >
             <option value="TODAS">Todos los grupos</option>
             <option value="U.G.">U.G. (Guardia 24h)</option>
-            <option value="US_SEGURIDAD">U.S. (Seguridad 12h)</option>
+            <option value="US_SEGURIDAD">U.S. (12h)</option>
           </select>
         </div>
 

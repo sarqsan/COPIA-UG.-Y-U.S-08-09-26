@@ -6,14 +6,17 @@ import {
   ShieldCheck,
   Menu,
   Bell,
-  MessageSquare,
   KeyRound,
+  Tag,
+  FileCheck2,
 } from 'lucide-react';
 import { NotificacionesModal } from '../notificaciones/NotificacionesModal';
-import { ChatModal } from '../chat/ChatModal';
 import { CambiarPasswordModal } from '../auth/CambiarPasswordModal';
+import { MiPerfilAliasModal } from '../auth/MiPerfilAliasModal';
+import { ConsultaAvisoPrivacidadModal } from '../auth/ConsultaAvisoPrivacidadModal';
 import { getNotificaciones, subscribeNotificaciones } from '../../services/notificacionesService';
 import { formatUsuarioUG, NOMBRE_GRUPO_UG } from '../../utils/ugNomenclatura';
+import { getVisibleAlias } from '../../utils/aliasHelper';
 
 interface HeaderProps {
   onToggleMobileMenu?: () => void;
@@ -21,11 +24,16 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({ onToggleMobileMenu, onNavigateTab }) => {
-  const { currentCuenta, currentPersona, rol, logout, personas } = useAuth();
+  const { currentCuenta, currentPersona, rol, logout, dataProtectionStatus } = useAuth();
+  const userTipoServicio: 'GUARDIA' | 'US' =
+    currentPersona?.grupo === 'US_SEGURIDAD' || currentCuenta?.tipoServicio === 'US'
+      ? 'US'
+      : 'GUARDIA';
 
   const [isNotifsOpen, setIsNotifsOpen] = useState(false);
-  const [isChatOpen, setIsChatOpen] = useState(false);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const [isPerfilAliasModalOpen, setIsPerfilAliasModalOpen] = useState(false);
+  const [isAvisoPrivacidadOpen, setIsAvisoPrivacidadOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
   const fetchNotifsCount = async () => {
@@ -33,7 +41,8 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileMenu, onNavigateTa
       const notifs = await getNotificaciones(
         currentPersona?.id,
         currentCuenta?.uid,
-        rol === 'ADMIN'
+        rol === 'ADMIN',
+        rol === 'ADMIN' ? undefined : userTipoServicio
       );
       setUnreadCount((notifs || []).filter((n) => !n.leida).length);
     } catch (err) {
@@ -50,7 +59,8 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileMenu, onNavigateTa
       },
       currentPersona?.id,
       currentCuenta?.uid,
-      rol === 'ADMIN'
+      rol === 'ADMIN',
+      rol === 'ADMIN' ? undefined : userTipoServicio
     );
 
     const handleUpdate = () => {
@@ -61,7 +71,7 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileMenu, onNavigateTa
       unsubscribe();
       window.removeEventListener('notificaciones_updated', handleUpdate);
     };
-  }, [currentPersona?.id, currentCuenta?.uid, rol]);
+  }, [currentPersona?.id, currentCuenta?.uid, rol, userTipoServicio]);
 
   return (
     <>
@@ -105,7 +115,31 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileMenu, onNavigateTa
 
       {/* Right: Quick Tools, Dev Switcher, Identity */}
       <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
-        {/* Cambiar Contraseña / Perfil */}
+        {/* Aviso de Privacidad (consulta permanente) */}
+        <button
+          id="btn-header-aviso-privacidad"
+          onClick={() => setIsAvisoPrivacidadOpen(true)}
+          className="flex h-9 items-center gap-1.5 px-2.5 rounded-xl border border-slate-200 bg-slate-50/80 text-slate-700 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 text-xs font-semibold transition cursor-pointer shadow-2xs"
+          title="Consultar Aviso de Privacidad vigente"
+          aria-label="Aviso de Privacidad"
+        >
+          <FileCheck2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+          <span className="hidden lg:inline">Privacidad</span>
+        </button>
+
+        {/* Mi Perfil — Alias Libre */}
+        <button
+          id="btn-header-perfil-alias"
+          onClick={() => setIsPerfilAliasModalOpen(true)}
+          className="flex h-9 items-center gap-1.5 px-2.5 rounded-xl border border-indigo-200 bg-indigo-50/70 text-indigo-800 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-slate-800 dark:text-indigo-200 dark:hover:bg-slate-700 text-xs font-semibold transition cursor-pointer shadow-2xs"
+          title="Mi Perfil — Elegir o modificar mi alias libre"
+          aria-label="Mi Perfil — Alias Libre"
+        >
+          <Tag className="h-3.5 w-3.5 text-indigo-500" />
+          <span className="hidden sm:inline">Mi Alias</span>
+        </button>
+
+        {/* Cambiar Contraseña */}
         <button
           id="btn-header-cambiar-password"
           onClick={() => setIsPasswordModalOpen(true)}
@@ -137,22 +171,13 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileMenu, onNavigateTa
           )}
         </button>
 
-        {/* Chat Button */}
-        <button
-          id="btn-header-chat"
-          onClick={() => setIsChatOpen(true)}
-          className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50/80 text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:border-slate-800 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 transition cursor-pointer shadow-2xs"
-          title="Canal de Chat del Grupo"
-          aria-label="Chat"
-        >
-          <MessageSquare className="h-4 w-4" />
-        </button>
-
         {/* Current user badge & name */}
         <div className="flex items-center gap-1.5 sm:gap-2 border-l border-slate-200 pl-2 dark:border-slate-800">
           <div className="flex flex-col items-end">
             <span className="text-[11px] sm:text-xs font-black text-slate-900 dark:text-slate-100 truncate max-w-[90px] sm:max-w-[150px] leading-tight">
-              {currentPersona ? formatUsuarioUG(currentPersona) : currentCuenta?.nombre || 'Usuario'}
+              {currentPersona
+                ? formatUsuarioUG(currentPersona)
+                : getVisibleAlias(currentCuenta, 'Usuario')}
             </span>
             <div className="flex items-center gap-1 mt-0.5">
               <Badge tipo="rol" valor={rol || 'USUARIO'} size="sm" />
@@ -178,6 +203,20 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileMenu, onNavigateTa
       onClose={() => setIsPasswordModalOpen(false)}
     />
 
+    {/* Mi Perfil — Alias Libre Modal */}
+    <MiPerfilAliasModal
+      isOpen={isPerfilAliasModalOpen}
+      onClose={() => setIsPerfilAliasModalOpen(false)}
+    />
+
+    {/* Consulta permanente del Aviso de Privacidad */}
+    <ConsultaAvisoPrivacidadModal
+      isOpen={isAvisoPrivacidadOpen}
+      onClose={() => setIsAvisoPrivacidadOpen(false)}
+      dataProtectionStatus={dataProtectionStatus}
+      onAbrirPerfilAlias={() => setIsPerfilAliasModalOpen(true)}
+    />
+
     {/* Notificaciones Modal - Renderizado fuera del header para evitar contención de backdrop-filter */}
     <NotificacionesModal
       isOpen={isNotifsOpen}
@@ -188,21 +227,8 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileMenu, onNavigateTa
       personaId={currentPersona?.id}
       uid={currentCuenta?.uid}
       isAdmin={rol === 'ADMIN'}
+      tipoServicio={rol === 'ADMIN' ? undefined : userTipoServicio}
       onNavigateTab={onNavigateTab}
-    />
-
-    {/* Chat Modal */}
-    <ChatModal
-      isOpen={isChatOpen}
-      onClose={() => setIsChatOpen(false)}
-      personas={personas}
-      currentPersona={currentPersona}
-      currentCuentaInfo={{
-        uid: currentCuenta?.uid || 'admin',
-        nombre: currentCuenta?.nombre || 'Administrador',
-        rol: rol || 'ADMIN',
-        personaId: currentPersona?.id,
-      }}
     />
   </>
   );

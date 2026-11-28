@@ -69,13 +69,8 @@ export const GenerarEnlaceModal: React.FC<GenerarEnlaceModalProps> = ({
   };
 
   const handleCopyPass = async () => {
-    try {
-      await navigator.clipboard.writeText(cuenta?.password || creds.passwordInicial);
-      setCopiedPass(true);
-      setTimeout(() => setCopiedPass(false), 2500);
-    } catch (e) {
-      console.warn('Error al copiar:', e);
-    }
+    // Remediación R-13: nunca copiar ni exponer contraseñas iniciales predecibles
+    setCopiedPass(false);
   };
 
   const handleOpenWhatsApp = () => {
@@ -84,11 +79,11 @@ export const GenerarEnlaceModal: React.FC<GenerarEnlaceModalProps> = ({
     const url = cleanPhone.length >= 9
       ? `https://wa.me/34${cleanPhone}?text=${encodedText}`
       : `https://wa.me/?text=${encodedText}`;
-    window.open(url, '_blank');
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   const handleOpenAccessTab = () => {
-    window.location.hash = `#acceso?p=${encodeURIComponent(persona.id)}`;
+    window.location.hash = '';
     onClose();
   };
 
@@ -211,26 +206,17 @@ export const GenerarEnlaceModal: React.FC<GenerarEnlaceModalProps> = ({
 
             <div>
               <span className="text-[11px] font-bold text-blue-900 dark:text-blue-300 flex items-center gap-1">
-                <KeyRound className="w-3.5 h-3.5" /> Contraseña Inicial:
+                <KeyRound className="w-3.5 h-3.5" /> Política de Contraseña:
               </span>
-              <div className="mt-1 flex items-center justify-between bg-white dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-blue-200 dark:border-blue-800">
-                <code className="text-xs font-bold font-mono text-blue-950 dark:text-blue-200">
-                  {cuenta?.password || creds.passwordInicial}
-                </code>
-                <button
-                  onClick={handleCopyPass}
-                  className="text-slate-400 hover:text-blue-600 p-1"
-                  title="Copiar contraseña"
-                >
-                  {copiedPass ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                </button>
+              <div className="mt-1 bg-white dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-blue-200 dark:border-blue-800 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
+                Definida por el usuario (sin clave en texto claro)
               </div>
             </div>
 
             <div className="col-span-2 text-[11px] text-blue-800 dark:text-blue-300 flex items-start gap-1.5 pt-1">
               <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-600" />
               <span>
-                Fórmula: <strong>apellido + rol</strong> en minúsculas y sin espacios (ej: <code>{creds.usernameInicial}</code>). Al ingresar por primera vez, el usuario definirá su contraseña personal obligatoriamente.
+                Por protección de acceso, nunca se generan ni difunden contraseñas predecibles por WhatsApp. Utiliza el generador de invitaciones de un solo uso para nuevas altas.
               </span>
             </div>
           </div>

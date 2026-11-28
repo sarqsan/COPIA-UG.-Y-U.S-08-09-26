@@ -71,8 +71,8 @@ async function runTests() {
   assert(tieneSantaFaz, 'Se calcula dinámicamente Santa Faz para Alicante (2º jueves tras Jueves Santo)');
   assert(tieneLunesPascua, 'Se calcula dinámicamente el Lunes de Pascua para la Comunidad Valenciana');
 
-  // 2. Cómputo de horas: El 9 de noviembre suma 7.5h en Presentes y Permisos
-  console.log('\n2. Cómputo de Horas (9 de noviembre suma 7.5h):');
+  // 2. Cómputo de horas: El 9 de noviembre suma 7h en Presentes y Permisos (regla consolidada de 7h/día laborable)
+  console.log('\n2. Cómputo de Horas (9 de noviembre suma 7h):');
   
   const personaPrueba: Persona = {
     id: 'p-test-01',
@@ -118,8 +118,8 @@ async function runTests() {
   const metricaP1 = metricasConPresente.detallePorPersona['p-test-01'];
   assert(metricaP1 !== undefined, 'Se calculan métricas de la persona para el mes de noviembre');
   assert(
-    metricaP1?.horasPresentes === 7.5,
-    `El día 9 de noviembre al ser laborable suma exactamente 7.5h de presente (obtenido: ${metricaP1?.horasPresentes}h)`
+    metricaP1?.horasPresentes === 7,
+    `El día 9 de noviembre al ser laborable suma exactamente 7h de presente (obtenido: ${metricaP1?.horasPresentes}h)`
   );
   assert(
     metricaP1?.totalPresentes === 1,
@@ -165,8 +165,8 @@ async function runTests() {
   const metricasConAP = calcularMetricasCuadranteUS([servicio9NovConAP], [personaPrueba]);
   const metricaAP = metricasConAP.detallePorPersona['p-test-01'];
   assert(
-    metricaAP?.horasAsuntosPropios === 7.5,
-    `El día 9 de noviembre con AP al ser laborable suma 7.5h computables (obtenido: ${metricaAP?.horasAsuntosPropios}h)`
+    metricaAP?.horasAsuntosPropios === 7,
+    `El día 9 de noviembre con AP al ser laborable suma 7h computables (obtenido: ${metricaAP?.horasAsuntosPropios}h)`
   );
   assert(
     metricaAP?.diasAsuntosPropios === 1,

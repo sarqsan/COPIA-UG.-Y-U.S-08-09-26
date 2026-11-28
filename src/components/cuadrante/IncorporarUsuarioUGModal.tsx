@@ -133,7 +133,7 @@ export const IncorporarUsuarioUGModal: React.FC<IncorporarUsuarioUGModalProps> =
           </button>
         </div>
 
-        {/* Garantías de Seguridad */}
+        {/* Garantías Operativas */}
         <div className="mt-4 p-3.5 rounded-2xl bg-emerald-50/70 border border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-900/50 text-xs text-emerald-900 dark:text-emerald-200 flex items-start gap-2.5">
           <ShieldCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
           <div>

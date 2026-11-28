@@ -81,7 +81,6 @@ async function runVisibilitySecurityTests() {
     'patrullas',
     'documentos',
     'personal',
-    'chat',
     'cuentas',
     'historial',
     'backups',

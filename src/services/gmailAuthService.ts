@@ -10,11 +10,18 @@ import {
 import { auth } from '../firebase/config';
 import firebaseConfigJson from '../../firebase-applet-config.json';
 
-export const CUENTA_EMISORA_GMAIL = 'sarqsan2@gmail.com';
+export const CUENTA_EMISORA_GMAIL =
+  (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_GMAIL_SENDER_EMAIL) || '';
 export const GMAIL_SEND_SCOPE = 'https://www.googleapis.com/auth/gmail.send';
 export const GMAIL_COMPOSE_SCOPE = 'https://www.googleapis.com/auth/gmail.compose';
 export const GMAIL_OAUTH_SCOPES = [GMAIL_SEND_SCOPE, GMAIL_COMPOSE_SCOPE] as const;
 export const OAUTH_CLIENT_ID = (firebaseConfigJson as any).oAuthClientId || '';
+
+export const resolveCuentaEmisoraGmail = (configured?: string | null): string => {
+  if (configured && configured.trim().includes('@')) return configured.trim();
+  if (inMemoryConnectedEmail && inMemoryConnectedEmail.includes('@')) return inMemoryConnectedEmail;
+  return CUENTA_EMISORA_GMAIL;
+};
 
 // Almacenamiento ESTRICTAMENTE EN MEMORIA para el token OAuth
 // NUNCA en localStorage, NUNCA en sessionStorage, NUNCA en cookies persistentes, NUNCA en Firestore
@@ -293,7 +300,7 @@ const autorizarConFirebasePopup = async (scopes: readonly string[]): Promise<{
 };
 
 /**
- * Conecta con Google OAuth para autorizar la creación de borradores y el envío desde sarqsan2@gmail.com.
+ * Conecta con Google OAuth para autorizar la creación de borradores y el envío desde la cuenta emisora configurada en Administración.
  * Utiliza directamente el popup estándar de Firebase Auth en una instancia aislada en memoria
  * (que redirige por startup-sanctuary-sln7n.firebaseapp.com/__/auth/handler y evita Error 400: origin_mismatch
  * sin requerir permisos de edición sobre el cliente OAuth administrado por AI Studio).

@@ -22,7 +22,7 @@ export const Badge: React.FC<BadgeProps> = ({
 
   if (tipo === 'grupo') {
     const rawVal = String(valor || '');
-    const isUS = rawVal.includes('US') || rawVal.includes('SEGURIDAD');
+    const isUS = rawVal === 'US_SEGURIDAD' || rawVal.includes('US');
     const displayVal = isUS ? 'U.S.' : 'U.G.';
     const colorClasses = isUS
       ? 'bg-indigo-50 text-indigo-900 border-indigo-300 dark:bg-indigo-950/50 dark:text-indigo-200 dark:border-indigo-800'

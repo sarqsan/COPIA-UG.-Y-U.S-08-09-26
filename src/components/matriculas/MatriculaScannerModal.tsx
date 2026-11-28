@@ -24,7 +24,7 @@ import {
   terminateLocalOcrWorker,
   preprocesarFrameMatricula,
   reconocerTextoCanvas,
-  consultarAutorizacionMatricula,
+  consultarRegistroMatricula,
   EstadoConsultaScanner,
 } from '../../services/matriculas/matriculaScannerService';
 
@@ -257,18 +257,18 @@ export const MatriculaScannerModal: React.FC<MatriculaScannerModalProps> = ({
         const ocr = await reconocerTextoCanvas(canvas);
         URL.revokeObjectURL(url);
         if (ocr.texto && ocr.texto.length >= 3) {
-          const res = await consultarAutorizacionMatricula(ocr.texto, ocr.metodo);
-          setResultadoSemafaro(res.estado || 'NO_AUTORIZADA');
+          const res = await consultarRegistroMatricula(ocr.texto, ocr.metodo);
+          setResultadoSemafaro(res.estado || 'NO_REGISTRADO');
           setFase('RESULTADO');
           return;
         }
       }
       URL.revokeObjectURL(url);
-      setResultadoSemafaro('NO_AUTORIZADA');
+      setResultadoSemafaro('NO_REGISTRADO');
       setFase('RESULTADO');
     } catch (err) {
       console.warn('[Scanner] Error procesando imagen capturada:', err);
-      setResultadoSemafaro('NO_AUTORIZADA');
+      setResultadoSemafaro('NO_REGISTRADO');
       setFase('RESULTADO');
     }
   };
@@ -308,14 +308,14 @@ export const MatriculaScannerModal: React.FC<MatriculaScannerModalProps> = ({
         // Estado intermedio breve
         setFase('LEYENDO');
 
-        // Consulta determinista en Firestore
-        const consulta = await consultarAutorizacionMatricula(ocr.texto, ocr.metodo);
+        // Comprobación puntual vía servidor (devuelve únicamente { registrado: boolean })
+        const consulta = await consultarRegistroMatricula(ocr.texto, ocr.metodo);
 
         if (consulta.esLecturaValida && consulta.estado) {
-          if (consulta.estado === 'AUTORIZADA') {
-            // Éxito inmediato: detener cámara y mostrar verde
+          if (consulta.estado === 'REGISTRADO') {
+            // Éxito inmediato: detener cámara y mostrar resultado REGISTRADO
             detenerCamara();
-            setResultadoSemafaro('AUTORIZADA');
+            setResultadoSemafaro('REGISTRADO');
             setFase('RESULTADO');
 
             // Feedback háptico en móviles compatibles
@@ -324,9 +324,9 @@ export const MatriculaScannerModal: React.FC<MatriculaScannerModalProps> = ({
             }
             return;
           } else {
-            // Lectura no autorizada en flujo continuo de cámara:
-            // Para evitar que un fotograma con desenfoque temporal o reflejo interrumpa un vehículo autorizado,
-            // requerimos 2 lecturas consecutivas idénticas antes de concluir NO_AUTORIZADA.
+            // Lectura no registrada en flujo continuo de cámara:
+            // Para evitar que un fotograma con desenfoque temporal o reflejo interrumpa una lectura válida,
+            // requerimos 2 lecturas consecutivas idénticas antes de concluir NO_REGISTRADO.
             const rawPlate = ocr.texto.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
             if (lastDetectedPlateRef.current === rawPlate) {
               streakUnauthorizedRef.current += 1;
@@ -337,7 +337,7 @@ export const MatriculaScannerModal: React.FC<MatriculaScannerModalProps> = ({
 
             if (streakUnauthorizedRef.current >= 2) {
               detenerCamara();
-              setResultadoSemafaro('NO_AUTORIZADA');
+              setResultadoSemafaro('NO_REGISTRADO');
               setFase('RESULTADO');
 
               if (typeof navigator !== 'undefined' && navigator.vibrate) {
@@ -439,19 +439,19 @@ export const MatriculaScannerModal: React.FC<MatriculaScannerModalProps> = ({
     setConsultandoManual(true);
     setFase('LEYENDO');
     try {
-      const res = await consultarAutorizacionMatricula(matriculaManualInput.trim(), 'LOCAL');
+      const res = await consultarRegistroMatricula(matriculaManualInput.trim(), 'LOCAL');
       if (res.esLecturaValida && res.estado) {
         detenerCamara();
         setResultadoSemafaro(res.estado);
         setFase('RESULTADO');
       } else {
         detenerCamara();
-        setResultadoSemafaro('NO_AUTORIZADA');
+        setResultadoSemafaro('NO_REGISTRADO');
         setFase('RESULTADO');
       }
     } catch {
       detenerCamara();
-      setResultadoSemafaro('NO_AUTORIZADA');
+      setResultadoSemafaro('NO_REGISTRADO');
       setFase('RESULTADO');
     } finally {
       setConsultandoManual(false);
@@ -466,12 +466,12 @@ export const MatriculaScannerModal: React.FC<MatriculaScannerModalProps> = ({
       className="fixed inset-0 z-50 flex flex-col bg-black text-white select-none overflow-hidden"
     >
       {/* ===================================================================== */}
-      {/* CASO A: PANTALLA DE RESULTADO TIPO SEMÁFORO (Pura, sin datos asociados) */}
+      {/* CASO A: PANTALLA DE RESULTADO BINARIO (Únicamente REGISTRADO / NO REGISTRADO) */}
       {/* ===================================================================== */}
       {fase === 'RESULTADO' && resultadoSemafaro && (
         <div
           className={`flex-1 flex flex-col items-center justify-between p-6 transition-colors duration-300 ${
-            resultadoSemafaro === 'AUTORIZADA' ? 'bg-emerald-600' : 'bg-rose-600'
+            resultadoSemafaro === 'REGISTRADO' ? 'bg-emerald-600' : 'bg-rose-600'
           }`}
         >
           {/* Barra superior mínima */}
@@ -485,25 +485,20 @@ export const MatriculaScannerModal: React.FC<MatriculaScannerModalProps> = ({
             </button>
           </div>
 
-          {/* Icono e indicador de semáforo gigante */}
+          {/* Icono e indicador binario puro */}
           <div className="flex flex-col items-center text-center space-y-6 my-auto">
             <div className="w-36 h-36 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center shadow-2xl animate-pulse">
-              {resultadoSemafaro === 'AUTORIZADA' ? (
+              {resultadoSemafaro === 'REGISTRADO' ? (
                 <CheckCircle2 className="w-24 h-24 text-white" strokeWidth={2.5} />
               ) : (
                 <XCircle className="w-24 h-24 text-white" strokeWidth={2.5} />
               )}
             </div>
 
-            <div className="space-y-2">
+            <div>
               <h1 className="text-4xl sm:text-5xl font-black tracking-wider uppercase text-white drop-shadow-md">
-                {resultadoSemafaro === 'AUTORIZADA' ? 'AUTORIZADA' : 'NO AUTORIZADA'}
+                {resultadoSemafaro === 'REGISTRADO' ? 'REGISTRADO' : 'NO REGISTRADO'}
               </h1>
-              <p className="text-sm font-semibold text-white/80 tracking-wide uppercase">
-                {resultadoSemafaro === 'AUTORIZADA'
-                  ? 'Acceso Permitido • Catálogo Activo'
-                  : 'Acceso Denegado • No Autorizado'}
-              </p>
             </div>
           </div>
 
@@ -548,7 +543,7 @@ export const MatriculaScannerModal: React.FC<MatriculaScannerModalProps> = ({
                   Consultar Matrícula
                 </h2>
                 <p className="text-[11px] text-slate-400">
-                  Control de accesos y lectura automática
+                  Comprobación puntual de matrícula
                 </p>
               </div>
             </div>
@@ -577,7 +572,7 @@ export const MatriculaScannerModal: React.FC<MatriculaScannerModalProps> = ({
                 Permiso de Cámara
               </h3>
               <p className="text-xs text-slate-400 leading-relaxed">
-                Para escanear y verificar matrículas automáticamente en el puesto de control, se requiere acceso a la cámara trasera.
+                Para escanear y comprobar una matrícula con la cámara, se requiere acceso a la cámara trasera.
               </p>
               <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800 text-[11px] text-emerald-400 font-semibold">
                 Al pulsar el botón inferior, tu navegador te pedirá confirmación: pulsa <span className="underline font-bold text-white">Permitir</span>.
@@ -633,7 +628,7 @@ export const MatriculaScannerModal: React.FC<MatriculaScannerModalProps> = ({
                   Consultar Matrícula
                 </h2>
                 <p className="text-[11px] text-slate-300">
-                  Control de accesos en tiempo real
+                  Comprobación puntual mediante cámara o teclado
                 </p>
               </div>
             </div>

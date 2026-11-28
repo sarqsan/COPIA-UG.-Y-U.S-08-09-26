@@ -374,7 +374,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
           <button
             onClick={() => setIsAdminAusenciasUSOpen(true)}
             className="flex items-center gap-1.5 rounded-xl bg-teal-600 px-3.5 py-2 text-xs font-bold text-white shadow-md hover:bg-teal-700 transition cursor-pointer relative"
-            title="Gestión y Asignación de Permisos de la Unidad de Seguridad (U.S.)"
+            title="Gestión y Asignación de Permisos de U.S."
           >
             <Palmtree className="h-4 w-4" />
             <span>Permisos U.S.</span>
@@ -422,7 +422,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">
-                Permisos y Ausencias — Unidad de Seguridad (U.S.)
+                Permisos y Ausencias — U.S.
               </h3>
               {ausenciasUSPendientes.length > 0 ? (
                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-white animate-pulse shadow-xs">
@@ -687,7 +687,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
               );
             })}
 
-            {/* Incidencias de Ausencia */}
+            {/* Incidencias de Ausencia Sobrevenida */}
             {incidenciasActivas.map((inc, index) => (
               <div
                 key={inc.id || `inc-${inc.fechaServicio || index}-${index}`}
@@ -696,7 +696,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <span className="px-2 py-0.5 bg-red-600 text-white rounded text-[10px] font-bold">
-                      BAJA / AUSENCIA
+                      AUSENCIA SOBREVENIDA
                     </span>
                     <h4 className="text-xs font-bold text-slate-900 dark:text-white">
                       Guardia del {inc.fechaServicio} ({getRolUG(inc.puesto)})
@@ -704,39 +704,17 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                     <span className="text-xs text-red-800 dark:text-red-300 font-semibold">
                       [{inc.estado}]
                     </span>
-                    {inc.estadoAnalisisIA && (
-                      <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                          inc.estadoAnalisisIA === 'CONFIRMADO'
-                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                            : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                        }`}
-                      >
-                        IA: {inc.estadoAnalisisIA}
-                      </span>
-                    )}
                   </div>
                   <p className="text-xs text-slate-700 dark:text-slate-300">
-                    Titular con baja: <strong>{formatUsuarioUG(inc.titularNombre, inc.puesto)}</strong> • Cobertura: <strong>{inc.imaginariaAceptanteNombre ? formatUsuarioUG(inc.imaginariaAceptanteNombre, inc.puesto) : 'Pendiente'}</strong>
+                    Titular ausente: <strong>{formatUsuarioUG(inc.titularNombre, inc.puesto)}</strong> • Cobertura: <strong>{inc.imaginariaAceptanteNombre ? formatUsuarioUG(inc.imaginariaAceptanteNombre, inc.puesto) : 'Pendiente'}</strong>
                   </p>
                   <p className="text-[11px] text-slate-500">
-                    Tipo: {inc.tipoAusencia} • Hora comunicación: {inc.horaExactaComunicacion || (inc.fechaComunicacion ? new Date(inc.fechaComunicacion).toLocaleTimeString('es-ES') : 'N/A')}
-                    {inc.diasDuracion ? ` • Duración estimada: ${inc.diasDuracion} días` : ''}
+                    Clasificación: AUSENCIA SOBREVENIDA • Hora comunicación: {inc.horaExactaComunicacion || (inc.fechaComunicacion ? new Date(inc.fechaComunicacion).toLocaleTimeString('es-ES') : 'N/A')}
                   </p>
                   {inc.alertaMasDeDosServicios && (
                     <p className="text-[11px] text-amber-800 dark:text-amber-300 font-bold bg-amber-100 dark:bg-amber-950/60 p-1.5 rounded-lg">
                       ⚠️ ALERTA: Afecta a {inc.serviciosAfectadosCount || '> 2'} servicios. Sigue cubierto por imaginarias.
                     </p>
-                  )}
-                  {inc.documentoUrl && (
-                    <a
-                      href={inc.documentoUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-[11px] text-blue-600 dark:text-blue-400 font-semibold hover:underline"
-                    >
-                      Ver Parte Médico Adjunto
-                    </a>
                   )}
                 </div>
 

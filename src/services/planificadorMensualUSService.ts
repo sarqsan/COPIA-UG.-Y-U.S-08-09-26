@@ -81,7 +81,7 @@ export const obtenerEstadoPlanificadorDia10 = async (
   // Comprobar si ya existe un cuadrante confirmado de U.S. específicamente para el mes siguiente
   const todosLosCuadrantes = await getCuadrantes({ tipoServicio: 'US' });
   const cuadranteExistente = todosLosCuadrantes.find((c) => {
-    // Debe ser exclusivamente de la Unidad de Seguridad y estar confirmado
+    // Debe ser exclusivamente de U.S. y estar confirmado
     if (c.tipoServicio !== 'US' && !c.id.includes('-us-') && !c.configuracionUS) return false;
     if (c.estado !== 'CONFIRMADO') return false;
 
@@ -180,7 +180,7 @@ export const ejecutarPlanificadorAutomaticoUS = async (options?: {
       };
     }
 
-    // 3. Obtener personal activo de la Unidad de Seguridad
+    // 3. Obtener personal activo de U.S.
     const allPersonas = await getPersonas({ activoOnly: true });
     const personalUS = allPersonas.filter(
       (p) => p.tipoServicio === 'US' || p.grupo === 'US_SEGURIDAD'
@@ -188,7 +188,7 @@ export const ejecutarPlanificadorAutomaticoUS = async (options?: {
 
     if (personalUS.length < 10) {
       throw new Error(
-        `Plantilla insuficiente en la Unidad de Seguridad: se requieren al menos 10 personas para cubrir Diurno (2), Nocturno (2), Imaginaria (1) y descansos (saliente y 24h libres). Disponibles: ${personalUS.length}.`
+        `Plantilla insuficiente en U.S.: se requieren al menos 10 personas para cubrir Diurno (2), Nocturno (2), Imaginaria (1) y descansos (saliente y 24h libres). Disponibles: ${personalUS.length}.`
       );
     }
 
@@ -226,7 +226,7 @@ export const ejecutarPlanificadorAutomaticoUS = async (options?: {
 
     // 6. Generar el nuevo cuadrante U.S. con el motor del sistema
     const simUS: CuadranteSimulacionUSResult = generarSimulacionCuadranteUS({
-      nombre: `Cuadrante Unidad de Seguridad (U.S.) — ${estado.nombreMesSiguiente}`,
+      nombre: `Cuadrante U.S. — ${estado.nombreMesSiguiente}`,
       cicloId: `ciclo-us-${estado.mesSiguiente}`,
       fechaInicio: estado.fechaInicioMesSiguiente,
       fechaFin: estado.fechaFinMesSiguiente,

@@ -86,7 +86,7 @@ export const ExcelUploader: React.FC<ExcelUploaderProps> = ({
 
         <h3 className="mt-4 text-sm font-bold text-slate-900 dark:text-white">
           {isUS
-            ? 'Arrastra el archivo Excel (.xlsx) para la U.S. (Unidad de Seguridad)'
+            ? 'Arrastra el archivo Excel (.xlsx) para U.S.'
             : 'Arrastra tu archivo Excel (.xlsx) o haz clic para seleccionarlo'}
         </h3>
         <p className="mt-1.5 max-w-lg text-xs text-slate-600 dark:text-slate-300 leading-relaxed">

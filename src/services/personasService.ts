@@ -5,7 +5,6 @@ import {
   getDoc,
   setDoc,
   updateDoc,
-  deleteDoc,
   query,
   where,
   orderBy,
@@ -14,12 +13,14 @@ import {
 import { db } from '../firebase/config';
 import { Persona, Cuenta, StatsPersonal, Empleo, Grupo, TipoServicio } from '../types';
 import { registrarAuditLog } from './auditService';
+import { assertNotImpersonating } from '../utils/impersonationGuard';
 import { normalizeEmpleo } from '../utils/validators';
 import { getApellidoUG } from '../utils/ugNomenclatura';
+import { getApprovedVisibleAlias } from '../utils/aliasHelper';
+import { fetchOperationalPersonasDirectoryViaServer } from './authClientService';
 import { generateInitialMockPersonas } from './seedService';
 import { actualizarNombreCuentaPorPersonaId, eliminarCuentaPorPersonaId, asegurarCuentasParaPersonas } from './cuentasService';
 import { propagarCambioPersonaEnCuadrantes, eliminarPersonaDeCuadrantes } from './cuadranteService';
-import { actualizarNombreAutorEnChat } from './chatService';
 
 const PERSONAS_COLLECTION = 'personas';
 
@@ -81,22 +82,43 @@ export const sanitizePersonaForUser = (
   currentPersonaId?: string | null,
   isAdmin: boolean = false
 ): Persona => {
-  if (isAdmin || (currentPersonaId && persona.id === currentPersonaId)) {
+  if (isAdmin) {
     return { ...persona };
   }
 
-  // Sanitize strictly: remove PII (phone, notes) for other users
+  const unit: TipoServicio =
+    persona.tipoServicio === 'US' || persona.grupo === 'US_SEGURIDAD' ? 'US' : 'GUARDIA';
+  const approvedAlias =
+    typeof persona.alias === 'string' && persona.alias.trim().length > 0
+      ? persona.alias.trim()
+      : undefined;
+  const visibleLabel = getApprovedVisibleAlias(persona, unit);
+  const isSelf = Boolean(currentPersonaId && persona.id === currentPersonaId);
+
+  // Proyección estricta: elimina teléfono, notas, nombre histórico y saldos de terceros
   return {
     id: persona.id,
-    nombre: persona.nombre,
+    ...(approvedAlias ? { alias: approvedAlias } : {}),
+    nombre: visibleLabel,
     empleo: persona.empleo,
     grupo: persona.grupo,
+    tipoServicio: unit,
     telefono: '',
     activo: persona.activo,
+    ordenRotacion: persona.ordenRotacion,
     cicloId: persona.cicloId,
+    ...(isSelf && persona.diasVacacionesAsignados !== undefined
+      ? { diasVacacionesAsignados: persona.diasVacacionesAsignados }
+      : {}),
+    ...(isSelf && persona.diasAsuntosPropiosAsignados !== undefined
+      ? { diasAsuntosPropiosAsignados: persona.diasAsuntosPropiosAsignados }
+      : {}),
+    ...(isSelf && persona.diasPermisoAsignados !== undefined
+      ? { diasPermisoAsignados: persona.diasPermisoAsignados }
+      : {}),
     notas: '',
-    fechaCreacion: persona.fechaCreacion,
-    fechaActualizacion: persona.fechaActualizacion,
+    fechaCreacion: '',
+    fechaActualizacion: '',
   };
 };
 
@@ -105,7 +127,12 @@ export const getPersonasPublicas = async (
   isAdmin: boolean = false,
   tipoServicio?: TipoServicio
 ): Promise<Persona[]> => {
-  const todas = await getPersonas({ activoOnly: true, tipoServicio });
+  const todas = await getPersonas({
+    activoOnly: true,
+    tipoServicio,
+    requesterRol: isAdmin ? 'ADMIN' : 'USUARIO',
+    requesterPersonaId: currentPersonaId,
+  });
   return todas.map((p) => sanitizePersonaForUser(p, currentPersonaId, isAdmin));
 };
 
@@ -113,7 +140,51 @@ export const getPersonas = async (options?: {
   activoOnly?: boolean;
   cicloId?: string;
   tipoServicio?: TipoServicio;
+  requesterRol?: 'ADMIN' | 'USUARIO';
+  requesterPersonaId?: string | null;
 }): Promise<Persona[]> => {
+  const applyFiltersAndSort = (lista: Persona[]): Persona[] => {
+    let resultado = lista;
+    if (options?.tipoServicio) {
+      resultado = resultado.filter(
+        (p) => (p.tipoServicio || (p.grupo === 'US_SEGURIDAD' ? 'US' : 'GUARDIA')) === options.tipoServicio
+      );
+    }
+    if (options?.activoOnly) {
+      resultado = resultado.filter((p) => p.activo);
+    }
+    if (options?.cicloId) {
+      resultado = resultado.filter((p) => p.cicloId === options.cicloId);
+    }
+    return [...resultado].sort((a, b) => {
+      const ordA = a.ordenRotacion !== undefined && a.ordenRotacion !== null ? a.ordenRotacion : 9999;
+      const ordB = b.ordenRotacion !== undefined && b.ordenRotacion !== null ? b.ordenRotacion : 9999;
+      if (ordA !== ordB) return ordA - ordB;
+      return (a.alias || a.nombre || '').localeCompare(b.alias || b.nombre || '');
+    });
+  };
+
+  // Para usuarios ordinarios (no ADMIN), consultar el directorio operativo proyectado del servidor
+  // para garantizar que nunca lleguen al navegador fichas completas ni datos personales de terceros.
+  if (options?.requesterRol === 'USUARIO') {
+    const dirRes = await fetchOperationalPersonasDirectoryViaServer({
+      activoOnly: options.activoOnly,
+      tipoServicio: options.tipoServicio,
+    });
+    if (dirRes.success && Array.isArray(dirRes.personas)) {
+      const sanitized = (dirRes.personas as Persona[]).map((p) =>
+        sanitizePersonaForUser(p, options.requesterPersonaId, false)
+      );
+      guardarPersonasMemoriaYLocal(sanitized);
+      return applyFiltersAndSort(sanitized);
+    }
+    // Fallback controlado en caché local estrictamente sanitizado (sin datos personales de terceros)
+    const fallbackSanitized = getSandboxPersonas().map((p) =>
+      sanitizePersonaForUser(p, options.requesterPersonaId, false)
+    );
+    return applyFiltersAndSort(fallbackSanitized);
+  }
+
   try {
     const colRef = collection(db, PERSONAS_COLLECTION);
     let q = query(colRef, orderBy('fechaCreacion', 'desc'));
@@ -126,7 +197,8 @@ export const getPersonas = async (options?: {
     if (!snapshot.empty) {
       const personas: Persona[] = [];
       snapshot.forEach((docSnap) => {
-        const data = docSnap.data() as Omit<Persona, 'id'>;
+        const data = docSnap.data() as Omit<Persona, 'id'> & { eliminadoLogico?: boolean };
+        if (data.eliminadoLogico) return;
         const personaItem: Persona = {
           id: docSnap.id,
           ...data,
@@ -137,40 +209,26 @@ export const getPersonas = async (options?: {
       });
 
       guardarPersonasMemoriaYLocal(personas);
-
-      let resultado = personas;
-      if (options?.tipoServicio) {
-        resultado = resultado.filter((p) => (p.tipoServicio || (p.grupo === 'US_SEGURIDAD' ? 'US' : 'GUARDIA')) === options.tipoServicio);
-      }
-      if (options?.activoOnly) {
-        resultado = resultado.filter((p) => p.activo);
-      }
-      if (options?.cicloId) {
-        resultado = resultado.filter((p) => p.cicloId === options.cicloId);
-      }
-      return resultado.sort((a, b) => {
-        const ordA = a.ordenRotacion !== undefined && a.ordenRotacion !== null ? a.ordenRotacion : 9999;
-        const ordB = b.ordenRotacion !== undefined && b.ordenRotacion !== null ? b.ordenRotacion : 9999;
-        if (ordA !== ordB) return ordA - ordB;
-        return a.nombre.localeCompare(b.nombre);
-      });
+      return applyFiltersAndSort(personas);
     }
   } catch (error: any) {
+    // Si Firestore deniega la colección completa (usuario ordinario), recurrir al directorio proyectado
+    const dirRes = await fetchOperationalPersonasDirectoryViaServer({
+      activoOnly: options?.activoOnly,
+      tipoServicio: options?.tipoServicio,
+    });
+    if (dirRes.success && Array.isArray(dirRes.personas)) {
+      const sanitized = (dirRes.personas as Persona[]).map((p) =>
+        sanitizePersonaForUser(p, options?.requesterPersonaId, options?.requesterRol === 'ADMIN')
+      );
+      guardarPersonasMemoriaYLocal(sanitized);
+      return applyFiltersAndSort(sanitized);
+    }
     console.warn('Lectura Firestore diferida (usando memoria):', error.message || error);
   }
 
   // Fallback a caché
-  let personas = getSandboxPersonas();
-  if (options?.tipoServicio) {
-    personas = personas.filter((p) => (p.tipoServicio || (p.grupo === 'US_SEGURIDAD' ? 'US' : 'GUARDIA')) === options.tipoServicio);
-  }
-  if (options?.activoOnly) {
-    personas = personas.filter((p) => p.activo);
-  }
-  if (options?.cicloId) {
-    personas = personas.filter((p) => p.cicloId === options.cicloId);
-  }
-  return personas;
+  return applyFiltersAndSort(getSandboxPersonas());
 };
 
 export const getPersonaById = async (id: string): Promise<Persona | null> => {
@@ -205,6 +263,7 @@ export const crearPersona = async (
   },
   adminInfo: { uid: string; nombre: string }
 ): Promise<Persona> => {
+  assertNotImpersonating('crearPersona');
   const personaRef = doc(collection(db, PERSONAS_COLLECTION));
   const now = new Date().toISOString();
 
@@ -257,6 +316,7 @@ export const actualizarPersona = async (
   datos: Partial<Omit<Persona, 'id' | 'fechaCreacion'>>,
   adminInfo: { uid: string; nombre: string }
 ): Promise<Persona | null> => {
+  assertNotImpersonating('actualizarPersona');
   const local = getSandboxPersonas();
   const index = local.findIndex((p) => p.id === id);
   const anterior = index >= 0 ? local[index] : null;
@@ -314,12 +374,11 @@ export const actualizarPersona = async (
     cambios,
   });
 
-  // PROPAGACIÓN GLOBAL: Si cambió el nombre o empleo, actualizar en Cuentas, Cuadrantes y Chat
+  // PROPAGACIÓN GLOBAL: Si cambió el nombre o empleo, actualizar en Cuentas y Cuadrantes
   if (datos.nombre && anterior && anterior.nombre !== personaActualizada.nombre) {
     try {
       await actualizarNombreCuentaPorPersonaId(id, personaActualizada.nombre, adminInfo);
       propagarCambioPersonaEnCuadrantes(id, personaActualizada.nombre, personaActualizada.empleo);
-      actualizarNombreAutorEnChat(id, personaActualizada.nombre);
     } catch (err) {
       console.warn('Error propagando cambio de nombre globalmente:', err);
     }
@@ -330,28 +389,38 @@ export const actualizarPersona = async (
 
 /**
  * Elimina completamente a una persona del sistema, eliminando automáticamente su cuenta vinculada
- * y desvinculándola de cuadrantes y chats.
+ * y desvinculándola de cuadrantes.
  */
 export const eliminarPersona = async (
   id: string,
   adminInfo: { uid: string; nombre: string }
 ): Promise<boolean> => {
+  assertNotImpersonating('eliminarPersona');
   const local = getSandboxPersonas();
   const index = local.findIndex((p) => p.id === id);
   if (index < 0) return false;
 
   const personaEliminada = local[index];
 
-  // 1. Eliminar de la lista de personas
+  // 1. Retirar de la lista operativa activa
   local.splice(index, 1);
   guardarPersonasMemoriaYLocal(local);
 
-  // 2. Eliminar en Firestore
+  // 2. NC-10: Baja lógica en Firestore (preserva trazabilidad y cumple allow delete: if false)
   try {
     const docRef = doc(db, PERSONAS_COLLECTION, id);
-    await deleteDoc(docRef);
+    await setDoc(
+      docRef,
+      {
+        activo: false,
+        eliminadoLogico: true,
+        eliminadoEn: new Date().toISOString(),
+        eliminadoPorUid: adminInfo.uid,
+      },
+      { merge: true }
+    );
   } catch (error) {
-    console.warn('Error eliminando persona en Firestore:', error);
+    console.warn('Error registrando baja lógica de persona en Firestore:', error);
   }
 
   // 3. Eliminar automáticamente la cuenta de acceso vinculada
@@ -387,6 +456,7 @@ export const toggleEstadoPersona = async (
   adminInfo: { uid: string; nombre: string },
   motivo?: string
 ): Promise<boolean> => {
+  assertNotImpersonating('toggleEstadoPersona');
   const local = getSandboxPersonas();
   const index = local.findIndex((p) => p.id === id);
   if (index < 0) return false;

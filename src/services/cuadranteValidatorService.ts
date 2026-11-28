@@ -439,7 +439,7 @@ export const MIN_TOTAL_PERSONAS = 21;
 export const MIN_ROL1 = 6;
 export const MIN_ROL2 = 6;
 
-// Parámetros operativos de la estructura diaria de la Unidad de Guardia (U.G.)
+// Parámetros operativos de la estructura diaria de U.G.
 export const PUESTOS_TITULARES_DIARIOS_ROL1 = 2;
 export const PUESTOS_TITULARES_DIARIOS_ROL2 = 2;
 export const DIAS_LIBRES_MINIMOS_CICLO = 4; // Ciclo 1 servicio + 4 días libres (repetición cada >= 5 días)

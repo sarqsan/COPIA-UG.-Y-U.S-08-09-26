@@ -237,7 +237,7 @@ export const PatrullasStatsPanel: React.FC<PatrullasStatsPanelProps> = ({
             {stats.totalSustituidas}
           </div>
           <div className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
-            Por baja o ausencia
+            Por ausencia sobrevenida
           </div>
         </div>
 

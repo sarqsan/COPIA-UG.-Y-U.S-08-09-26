@@ -12,6 +12,7 @@ export interface EstadisticasRespaldo {
   totalServicios: number;
   totalPersonas: number;
   totalAusenciasIncidencias: number;
+  totalCompensacionesImaginarias?: number;
   totalSolicitudesCambio: number;
   totalPatrullas?: number;
   totalRegistros: number;
@@ -23,6 +24,8 @@ export interface SnapshotDatosOperativos {
   serviciosPorCuadrante: Record<string, (ServicioDia | ServicioDiaUS)[]>;
   personas: Persona[];
   ausenciasIncidencias: any[];
+  compensacionesImaginarias?: any[]; // Solo para U.S. — colección activa imaginarias_activadas_us
+  compensacionesImaginariasLegacy?: any[]; // Solo para U.S. — colección histórica/complementaria compensacion_imaginarias_us (sin mezclar procedencia)
   solicitudesCambio: SolicitudCambio[];
   patrullas?: Patrulla[]; // Solo para U.G.
 }
@@ -37,6 +40,7 @@ export interface RespaldoOperativo {
   estado: EstadoRespaldo;
   versionEsquema: string; // "v1.0"
   checksumIntegridad: string;
+  checksumSha256?: string; // SHA-256 hexadecimal (64 chars) sobre el JSON canónico de `datos`
   motivo?: string;
   estadisticas: EstadisticasRespaldo;
   datos: SnapshotDatosOperativos;

@@ -52,7 +52,7 @@ export const ProximamentePage: React.FC = () => {
     },
     {
       phase: 'FASE 5',
-      title: 'Gestión de Bajas e Incidencias',
+      title: 'Gestión de Ausencias Sobrevenidas e Incidencias',
       icon: AlertCircle,
       color: 'border-rose-200 bg-rose-50/50 text-rose-900 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200',
       iconColor: 'text-rose-600',

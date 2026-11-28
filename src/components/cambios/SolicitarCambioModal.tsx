@@ -11,6 +11,7 @@ import {
   ResultadoTransparenciaCandidatosUS,
 } from '../../services/cambiosService';
 import { SelectorTransparenteCandidatosUS } from './SelectorTransparenteCandidatosUS';
+import { getApprovedAliasUS } from '../../utils/aliasHelper';
 import {
   ArrowRightLeft,
   Calendar,
@@ -74,7 +75,7 @@ export const SolicitarCambioModal: React.FC<SolicitarCambioModalProps> = ({
       if (!s || s.fecha < hoyStr) return;
 
       if (isUS) {
-        // TURNOS DE LA U.S. (UNIDAD DE SEGURIDAD - 12h)
+        // TURNOS DE LA U.S. (U.S. - 12h)
         const dTit = s.diurno?.titulares || [];
         const nTit = s.nocturno?.titulares || [];
 
@@ -229,7 +230,7 @@ export const SolicitarCambioModal: React.FC<SolicitarCambioModalProps> = ({
   const [fechaDevolucionPropuesta, setFechaDevolucionPropuesta] = useState<string>('');
   const [motivo, setMotivo] = useState<string>('');
   const [firmaDigitalPin, setFirmaDigitalPin] = useState<string>('');
-  const [firmaAceptada, setFirmaAceptada] = useState<boolean>(true);
+  const [firmaAceptada, setFirmaAceptada] = useState<boolean>(false);
   const [enviando, setEnviando] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [solicitudEnviadaConExito, setSolicitudEnviadaConExito] = useState<{
@@ -595,9 +596,9 @@ export const SolicitarCambioModal: React.FC<SolicitarCambioModalProps> = ({
     const firmaDigital = {
       firmado: true,
       fechaHora: nowIso,
-      ip: '127.0.0.1 (Autenticado)',
+      origenAceptacion: 'SESION_AUTENTICADA_CLIENTE',
       identificadorFirmante: currentPersona.id,
-      nombreCompleto: currentPersona.nombre,
+      nombreCompleto: isUS ? getApprovedAliasUS(currentPersona) : currentPersona.nombre,
       empleo: currentPersona.empleo,
     };
 
@@ -641,7 +642,7 @@ export const SolicitarCambioModal: React.FC<SolicitarCambioModalProps> = ({
       if (res.success) {
         setSolicitudEnviadaConExito({
           modalidad,
-          destinatarioNombre: destinatarioSeleccionado.nombre,
+          destinatarioNombre: isUS ? getApprovedAliasUS(destinatarioSeleccionado) : destinatarioSeleccionado.nombre,
           destinatarioEmpleo: destinatarioSeleccionado.empleo,
           fecha: itemSeleccionado.label,
           fechaDevolucion:
@@ -838,7 +839,7 @@ export const SolicitarCambioModal: React.FC<SolicitarCambioModalProps> = ({
           {modalidad === 'PERMUTA' ? (
             <>
               {isUS ? (
-                /* Selector Transparente para la Unidad de Seguridad (U.S.) */
+                /* Selector Transparente para U.S. */
                 <SelectorTransparenteCandidatosUS
                   modalidad="PERMUTA"
                   resultado={resultadoTransparenciaPermutaUS}
@@ -848,7 +849,7 @@ export const SolicitarCambioModal: React.FC<SolicitarCambioModalProps> = ({
                   onSelectServicioPermutaKey={setServicioPermutaKey}
                 />
               ) : (
-                /* Selector estándar para la Unidad de Guardia (U.G. 24h) */
+                /* Selector estándar para U.G. (U.G. 24h) */
                 <>
                   {/* 2. Selección de Compañero para Permuta */}
                   <div>
@@ -923,12 +924,12 @@ export const SolicitarCambioModal: React.FC<SolicitarCambioModalProps> = ({
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
                     <div className="p-2 bg-white rounded-lg border border-blue-100 shadow-2xs">
-                      <span className="font-bold text-slate-800 block">Tú ({currentPersona.nombre}):</span>
+                      <span className="font-bold text-slate-800 block">Tú ({isUS ? getApprovedAliasUS(currentPersona) : currentPersona.nombre}):</span>
                       <span className="text-emerald-700 font-semibold block">✓ Quedas libre: día {itemSeleccionado.servicio.fecha}</span>
                       <span className="text-blue-700 font-semibold block">➜ Asumes servicio: día {servicioPermutaSeleccionado.fecha}</span>
                     </div>
                     <div className="p-2 bg-white rounded-lg border border-blue-100 shadow-2xs">
-                      <span className="font-bold text-slate-800 block">{destinatarioSeleccionado.nombre}:</span>
+                      <span className="font-bold text-slate-800 block">{isUS ? getApprovedAliasUS(destinatarioSeleccionado) : destinatarioSeleccionado.nombre}:</span>
                       <span className="text-emerald-700 font-semibold block">✓ Queda libre: día {servicioPermutaSeleccionado.fecha}</span>
                       <span className="text-blue-700 font-semibold block">➜ Asume tu servicio: día {itemSeleccionado.servicio.fecha}</span>
                     </div>
@@ -948,7 +949,7 @@ export const SolicitarCambioModal: React.FC<SolicitarCambioModalProps> = ({
             /* MODO CAMBIO INDIVIDUAL: Cesión unilateral */
             <>
               {isUS ? (
-                /* Selector Transparente para la Unidad de Seguridad (U.S.) */
+                /* Selector Transparente para U.S. */
                 <SelectorTransparenteCandidatosUS
                   modalidad="CAMBIO_INDIVIDUAL"
                   resultado={resultadoTransparenciaCambioUS}
@@ -956,7 +957,7 @@ export const SolicitarCambioModal: React.FC<SolicitarCambioModalProps> = ({
                   onSelectDestinatario={setDestinatarioId}
                 />
               ) : (
-                /* Selector estándar para la Unidad de Guardia (U.G. 24h) */
+                /* Selector estándar para U.G. (U.G. 24h) */
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
@@ -1083,7 +1084,7 @@ export const SolicitarCambioModal: React.FC<SolicitarCambioModalProps> = ({
                 className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4"
               />
               <span className="text-xs font-bold text-slate-900">
-                Firmar electrónicamente como {currentPersona.nombre} ({currentPersona.empleo})
+                Firmar electrónicamente como {isUS ? getApprovedAliasUS(currentPersona) : currentPersona.nombre} ({currentPersona.empleo})
               </span>
             </label>
           </div>

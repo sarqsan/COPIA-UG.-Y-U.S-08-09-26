@@ -1,13 +1,12 @@
-import { normalizarMatricula, normalizarMatriculaEntradaCamara } from './matriculaNormalizerService';
-import { getMatriculaByNormalizada } from './matriculaDataService';
+import { normalizarMatriculaEntradaCamara } from './matriculaNormalizerService';
 
 export type MetodoOCR = 'LOCAL' | 'REMOTO';
-export type EstadoConsultaScanner = 'AUTORIZADA' | 'NO_AUTORIZADA';
+export type EstadoConsultaScanner = 'REGISTRADO' | 'NO_REGISTRADO';
 
 export interface ResultadoConsultaScanner {
   esLecturaValida: boolean;
   estado?: EstadoConsultaScanner;
-  autorizada: boolean;
+  registrado: boolean;
   duracionMs: number;
   metodo: MetodoOCR;
   error?: string;
@@ -110,7 +109,7 @@ export const preprocesarFrameMatricula = (
     const xInRendered = (targetRect.left - videoRect.left) + offsetX;
     const yInRendered = (targetRect.top - videoRect.top) + offsetY;
 
-    // Margen de seguridad del 8% horizontal y 12% vertical
+    // Margen técnico del 8% horizontal y 12% vertical
     const marginX = targetRect.width * 0.08;
     const marginY = targetRect.height * 0.12;
 
@@ -142,7 +141,13 @@ export const preprocesarFrameMatricula = (
 
 /**
  * Reconoce el texto alfanumérico contenido en el canvas.
- * Prioriza el worker local si ya está listo; si no o si tarda más de 800ms, recurre al endpoint ultrarrápido con Gemini.
+ * 1. Prioriza el worker local en el navegador (Tesseract.js) sin transmitir imagen alguna.
+ * 2. Únicamente si el worker local no está listo, supera 800 ms, devuelve menos de 3 caracteres
+ *    o falla, envía temporalmente un recorte JPEG en base64 (calidad 0.85, en memoria) a
+ *    POST /api/matriculas/ocr-frame (protegido con autenticación, aviso de privacidad y unidad U.S./ADMIN).
+ *    Si el servidor tiene configurada GEMINI_API_KEY, remite dicho recorte en memoria a Google Gemini
+ *    (gemini-2.5-flash) para extraer únicamente los caracteres de la matrícula en JSON, sin almacenar
+ *    fotogramas en disco, Firebase Storage ni Firestore.
  */
 export const reconocerTextoCanvas = async (
   canvas: HTMLCanvasElement
@@ -178,18 +183,19 @@ export const reconocerTextoCanvas = async (
     }
   }
 
-  // 2. Reconocimiento rápido mediante visión multimodal en el servidor
+  // 2. Reconocimiento rápido mediante visión multimodal en el servidor (autenticado — R-04 / R-15)
   try {
+    const { buildAuthenticatedHeaders } = await import('../authClientService');
     const base64Data = canvas.toDataURL('image/jpeg', 0.85);
     const resp = await fetch('/api/matriculas/ocr-frame', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ imageBase64: base64Data }),
+      headers: buildAuthenticatedHeaders(),
+      body: JSON.stringify({ imageBase64: base64Data, mimeType: 'image/jpeg' }),
     });
 
     if (resp.ok) {
       const data = await resp.json();
-      const txt = (data.texto || '').trim();
+      const txt = String(data.texto || data.rawText || data.candidates?.[0] || '').trim();
       if (txt.length >= 3) {
         return {
           texto: txt,
@@ -210,30 +216,59 @@ export const reconocerTextoCanvas = async (
 };
 
 /**
- * Función pura de evaluación de estado de autorización:
- * - AUTORIZADA: Documento encontrado Y activo === true.
- * - NO_AUTORIZADA: No encontrado O activo !== true.
+ * Función pura de evaluación binaria del estado de registro:
+ * - REGISTRADO: Consta registrada y activa (`registrado === true` o `activo === true`).
+ * - NO_REGISTRADO: No consta o está inactiva.
  *
- * GARANTÍA DE PRIVACIDAD: Nunca devuelve datos personales, marcas ni titulares.
+ * GARANTÍA DE PRIVACIDAD: Nunca devuelve datos personales, marcas, modelos, colores ni titulares.
  */
-export const evaluarEstadoAutorizacion = (
-  registroDoc: { activo?: boolean } | null | undefined
+export const evaluarEstadoRegistroMatricula = (
+  registroDoc: { activo?: boolean; registrado?: boolean } | null | undefined
 ): EstadoConsultaScanner => {
-  if (registroDoc && registroDoc.activo === true) {
-    return 'AUTORIZADA';
+  if (registroDoc && (registroDoc.registrado === true || registroDoc.activo === true)) {
+    return 'REGISTRADO';
   }
-  return 'NO_AUTORIZADA';
+  return 'NO_REGISTRADO';
+};
+
+/** Alias retrocompatible de evaluarEstadoRegistroMatricula */
+export const evaluarEstadoAutorizacion = evaluarEstadoRegistroMatricula;
+
+/**
+ * Invoca el endpoint autenticado POST /api/matriculas/comprobar enviando EXCLUSIVAMENTE
+ * la matrícula normalizada y leyendo EXCLUSIVAMENTE `{ registrado: boolean }`.
+ * El navegador del usuario ordinario nunca lee la colección `/matriculas_autorizadas` en Firestore.
+ */
+export const comprobarMatriculaEnServidor = async (
+  matriculaNormalizada: string,
+  fetchImpl: typeof fetch = fetch
+): Promise<{ registrado: boolean }> => {
+  const { buildAuthenticatedHeaders } = await import('../authClientService');
+  const resp = await fetchImpl('/api/matriculas/comprobar', {
+    method: 'POST',
+    headers: buildAuthenticatedHeaders(),
+    body: JSON.stringify({ matriculaNormalizada }),
+  });
+
+  if (!resp.ok) {
+    throw new Error(`Error en comprobación de matrícula (HTTP ${resp.status})`);
+  }
+
+  const data = await resp.json();
+  return { registrado: data?.registrado === true };
 };
 
 /**
- * Flujo completo:
- * 1. Limpieza y normalización canónica de la matrícula leída (pasando por normalizarMatriculaEntradaCamara).
- * 2. Consulta en Firestore (colección matriculas_autorizadas).
- * 3. Retorno del semáforo (AUTORIZADA vs NO_AUTORIZADA) sin datos adjuntos.
+ * Flujo completo de comprobación puntual:
+ * 1. Limpieza y normalización canónica de la matrícula (manual o capturada por cámara).
+ * 2. Consulta puntual vía servidor (POST /api/matriculas/comprobar) enviando únicamente
+ *    la matrícula normalizada y recibiendo únicamente `{ registrado: boolean }`.
+ * 3. Retorno del resultado binario (REGISTRADO vs NO_REGISTRADO) sin datos adjuntos.
  */
-export const consultarAutorizacionMatricula = async (
+export const consultarRegistroMatricula = async (
   textoCrudo: string,
-  metodo: MetodoOCR = 'LOCAL'
+  metodo: MetodoOCR = 'LOCAL',
+  fetchImpl: typeof fetch = fetch
 ): Promise<ResultadoConsultaScanner> => {
   const t0 = Date.now();
   const normalizado = normalizarMatriculaEntradaCamara(textoCrudo);
@@ -242,7 +277,7 @@ export const consultarAutorizacionMatricula = async (
   if (normalizado.estadoValidacion === 'INVALIDA' || !normalizado.matriculaNormalizada) {
     return {
       esLecturaValida: false,
-      autorizada: false,
+      registrado: false,
       duracionMs: Date.now() - t0,
       metodo,
       error: 'Formato no interpretable',
@@ -250,41 +285,43 @@ export const consultarAutorizacionMatricula = async (
   }
 
   try {
-    // 1. Consulta determinista O(1) por clave canónica principal
-    let docMatricula = await getMatriculaByNormalizada(normalizado.matriculaNormalizada);
+    // 1. Comprobación principal por clave canónica normalizada vía servidor
+    let resultado = await comprobarMatriculaEnServidor(normalizado.matriculaNormalizada, fetchImpl);
 
-    // 2. Si no se encontró o está inactiva y existen claves candidatas alternativas (ej: turismo estándar '1508GSZ' vs especial 'E1508GSZ', o variantes sintácticas OCR)
-    if ((!docMatricula || !docMatricula.activo) && normalizado.clavesCandidatasAlternativas?.length) {
+    // 2. Si no consta registrada y existen claves candidatas alternativas normalizadas
+    //    (p. ej. turismo '1508GSZ' vs especial 'E1508GSZ'), se comprueban igualmente vía servidor
+    if (!resultado.registrado && normalizado.clavesCandidatasAlternativas?.length) {
       for (const altKey of normalizado.clavesCandidatasAlternativas) {
         if (!altKey || altKey === normalizado.matriculaNormalizada) continue;
-        const altDoc = await getMatriculaByNormalizada(altKey);
-        if (altDoc && altDoc.activo) {
-          docMatricula = altDoc;
+        const altRes = await comprobarMatriculaEnServidor(altKey, fetchImpl);
+        if (altRes.registrado) {
+          resultado = altRes;
           break;
-        } else if (!docMatricula && altDoc) {
-          docMatricula = altDoc;
         }
       }
     }
 
-    const estado = evaluarEstadoAutorizacion(docMatricula);
+    const estado = evaluarEstadoRegistroMatricula(resultado);
 
     return {
       esLecturaValida: true,
       estado,
-      autorizada: estado === 'AUTORIZADA',
+      registrado: estado === 'REGISTRADO',
       duracionMs: Date.now() - t0,
       metodo,
     };
   } catch (err: any) {
-    console.error('[Scanner Service] Error al verificar matrícula:', err);
+    console.error('[Scanner Service] Error al comprobar matrícula:', err);
     return {
       esLecturaValida: true,
-      estado: 'NO_AUTORIZADA',
-      autorizada: false,
+      estado: 'NO_REGISTRADO',
+      registrado: false,
       duracionMs: Date.now() - t0,
       metodo,
       error: err?.message || 'Error de conexión',
     };
   }
 };
+
+/** Alias retrocompatible de consultarRegistroMatricula */
+export const consultarAutorizacionMatricula = consultarRegistroMatricula;

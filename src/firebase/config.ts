@@ -3,6 +3,7 @@ import { getAuth } from 'firebase/auth';
 import {
   getFirestore,
   connectFirestoreEmulator,
+  disableNetwork,
   setLogLevel,
   type Firestore,
 } from 'firebase/firestore';
@@ -462,6 +463,11 @@ if (
         FIREBASE_RUNTIME_ENV.emulatorHost,
         FIREBASE_RUNTIME_ENV.emulatorPort
       );
+    }
+    // En tests unitarios locales sin emulador real levantado, deshabilitar la red de Firestore
+    // evita bloqueos por reintentos TCP/gRPC (NC-17) sin alterar producción ni navegador.
+    if (typeof process !== 'undefined' && !process.env?.FIRESTORE_EMULATOR_HOST) {
+      disableNetwork(rawFirestoreDb).catch(() => {});
     }
   } catch {
     // Si ya estaba inicializado, el escudo de escritura sigue bloqueando cualquier operación.

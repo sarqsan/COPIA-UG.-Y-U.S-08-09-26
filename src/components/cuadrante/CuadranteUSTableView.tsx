@@ -1,6 +1,7 @@
 import { useState, useMemo, FC } from 'react';
 import { ServicioDiaUS } from '../../types/usTypes';
 import { Persona, CuadranteMaestro } from '../../types';
+import { getApprovedAliasUS, resolveApprovedAliasById } from '../../utils/aliasHelper';
 import {
   Calendar,
   Clock,
@@ -53,12 +54,22 @@ export const CuadranteUSTableView: FC<CuadranteUSTableViewProps> = ({
       // Buscar por fecha
       if (s.fecha.includes(term)) return true;
 
-      // Buscar por nombres de personas asignadas
-      const d1 = personasMap.get(s.diurno?.titulares?.[0]?.personaIdReal)?.nombre || '';
-      const d2 = personasMap.get(s.diurno?.titulares?.[1]?.personaIdReal)?.nombre || '';
-      const n1 = personasMap.get(s.nocturno?.titulares?.[0]?.personaIdReal)?.nombre || '';
-      const n2 = personasMap.get(s.nocturno?.titulares?.[1]?.personaIdReal)?.nombre || '';
-      const imag = personasMap.get(s.imaginaria?.personaIdReal)?.nombre || '';
+      // Buscar por alias visible aprobado de personas asignadas
+      const d1 = s.diurno?.titulares?.[0]?.personaIdReal
+        ? getApprovedAliasUS(personasMap.get(s.diurno.titulares[0].personaIdReal))
+        : '';
+      const d2 = s.diurno?.titulares?.[1]?.personaIdReal
+        ? getApprovedAliasUS(personasMap.get(s.diurno.titulares[1].personaIdReal))
+        : '';
+      const n1 = s.nocturno?.titulares?.[0]?.personaIdReal
+        ? getApprovedAliasUS(personasMap.get(s.nocturno.titulares[0].personaIdReal))
+        : '';
+      const n2 = s.nocturno?.titulares?.[1]?.personaIdReal
+        ? getApprovedAliasUS(personasMap.get(s.nocturno.titulares[1].personaIdReal))
+        : '';
+      const imag = s.imaginaria?.personaIdReal
+        ? getApprovedAliasUS(personasMap.get(s.imaginaria.personaIdReal))
+        : '';
 
       return (
         d1.toLowerCase().includes(term) ||
@@ -83,7 +94,7 @@ export const CuadranteUSTableView: FC<CuadranteUSTableViewProps> = ({
 
   const getPersonaNombre = (personaId?: string) => {
     if (!personaId) return 'Sin asignar';
-    return personasMap.get(personaId)?.nombre || personaId;
+    return resolveApprovedAliasById(personasMap, personaId, 'US');
   };
 
   return (
@@ -344,7 +355,7 @@ export const CuadranteUSTableView: FC<CuadranteUSTableViewProps> = ({
                           }`}
                           title={`${aus.tipo === 'V' ? 'Vacaciones' : aus.tipo === 'P' ? 'Permiso' : 'Asuntos Propios'}`}
                         >
-                          {aus.tipo}: {aus.personaNombre}
+                          {aus.tipo}: {resolveApprovedAliasById(personasMap, aus.personaId, 'US')}
                         </span>
                       ))}
                     </div>

@@ -9,13 +9,13 @@ import {
   CalendarDays,
   Shield,
   Layers,
-  MessageSquare,
   Bell,
   ListOrdered,
   CalendarPlus,
   FileCheck,
   Car,
   Database,
+  Tag,
 } from 'lucide-react';
 
 export type AdminTab =
@@ -25,8 +25,8 @@ export type AdminTab =
   | 'patrullas'
   | 'documentos'
   | 'personal'
-  | 'chat'
   | 'cuentas'
+  | 'alias'
   | 'historial'
   | 'backups'
   | 'excel'
@@ -85,16 +85,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
       desc: 'Gestión y fichas individuales',
     },
     {
-      id: 'chat',
-      label: 'Chat Interno',
-      icon: MessageSquare,
-      desc: 'Comunicaciones y canal general',
-    },
-    {
       id: 'cuentas',
       label: 'Cuentas de Acceso',
       icon: KeyRound,
       desc: 'Accesos, roles y vinculaciones',
+    },
+    {
+      id: 'alias',
+      label: 'Revisión de Alias',
+      icon: Tag,
+      desc: 'Aprobación, rechazo e historial',
     },
     {
       id: 'historial',
@@ -196,7 +196,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <span>Fase 3: Operativa Real</span>
         </div>
         <p className="mt-1.5 leading-relaxed text-slate-400 text-[11px]">
-          Cuadrantes, orden de rotación, cambios, ausencias y chat interno activos.
+          Cuadrantes, orden de rotación, cambios y ausencias activos.
         </p>
       </div>
     </aside>

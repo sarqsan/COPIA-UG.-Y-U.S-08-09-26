@@ -1,227 +1,650 @@
 rules_version = '2';
+
+// ============================================================================
+// REGLAS DE CONTROL DE ACCESO FIRESTORE — U.G. / U.S.
+// Corrección integral de NC-02, NC-03, NC-04, NC-10 y Bloque 4 (Aviso Obligatorio)
+// Principios:
+//  1. Denegación por defecto (default-deny) en todo el árbol.
+//  2. Autenticación real obligatoria (Firebase Auth Custom Tokens / ID Tokens) con claims RBAC.
+//  3. Verificación obligatoria de aceptación vigente del Aviso de Protección de Datos (2026-11-27-v4).
+//  4. Aislamiento estricto por unidad operativa (U.G. vs U.S.) y principio de mínimo privilegio.
+//  5. Alineación exacta con el esquema real de los servicios (respaldos, chat, patrullas, incidencias, FCM, notificaciones).
+//  6. Inmutabilidad estricta en documentos firmados (v1 y v2), constancias de protección de datos, propuestas/decisiones de alias y auditorías.
+//  7. Protección estricta de campos personales en /cuentas/{uid} (lista blanca cliente: solo ultimoAcceso; revisión de alias exclusiva vía Admin SDK).
+//  8. Conservación del identificador histórico 'US_SEGURIDAD' para compatibilidad con datos existentes en Firestore.
+// ============================================================================
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper functions for security validation
-    function hasValidTimestamp(data) {
-      return data.fechaCreacion is string || data.timestamp is string;
+    // ------------------------------------------------------------------------
+    // FUNCIONES AUXILIARES DE CONTROL DE ACCESO, RBAC Y PROTECCIÓN DE DATOS
+    // ------------------------------------------------------------------------
+    function currentDataProtectionVersion() {
+      return '2026-11-27-v4';
     }
 
-    function isAuthenticated() {
+    function isSignedIn() {
       return request.auth != null;
     }
 
-    function isAdmin() {
-      return request.auth != null && (
-        (exists(/databases/$(database)/documents/cuentas/$(request.auth.uid)) &&
-         get(/databases/$(database)/documents/cuentas/$(request.auth.uid)).data.rol == 'ADMIN') ||
-        (request.auth.token.email in ['admin1@grupo.local', 'admin2@grupo.local', 'sarqsan2@gmail.com'])
+    function cuentaActualPath() {
+      return /databases/$(database)/documents/cuentas/$(request.auth.uid);
+    }
+
+    function aceptacionPdPath() {
+      return /databases/$(database)/documents/aceptaciones_proteccion_datos/$(request.auth.uid);
+    }
+
+    function tieneCuentaActivaEnDb() {
+      return exists(cuentaActualPath()) &&
+        'activo' in get(cuentaActualPath()).data &&
+        get(cuentaActualPath()).data.activo == true;
+    }
+
+    function hasAcceptedCurrentDataProtection() {
+      return isSignedIn() && (
+        ('pdVersion' in request.auth.token && request.auth.token.pdVersion == currentDataProtectionVersion()) ||
+        (
+          exists(aceptacionPdPath()) &&
+          'version' in get(aceptacionPdPath()).data &&
+          'estado' in get(aceptacionPdPath()).data &&
+          get(aceptacionPdPath()).data.version == currentDataProtectionVersion() &&
+          get(aceptacionPdPath()).data.estado == 'ACEPTADO'
+        )
       );
     }
 
-    // 1. Fichas de personal (ROL 1 / ROL 2)
-    match /personas/{personaId} {
-      allow read: if true;
-      allow create, update: if request.resource.data.nombre is string
-        && request.resource.data.nombre.size() > 0
-        && request.resource.data.empleo in ['ROL 1', 'ROL 2']
-        && request.resource.data.activo is bool;
-      allow delete: if true;
+    // Todo acceso operativo requiere sesión autenticada, cuenta activa y aceptación vigente del aviso
+    function isActiveUser() {
+      return isSignedIn() &&
+        hasAcceptedCurrentDataProtection() &&
+        (('activo' in request.auth.token && request.auth.token.activo == true) || tieneCuentaActivaEnDb());
     }
 
-    // 2. Cuentas de acceso: NUNCA se permiten contraseñas en texto plano
-    match /cuentas/{cuentaId} {
-      allow read: if true;
-      allow create, update: if !request.resource.data.keys().hasAny(['password'])
-        && request.resource.data.nombre is string
-        && request.resource.data.rol in ['ADMIN', 'USUARIO'];
-      allow delete: if true;
+    function isAdmin() {
+      return isActiveUser() && (
+        ('rol' in request.auth.token && request.auth.token.rol == 'ADMIN') ||
+        (exists(cuentaActualPath()) &&
+          'rol' in get(cuentaActualPath()).data &&
+          get(cuentaActualPath()).data.rol == 'ADMIN')
+      );
+    }
 
-      // Subcolección de tokens FCM para notificaciones
-      match /fcmTokens/{tokenId} {
-        allow read, write: if true;
+    function currentPersonaId() {
+      return ('personaId' in request.auth.token && request.auth.token.personaId != null)
+        ? request.auth.token.personaId
+        : (exists(cuentaActualPath()) && 'personaId' in get(cuentaActualPath()).data
+            ? get(cuentaActualPath()).data.personaId
+            : null);
+    }
+
+    function currentUnit() {
+      return ('tipoServicio' in request.auth.token && request.auth.token.tipoServicio != null)
+        ? request.auth.token.tipoServicio
+        : (exists(cuentaActualPath()) && 'tipoServicio' in get(cuentaActualPath()).data
+            ? get(cuentaActualPath()).data.tipoServicio
+            : 'GUARDIA');
+    }
+
+    // Compatibilidad histórica con valor persistido 'US_SEGURIDAD' hasta migración controlada
+    // + predicado positivo isDataUG con guardas de existencia para evitar errores CEL por propiedades ausentes
+    function isDataUS(data) {
+      return ('tipoServicio' in data && data.tipoServicio == 'US') ||
+             ('grupo' in data && (data.grupo == 'US_SEGURIDAD' || data.grupo == 'U.S.')) ||
+             ('grupoId' in data && (data.grupoId == 'US' || data.grupoId == 'US_SEGURIDAD' || data.grupoId == 'U.S.')) ||
+             ('solicitanteGrupo' in data && (data.solicitanteGrupo == 'US_SEGURIDAD' || data.solicitanteGrupo == 'U.S.'));
+    }
+
+    function isDataUG(data) {
+      return ('tipoServicio' in data && data.tipoServicio == 'GUARDIA') ||
+             ('grupo' in data && data.grupo == 'U.G.') ||
+             ('grupoId' in data && (data.grupoId == 'GUARDIA' || data.grupoId == 'U.G.')) ||
+             ('solicitanteGrupo' in data && data.solicitanteGrupo == 'U.G.');
+    }
+
+    // Para `allow list` (evaluación simbólica de consultas): exige SIEMPRE predicado positivo
+    // (sin negaciones `!isDataUS` que el analizador simbólico pueda satisfacer en consultas abiertas).
+    function docMatchesUserUnitForList(data) {
+      return currentUnit() == 'US'
+        ? isDataUS(data)
+        : isDataUG(data);
+    }
+
+    // Para `allow get` / `create` / `update` sobre documentos concretos reales:
+    // mantiene compatibilidad con documentos históricos U.G. sin `tipoServicio` ni `grupo`,
+    // bloqueando estrictamente cualquier documento identificado como U.S.
+    function docMatchesUserUnitForGet(data) {
+      return currentUnit() == 'US'
+        ? isDataUS(data)
+        : (isDataUG(data) || !isDataUS(data));
+    }
+
+    // I-05: Bloqueo de campos médicos o de salud en incidencias operativas
+    function hasNoMedicalFields(data) {
+      return !data.keys().hasAny([
+        'motivo',
+        'motivoMedico',
+        'diagnostico',
+        'enfermedad',
+        'indisposicion',
+        'sintomas',
+        'parteMedico',
+        'justificanteMedico',
+        'adjuntoMedico',
+        'notasMedicas'
+      ]);
+    }
+
+    function isInvolvedInSignedDoc(data) {
+      let pid = currentPersonaId();
+      return pid != null && (
+        ('personaA' in data && data.personaA != null && 'id' in data.personaA && data.personaA.id == pid) ||
+        ('personaB' in data && data.personaB != null && 'id' in data.personaB && data.personaB.id == pid)
+      );
+    }
+
+    // Orden Complementaria (Alias Libre): Lista blanca estricta para usuarios ordinarios en /cuentas/{uid}.
+    // Bloquea cualquier modificación directa en Firestore de campos personales o privilegiados
+    // (nombre, apellidos, email, telefono, firma, username, rol, empleo, grupo, tipoServicio, personaId, etc.).
+    // El alias libre se actualiza únicamente mediante backend (Admin SDK) registrando decisión independiente en /decisiones_alias.
+    function hasOnlyAllowedUserSelfProfileChanges() {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return changed.hasOnly(['ultimoAcceso']);
+    }
+
+    // ------------------------------------------------------------------------
+    // 0. CONSTANCIAS DE ACEPTACIÓN DEL AVISO OBLIGATORIO DE PROTECCIÓN DE DATOS
+    //    Persistencia exclusiva en servidor (Firebase Admin SDK); inmutable desde cliente.
+    // ------------------------------------------------------------------------
+    match /aceptaciones_proteccion_datos/{uid} {
+      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+      allow write: if false;
+
+      match /historial/{versionId} {
+        allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+        allow write: if false;
       }
     }
 
-    // 3. Cuadrantes y subcolección de servicios diarios
+    // ------------------------------------------------------------------------
+    // 0B. REGISTRO INDEPENDIENTE DE DECISIONES SOBRE ALIAS LIBRE
+    //     Colección separada de /aceptaciones_proteccion_datos; escritura exclusiva Admin SDK.
+    // ------------------------------------------------------------------------
+    match /decisiones_alias/{uid} {
+      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+      allow write: if false;
+
+      match /historial/{eventId} {
+        allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+        allow write: if false;
+      }
+    }
+
+    // ------------------------------------------------------------------------
+    // 0C. PROPUESTAS DE ALIAS Y REVISIÓN ADMINISTRATIVA OBLIGATORIA
+    //     - El usuario solo puede leer sus propias propuestas (nunca las de otros usuarios).
+    //     - ADMIN puede leer todas las propuestas.
+    //     - Toda escritura (proponer, aprobar, rechazar) está prohibida desde cliente (solo Admin SDK),
+    //       impidiendo auto-aprobación, manipulación del estado o falsificación del revisor.
+    // ------------------------------------------------------------------------
+    match /propuestas_alias/{propuestaId} {
+      allow read: if isAdmin() || (isSignedIn() && 'uid' in resource.data && resource.data.uid == request.auth.uid);
+      allow write: if false;
+    }
+
+    // Política centralizada de términos restringidos de alias (solo servidor Admin SDK)
+    match /configuracion_politica_alias/{docId} {
+      allow read, write: if false;
+    }
+
+    // Colecciones internas de estado de servidor (revocación, bloqueo de intentos y rate-limit distribuido)
+    match /sesiones_revocadas/{jti} {
+      allow read, write: if false;
+    }
+
+    match /bloqueos_acceso/{lockKey} {
+      allow read, write: if false;
+    }
+
+    match /rate_limits_servidor/{limitKey} {
+      allow read, write: if false;
+    }
+
+    // ------------------------------------------------------------------------
+    // 1. CUENTAS DE ACCESO Y SUBCOLECCIÓN DE TOKENS FCM POR USUARIO (NC-04)
+    // ------------------------------------------------------------------------
+    match /cuentas/{uid} {
+      // El propio usuario puede leer su cuenta para comprobar estado/aviso; ADMIN puede leer todas
+      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+
+      // Creación y cambios sensibles reservados al Admin SDK / ADMIN (nunca plaintext password)
+      allow create: if isAdmin() && !('password' in request.resource.data);
+
+      // El usuario autenticado con aviso aceptado SOLO puede actualizar ultimoAcceso desde cliente;
+      // cualquier campo personal (nombre, email, telefono, firma, etc.) queda estrictamente bloqueado
+      allow update: if (isAdmin() && !('password' in request.resource.data)) ||
+        (isActiveUser() && request.auth.uid == uid && hasOnlyAllowedUserSelfProfileChanges());
+
+      // Preservación histórica: borrado lógico (activo=false), nunca delete desde cliente
+      allow delete: if false;
+
+      // NC-04: Subcolección real utilizada por fcmTokenService.ts (cuentas/{uid}/fcmTokens/{tokenId})
+      match /fcmTokens/{tokenId} {
+        allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+        allow create, update: if isSignedIn() &&
+          request.auth.uid == uid &&
+          'uid' in request.resource.data &&
+          request.resource.data.uid == request.auth.uid;
+        allow delete: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+      }
+    }
+
+    // ------------------------------------------------------------------------
+    // 2. INVITACIONES DE ALTA DE UN SOLO USO (EXCLUSIVAMENTE SERVIDOR ADMIN SDK)
+    // ------------------------------------------------------------------------
+    match /invitaciones_alta/{tokenId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // ------------------------------------------------------------------------
+    // 3. PERSONAS (MINIMIZACIÓN ESTRICTA: PROPIA FICHA O ADMIN; DIRECTORIO OPERATIVO VÍA SERVIDOR)
+    //    Impide que usuarios ordinarios descarguen fichas completas de terceros
+    //    (teléfono, notas o nombre histórico) directamente desde Firestore.
+    // ------------------------------------------------------------------------
+    match /personas/{personaId} {
+      allow read: if isAdmin() || (
+        isActiveUser() && currentPersonaId() == personaId
+      );
+      allow create, update: if isAdmin();
+      allow delete: if false; // Borrado lógico mediante activo=false
+    }
+
+    // ------------------------------------------------------------------------
+    // 4. CICLOS OPERATIVOS
+    // ------------------------------------------------------------------------
+    match /ciclos/{cicloId} {
+      allow read: if isActiveUser();
+      allow create, update: if isAdmin();
+      allow delete: if false; // Borrado lógico mediante activo=false / archivado=true
+    }
+
+    // ------------------------------------------------------------------------
+    // 5. CUADRANTES Y SUBCOLECCIÓN SERVICIOS (AISLAMIENTO POR UNIDAD)
+    // ------------------------------------------------------------------------
     match /cuadrantes/{cuadranteId} {
-      allow read: if true;
-      allow create, update: if request.resource.data.nombre is string
-        && request.resource.data.fechaInicio is string
-        && request.resource.data.fechaFin is string;
-      allow delete: if true;
+      allow get: if isAdmin() || (isActiveUser() && docMatchesUserUnitForGet(resource.data));
+      allow list: if isAdmin() || (isActiveUser() && docMatchesUserUnitForList(resource.data));
+      allow create, update: if isAdmin();
+      allow delete: if false; // Preservación histórica: archivar en cliente o restaurar vía Admin SDK
 
       match /servicios/{servicioId} {
-        allow read, write: if true;
+        allow read: if isAdmin() || (
+          isActiveUser() &&
+          docMatchesUserUnitForGet(get(/databases/$(database)/documents/cuadrantes/$(cuadranteId)).data)
+        );
+        allow create, update: if isAdmin();
+        allow delete: if false;
       }
     }
 
-    // 4. Notificaciones operativas
-    match /notificaciones/{notificacionId} {
-      allow read: if true;
-      allow create, update: if request.resource.data.titulo is string
-        && request.resource.data.mensaje is string;
-      allow delete: if true;
-    }
-
-    // 5. Solicitudes de cambio de guardia entre compañeros
+    // ------------------------------------------------------------------------
+    // 6. SOLICITUDES DE CAMBIO / PERMUTAS (CONTROL DE ACTORES, TRANSICIONES Y CAMPOS — I-05)
+    // ------------------------------------------------------------------------
     match /solicitudes_cambio/{solicitudId} {
-      allow read: if true;
-      allow create, update: if request.resource.data.solicitantePersonaId is string
-        && request.resource.data.destinatarioPersonaId is string
-        && request.resource.data.estado is string;
-      allow delete: if true;
-    }
-
-    // 5b. Documentos de cambio firmados
-    match /documentos_cambio_firmados/{documentoId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated()
-        && request.resource.data.codigoVerificacion is string
-        && request.resource.data.codigoVerificacion.size() > 0
-        && request.resource.data.solicitudId is string
-        && request.resource.data.fechaEmision is string;
-      allow update: if isAuthenticated()
-        && request.resource.data.codigoVerificacion == resource.data.codigoVerificacion
-        && request.resource.data.solicitudId == resource.data.solicitudId;
-      allow delete: if isAdmin();
-    }
-    match /documentos_cambios_firmados/{documentoId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated()
-        && request.resource.data.codigoVerificacion is string
-        && request.resource.data.codigoVerificacion.size() > 0
-        && request.resource.data.solicitudId is string
-        && request.resource.data.fechaEmision is string;
-      allow update: if isAuthenticated()
-        && request.resource.data.codigoVerificacion == resource.data.codigoVerificacion
-        && request.resource.data.solicitudId == resource.data.solicitudId;
-      allow delete: if isAdmin();
-    }
-
-    // 5c. Configuración y registro de envíos a Personal
-    match /configuracion_sistema/{docId} {
-      allow read: if isAuthenticated();
-      allow create, update: if isAdmin()
-        && request.resource.data.destinatario is string
-        && request.resource.data.asunto is string;
-      allow delete: if false;
-    }
-    match /envios_email_cambios/{envioId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated()
-        && request.resource.data.id is string
-        && request.resource.data.idCambio is string
-        && request.resource.data.destinatario is string
-        && request.resource.data.fecha is string
-        && request.resource.data.estado in ['PENDIENTE', 'ENVIADO', 'ERROR', 'SIMULADO', 'DESCARTADO'];
-      allow update: if isAuthenticated()
-        && request.resource.data.idCambio == resource.data.idCambio
-        && request.resource.data.estado in ['PENDIENTE', 'ENVIADO', 'ERROR', 'SIMULADO', 'DESCARTADO'];
-      allow delete: if isAdmin();
-    }
-
-    // 6. Incidencias y ausencias
-    match /incidencias_ausencia/{incidenciaId} {
-      allow read: if true;
-      allow create, update: if request.resource.data.titularPersonaId is string
-        && request.resource.data.tipoAusencia is string;
-      allow delete: if true;
-    }
-
-    // 7. Registro inmutable de auditoría: ESTRICTAMENTE PROHIBIDO MODIFICAR O BORRAR
-    match /auditLogs/{logId} {
-      allow read: if true;
-      allow create: if request.resource.data.adminUid is string
-        && request.resource.data.accion is string;
-      allow update, delete: if false; // Inmutable
-    }
-
-    // 8. Mensajes de chat interno
-    match /mensajes_chat/{mensajeId} {
-      allow read: if true;
-      allow create: if request.resource.data.autorUid is string
-        && request.resource.data.contenido is string;
-      allow update, delete: if true;
-    }
-
-    // 9. Patrullas operativas
-    match /patrullas/{patrullaId} {
-      allow read: if true;
-      allow create, update: if request.resource.data.numeroSecuencial is number
-        && request.resource.data.fecha is string
-        && request.resource.data.personaId is string;
-      // Solo administradores pueden eliminar patrullas; denegado para usuarios comunes
-      allow delete: if isAdmin();
-    }
-
-    // 9b. Configuración del contador atómico de patrullas
-    match /patrullas_config/{configId} {
-      allow read: if true;
-      allow create, update: if request.resource.data.ultimoSecuencial is number
-        && request.resource.data.ultimoSecuencial >= 0;
-      allow delete: if false;
-    }
-
-    // 9c. Auditoría inmutable de patrullas
-    match /patrullas_audit/{auditId} {
-      allow read: if true;
-      allow create: if request.resource.data.patrullaId is string
-        && request.resource.data.accion is string;
-      allow update, delete: if false;
-    }
-
-    // 10. Ciclos operativos
-    match /ciclos/{cicloId} {
-      allow read, write: if true;
-    }
-
-    // 11. Ausencias y compensaciones US
-    match /ausencias_us/{id} {
-      allow read, write: if true;
-    }
-    match /compensacion_imaginarias_us/{id} {
-      allow read, write: if true;
-    }
-
-    // 12. Catálogo de Matrículas Autorizadas (Document ID canónico = matriculaNormalizada)
-    match /matriculas_autorizadas/{matriculaNormalizada} {
-      // Lectura permitida para consulta de accesos, catálogo maestro y semáforo
-      allow read: if true;
-      // Creación y modificación con validación estricta de estructura canónica
-      allow create, update: if request.resource.data.matriculaNormalizada is string
-        && request.resource.data.matriculaOriginal is string
-        && request.resource.data.activo is bool;
-      // Eliminación física terminantemente prohibida (únicamente baja lógica activo: false)
-      allow delete: if false;
-    }
-
-    // 13. Registro Inmutable de Auditoría de Matrículas (Append-Only)
-    match /matriculas_auditoria/{logId} {
-      allow read: if true;
-      allow create: if request.resource.data.usuarioUid is string
-        && request.resource.data.accion is string
-        && request.resource.data.matriculaNormalizada is string;
-      // Prohibida cualquier modificación o eliminación física
-      allow update, delete: if false;
-    }
-
-    // 14. Respaldos del Sistema (Backups diarios, manuales y de emergencia pre-restauración)
-    match /respaldos_sistema/{backupId} {
-      allow read: if isAuthenticated();
-      allow create: if isAdmin() || (
-        request.resource.data.tipo == 'AUTOMATICO'
-        && request.resource.data.tipoServicio in ['GUARDIA', 'US']
-        && request.resource.data.fechaCreacion is string
+      allow get: if isAdmin() || (
+        isActiveUser() && (
+          (currentPersonaId() != null && 'solicitantePersonaId' in resource.data && resource.data.solicitantePersonaId == currentPersonaId()) ||
+          (currentPersonaId() != null && 'destinatarioPersonaId' in resource.data && resource.data.destinatarioPersonaId == currentPersonaId()) ||
+          docMatchesUserUnitForGet(resource.data)
+        )
       );
-      allow update: if false; // Inmutable
-      allow delete: if isAdmin();
+
+      allow list: if isAdmin() || (
+        isActiveUser() && (
+          (currentPersonaId() != null && 'solicitantePersonaId' in resource.data && resource.data.solicitantePersonaId == currentPersonaId()) ||
+          (currentPersonaId() != null && 'destinatarioPersonaId' in resource.data && resource.data.destinatarioPersonaId == currentPersonaId()) ||
+          docMatchesUserUnitForList(resource.data)
+        )
+      );
+
+      allow create: if isAdmin() || (
+        isActiveUser() &&
+        'solicitantePersonaId' in request.resource.data &&
+        'destinatarioPersonaId' in request.resource.data &&
+        'estado' in request.resource.data &&
+        request.resource.data.solicitantePersonaId == currentPersonaId() &&
+        request.resource.data.solicitantePersonaId != request.resource.data.destinatarioPersonaId &&
+        request.resource.data.estado == 'PENDIENTE_COMPAÑERO' &&
+        !request.resource.data.keys().hasAny([
+          'autorizacionAdmin',
+          'aprobadoPorAdminUid',
+          'fechaResolucionAdmin',
+          'documentoFirmadoId'
+        ])
+      );
+
+      allow update: if isAdmin() || (
+        isActiveUser() &&
+        'estado' in resource.data &&
+        'estado' in request.resource.data && (
+          (
+            'destinatarioPersonaId' in resource.data &&
+            resource.data.destinatarioPersonaId == currentPersonaId() &&
+            resource.data.estado == 'PENDIENTE_COMPAÑERO' &&
+            request.resource.data.estado in ['ACEPTADA_COMPAÑERO', 'CONTRAOFERTA_COMPAÑERO', 'RECHAZADA_COMPAÑERO', 'PENDIENTE_ADMIN'] &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'estado',
+              'fechaRespuestaCompanero',
+              'firmaDestinatario',
+              'fechaFirmaDestinatario',
+              'esContraoferta',
+              'servicioDevolucionId',
+              'servicioDevolucionFecha',
+              'servicioDevolucionSlot',
+              'historialContraofertas',
+              'motivoRechazoCompanero'
+            ])
+          ) || (
+            'solicitantePersonaId' in resource.data &&
+            resource.data.solicitantePersonaId == currentPersonaId() &&
+            resource.data.estado in ['PENDIENTE_COMPAÑERO', 'CONTRAOFERTA_COMPAÑERO'] &&
+            request.resource.data.estado in ['CANCELADA', 'PENDIENTE_ADMIN', 'ACEPTADA_COMPAÑERO'] &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'estado',
+              'firmaSolicitante',
+              'fechaFirmaSolicitante',
+              'motivoCancelacion',
+              'fechaRespuestaCompanero'
+            ])
+          )
+        )
+      );
+
+      allow delete: if false;
     }
 
-    // Bloqueo por defecto para cualquier otra ruta no especificada
+    // ------------------------------------------------------------------------
+    // 7. DOCUMENTOS DE CAMBIO FIRMADOS — COLECCIÓN CANÓNICA ESTRICTAMENTE INMUTABLE
+    // ------------------------------------------------------------------------
+    match /documentos_cambios_firmados/{docId} {
+      allow read: if isAdmin() || (isActiveUser() && isInvolvedInSignedDoc(resource.data));
+      allow create: if isAdmin() &&
+        'codigoVerificacion' in request.resource.data &&
+        request.resource.data.codigoVerificacion is string &&
+        request.resource.data.codigoVerificacion.size() >= 8 &&
+        'solicitudId' in request.resource.data &&
+        request.resource.data.solicitudId is string;
+      allow update, delete: if false;
+    }
+
+    // 7b. COLECCIÓN HISTÓRICA LEGADA SINGULAR (SOLO LECTURA PARA PRESERVAR HISTÓRICOS v1)
+    match /documentos_cambio_firmados/{docId} {
+      allow read: if isAdmin() || (isActiveUser() && isInvolvedInSignedDoc(resource.data));
+      allow create, update, delete: if false;
+    }
+
+    // ------------------------------------------------------------------------
+    // 8. INCIDENCIAS DE AUSENCIA (U.G.) Y AUSENCIAS / COMPENSACIONES (U.S.)
+    //    NC-04 + C-02 + C-03 + C-04 + I-05
+    // ------------------------------------------------------------------------
+    match /incidencias_ausencia/{incidenciaId} {
+      allow read: if isAdmin() || (isActiveUser() && currentUnit() == 'GUARDIA');
+
+      allow create: if isAdmin() || (
+        isActiveUser() &&
+        currentUnit() == 'GUARDIA' &&
+        'titularPersonaId' in request.resource.data &&
+        'tipoAusencia' in request.resource.data &&
+        'estado' in request.resource.data &&
+        request.resource.data.titularPersonaId == currentPersonaId() &&
+        request.resource.data.tipoAusencia == 'AUSENCIA_SOBREVENIDA' &&
+        request.resource.data.estado == 'COMUNICADA_PENDIENTE_COBERTURA' &&
+        hasNoMedicalFields(request.resource.data)
+      );
+
+      allow update: if isAdmin() || (
+        isActiveUser() &&
+        currentUnit() == 'GUARDIA' &&
+        'tipoAusencia' in request.resource.data &&
+        'estado' in request.resource.data &&
+        request.resource.data.tipoAusencia == 'AUSENCIA_SOBREVENIDA' &&
+        hasNoMedicalFields(request.resource.data) &&
+        request.resource.data.estado in [
+          'IMAGINARIA_ACTIVADA_COBERTURA',
+          'COBERTURA_ACEPTADA_PENDIENTE_ADMIN',
+          'CANCELADA'
+        ] &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'confirmacionImaginaria',
+          'imaginariaAceptantePersonaId',
+          'imaginariaAceptanteNombre',
+          'imaginariaAceptanteEmpleo',
+          'fechaAceptacionImaginaria',
+          'estado'
+        ]) &&
+        (
+          ('titularPersonaId' in resource.data && resource.data.titularPersonaId == currentPersonaId()) ||
+          ('imaginariaNotificadaPersonaId' in resource.data && resource.data.imaginariaNotificadaPersonaId == currentPersonaId()) ||
+          ('imaginariaRol1PersonaId' in resource.data && resource.data.imaginariaRol1PersonaId == currentPersonaId()) ||
+          ('imaginariaRol2PersonaId' in resource.data && resource.data.imaginariaRol2PersonaId == currentPersonaId()) ||
+          ('confirmacionImaginaria' in resource.data &&
+           resource.data.confirmacionImaginaria != null &&
+           'personaId' in resource.data.confirmacionImaginaria &&
+           resource.data.confirmacionImaginaria.personaId == currentPersonaId())
+        )
+      );
+
+      allow delete: if false;
+    }
+
+    // C-02 + C-03: En cliente el usuario ordinario U.S. solo lee sus propias solicitudes
+    // (el cupo compartido se consulta proyectado vía GET /api/ausencias-us/resumen-operativo).
+    // Creación alineada con 'PENDIENTE_ADMIN' (y compatible con 'PENDIENTE'), impidiendo auto-aprobación.
+    match /ausencias_us/{ausenciaId} {
+      allow read: if isAdmin() || (
+        isActiveUser() && currentUnit() == 'US' &&
+        'personaId' in resource.data &&
+        resource.data.personaId == currentPersonaId()
+      );
+
+      allow create: if isAdmin() || (
+        isActiveUser() && currentUnit() == 'US' &&
+        'personaId' in request.resource.data &&
+        'estado' in request.resource.data &&
+        request.resource.data.personaId == currentPersonaId() &&
+        request.resource.data.estado in ['PENDIENTE_ADMIN', 'PENDIENTE'] &&
+        !request.resource.data.keys().hasAny(['adminResolucionNombre', 'fechaResolucion'])
+      );
+
+      allow update: if isAdmin();
+      allow delete: if false;
+    }
+
+    // C-04: Colección activa utilizada por compensacionImaginariasUSService.ts
+    match /imaginarias_activadas_us/{compId} {
+      allow read: if isAdmin() || (isActiveUser() && currentUnit() == 'US');
+      allow create, update: if isAdmin();
+      allow delete: if false;
+    }
+
+    // Compatibilidad preservada con colección histórica/complementaria
+    match /compensacion_imaginarias_us/{compId} {
+      allow read: if isAdmin() || (isActiveUser() && currentUnit() == 'US');
+      allow create, update: if isAdmin();
+      allow delete: if false;
+    }
+
+    // ------------------------------------------------------------------------
+    // CHAT INTERNO RETIRADO DEFINITIVAMENTE
+    // ------------------------------------------------------------------------
+    match /mensajes_chat/{msgId} {
+      allow read, write: if false;
+
+      match /{subdocument=**} {
+        allow read, write: if false;
+      }
+    }
+
+    // ------------------------------------------------------------------------
+    // 9B. NOTIFICACIONES OPERATIVAS INDEPENDIENTES (NC-03 y NC-04)
+    //     Preserva notificaciones de cuadrantes, cambios, coberturas, ausencias y avisos.
+    //     Bloquea la creación cliente de notificaciones heredadas exclusivas del chat.
+    // ------------------------------------------------------------------------
+    match /notificaciones/{notifId} {
+      allow get: if isAdmin() || (
+        isActiveUser() && (
+          (currentPersonaId() != null && 'destinatarioPersonaId' in resource.data && resource.data.destinatarioPersonaId == currentPersonaId()) ||
+          ('destinatarioUid' in resource.data && resource.data.destinatarioUid == request.auth.uid) ||
+          ('esParaTodos' in resource.data && resource.data.esParaTodos == true &&
+            (!('tipoServicio' in resource.data) || docMatchesUserUnitForGet(resource.data)))
+        )
+      );
+
+      allow list: if isAdmin() || (
+        isActiveUser() && (
+          (currentPersonaId() != null && 'destinatarioPersonaId' in resource.data && resource.data.destinatarioPersonaId == currentPersonaId()) ||
+          ('destinatarioUid' in resource.data && resource.data.destinatarioUid == request.auth.uid) ||
+          ('esParaTodos' in resource.data && resource.data.esParaTodos == true &&
+            docMatchesUserUnitForList(resource.data))
+        )
+      );
+
+      // NC-04: Las notificaciones globales (esParaTodos) quedan restringidas exclusivamente a ADMIN;
+      // usuarios ordinarios solo pueden generar avisos operativos dentro de su propia unidad.
+      // Refuerzo retirada chat: impide crear notificaciones heredadas exclusivas del chat interno.
+      allow create: if (
+        isAdmin() || (
+          isActiveUser() &&
+          (!('esParaTodos' in request.resource.data) || request.resource.data.esParaTodos != true) &&
+          (!('tipoServicio' in request.resource.data) || docMatchesUserUnitForGet(request.resource.data))
+        )
+      ) &&
+      (!('tipo' in request.resource.data) || !(request.resource.data.tipo in ['MENSAJE_ADMINISTRATIVO', 'MENSAJE_CHAT'])) &&
+      (!('linkTab' in request.resource.data) || request.resource.data.linkTab != 'chat');
+
+      // Un usuario solo puede marcar lectura en sus propias notificaciones (campo canónico fechaLeida)
+      // o añadirse a leidoPor en globales de su unidad; nunca alterar titulo ni mensaje.
+      allow update: if isAdmin() || (
+        isActiveUser() && (
+          (
+            (
+              (currentPersonaId() != null && 'destinatarioPersonaId' in resource.data && resource.data.destinatarioPersonaId == currentPersonaId()) ||
+              ('destinatarioUid' in resource.data && resource.data.destinatarioUid == request.auth.uid)
+            ) &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['leida', 'leidoPor', 'fechaLeida'])
+          ) || (
+            'esParaTodos' in resource.data &&
+            resource.data.esParaTodos == true &&
+            (!('tipoServicio' in resource.data) || docMatchesUserUnitForGet(resource.data)) &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['leidoPor'])
+          )
+        )
+      );
+
+      allow delete: if false;
+    }
+
+    // ------------------------------------------------------------------------
+    // 10. TOKENS FCM EN RAÍZ (COMPATIBILIDAD COMPLEMENTARIA A cuentas/{uid}/fcmTokens)
+    // ------------------------------------------------------------------------
+    match /fcmTokens/{tokenId} {
+      allow read: if isAdmin() || (isSignedIn() && 'uid' in resource.data && resource.data.uid == request.auth.uid);
+      allow create, update: if isSignedIn() && 'uid' in request.resource.data && request.resource.data.uid == request.auth.uid;
+      allow delete: if isAdmin() || (isSignedIn() && 'uid' in resource.data && resource.data.uid == request.auth.uid);
+    }
+
+    // ------------------------------------------------------------------------
+    // 11. PATRULLAS (SOLO U.G.) Y CONTROL DE MATRÍCULAS (SOLO U.S. / ADMIN)
+    // ------------------------------------------------------------------------
+    match /patrullas/{patrullaId} {
+      allow read: if isAdmin() || (isActiveUser() && currentUnit() == 'GUARDIA');
+      allow create, update: if isAdmin();
+      allow delete: if false;
+    }
+
+    match /patrullas_config/{configId} {
+      allow read: if isAdmin() || (isActiveUser() && currentUnit() == 'GUARDIA');
+      allow write: if isAdmin();
+    }
+
+    // Matrículas: mantenimiento y lectura directa reservados exclusivamente a ADMIN.
+    // Los usuarios ordinarios de U.S. realizan comprobaciones puntuales únicamente a través
+    // del endpoint autenticado POST /api/matriculas/comprobar, que devuelve { registrado: boolean }.
+    match /matriculas_autorizadas/{matriculaId} {
+      allow read: if isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ------------------------------------------------------------------------
+    // 12. CONFIGURACIÓN DEL SISTEMA, ENVÍOS EMAIL Y RESPALDOS (SOLO ADMIN)
+    //     NC-02: Lectura y creación separadas en respaldos_sistema (sin request.resource en read)
+    // ------------------------------------------------------------------------
+    match /configuracion_sistema/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /envios_email_cambios/{envioId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    match /respaldos_sistema/{backupId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin() &&
+        'id' in request.resource.data &&
+        request.resource.data.id is string &&
+        'tipoServicio' in request.resource.data &&
+        request.resource.data.tipoServicio in ['GUARDIA', 'US'] &&
+        'tipo' in request.resource.data &&
+        request.resource.data.tipo in ['AUTOMATICO', 'MANUAL', 'EMERGENCIA_PRE_RESTAURACION'];
+      allow update, delete: if false;
+
+      // Fragmentos inmutables de respaldos de emergencia > límite de documento (escritura exclusiva Admin SDK)
+      match /fragmentos/{chunkId} {
+        allow read: if isAdmin();
+        allow write: if false;
+      }
+    }
+
+    // ------------------------------------------------------------------------
+    // 13. AUDITORÍAS ESTRICTAMENTE APPEND-ONLY (NC-04 y NC-16)
+    // ------------------------------------------------------------------------
+    match /auditLogs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isActiveUser() &&
+        'adminUid' in request.resource.data &&
+        request.resource.data.adminUid == request.auth.uid &&
+        'accion' in request.resource.data &&
+        request.resource.data.accion is string &&
+        'detalles' in request.resource.data &&
+        request.resource.data.detalles is string;
+      allow update, delete: if false;
+    }
+
+    // NC-04: patrullaService.ts escribe usuarioUid (compatible también con adminUid)
+    match /patrullas_audit/{logId} {
+      allow read: if isAdmin();
+      allow create: if isActiveUser() && (
+        ('usuarioUid' in request.resource.data && request.resource.data.usuarioUid == request.auth.uid) ||
+        ('adminUid' in request.resource.data && request.resource.data.adminUid == request.auth.uid)
+      );
+      allow update, delete: if false;
+    }
+
+    match /matriculas_auditoria/{logId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    // ------------------------------------------------------------------------
+    // 14. DENEGACIÓN POR DEFECTO PARA CUALQUIER OTRA RUTA O COLECCIÓN
+    // ------------------------------------------------------------------------
     match /{document=**} {
       allow read, write: if false;
     }
   }
 }
-

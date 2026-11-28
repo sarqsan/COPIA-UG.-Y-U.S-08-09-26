@@ -3,7 +3,9 @@ import {
   doc,
   getDocs,
   setDoc,
+  updateDoc,
   query,
+  where,
   orderBy,
   arrayUnion,
   writeBatch,
@@ -14,6 +16,7 @@ import { Notificacion, TipoNotificacion, Empleo, TipoServicio } from '../types';
 import { enviarPushParaNotificacion } from './pushNotificationService';
 import { registrarDispositivoFCM } from './fcmTokenService';
 import { sanitizeForFirestore } from '../utils/firestoreSanitizer';
+import { assertNotImpersonating, isImpersonating } from '../utils/impersonationGuard';
 
 const NOTIFICACIONES_COLLECTION = 'notificaciones';
 const NOTIFICACIONES_STORAGE_KEY = 'notificaciones_cache_v3';
@@ -70,8 +73,28 @@ const saveNotifStorage = (notify: boolean = true) => {
 
 loadNotifStorage();
 
+export class ChatNotificationRemovedError extends Error {
+  constructor(message = 'Las notificaciones exclusivas del chat interno han sido retiradas definitivamente.') {
+    super(message);
+    this.name = 'ChatNotificationRemovedError';
+  }
+}
+
+export const esNotificacionExclusivaChat = (params: {
+  tipo?: string | null;
+  linkTab?: string | null;
+}): boolean => {
+  const tipoNorm = String(params.tipo || '').trim().toUpperCase();
+  const tabNorm = String(params.linkTab || '').trim().toLowerCase();
+  return (
+    tabNorm === 'chat' ||
+    tipoNorm === 'MENSAJE_ADMINISTRATIVO' ||
+    tipoNorm === 'MENSAJE_CHAT'
+  );
+};
+
 /**
- * Crea y envía una notificación en el sistema
+ * Crea y envía una notificación operativa independiente en el sistema
  */
 export const crearNotificacion = async (params: {
   tipo: TipoNotificacion;
@@ -88,6 +111,10 @@ export const crearNotificacion = async (params: {
   servicioId?: string;
   tipoServicio?: TipoServicio;
 }): Promise<Notificacion> => {
+  assertNotImpersonating('crearNotificacion');
+  if (esNotificacionExclusivaChat({ tipo: params.tipo as string, linkTab: params.linkTab })) {
+    throw new ChatNotificationRemovedError();
+  }
   const notifId = `notif-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
   const notificacion: Notificacion = {
     id: notifId,
@@ -142,36 +169,76 @@ export const crearNotificacion = async (params: {
 };
 
 /**
- * Obtiene las notificaciones que corresponden a un usuario o administrador
+ * Obtiene las notificaciones que corresponden a un usuario o administrador.
+ * C-02: Para usuarios ordinarios ejecuta exclusivamente consultas filtradas compatibles
+ * con firestore.rules (destinatarioPersonaId, destinatarioUid y globales de su unidad).
  */
 export const getNotificaciones = async (
   personaId?: string | null,
   uid?: string | null,
-  isAdmin: boolean = false
+  isAdmin: boolean = false,
+  tipoServicio?: TipoServicio
 ): Promise<Notificacion[]> => {
   loadNotifStorage();
   try {
     const colRef = collection(db, NOTIFICACIONES_COLLECTION);
-    const q = query(colRef, orderBy('fechaCreacion', 'desc'));
-    const snapshot = await getDocs(q);
+    const firestoreNotifs: Notificacion[] = [];
 
-    if (snapshot.empty) {
-      if (memoryNotificacionesCache.length === 0) {
-        for (const initNotif of INITIAL_NOTIFICATIONS) {
-          try {
-            await setDoc(doc(db, NOTIFICACIONES_COLLECTION, initNotif.id), initNotif);
-          } catch (e) {
-            // Ignore
+    if (isAdmin) {
+      const q = query(colRef, orderBy('fechaCreacion', 'desc'));
+      const snapshot = await getDocs(q);
+
+      if (snapshot.empty) {
+        if (memoryNotificacionesCache.length === 0 && !isImpersonating()) {
+          for (const initNotif of INITIAL_NOTIFICATIONS) {
+            try {
+              await setDoc(doc(db, NOTIFICACIONES_COLLECTION, initNotif.id), initNotif);
+            } catch {
+              // Ignore
+            }
           }
         }
+      } else {
+        snapshot.forEach((docSnap) => {
+          const item = docSnap.data() as Notificacion;
+          firestoreNotifs.push({ ...item, id: item.id || docSnap.id });
+        });
       }
     } else {
-      const firestoreNotifs: Notificacion[] = [];
-      snapshot.forEach((docSnap) => {
-        const item = docSnap.data() as Notificacion;
-        firestoreNotifs.push(item);
-      });
+      const userQueries = [];
+      if (personaId) {
+        userQueries.push(query(colRef, where('destinatarioPersonaId', '==', personaId)));
+      }
+      if (uid) {
+        userQueries.push(query(colRef, where('destinatarioUid', '==', uid)));
+      }
+      if (tipoServicio) {
+        userQueries.push(
+          query(
+            colRef,
+            where('esParaTodos', '==', true),
+            where('tipoServicio', '==', tipoServicio)
+          )
+        );
+      }
 
+      if (userQueries.length > 0) {
+        const settled = await Promise.allSettled(userQueries.map((uq) => getDocs(uq)));
+        const byId = new Map<string, Notificacion>();
+        for (const res of settled) {
+          if (res.status === 'fulfilled') {
+            res.value.forEach((docSnap) => {
+              const item = docSnap.data() as Notificacion;
+              const id = item.id || docSnap.id;
+              byId.set(id, { ...item, id });
+            });
+          }
+        }
+        firestoreNotifs.push(...byId.values());
+      }
+    }
+
+    if (firestoreNotifs.length > 0) {
       // Merge seguro: Firestore + Local Cache para no perder nunca notificaciones recién emitidas
       const mergedMap = new Map<string, Notificacion>();
       memoryNotificacionesCache.forEach((n) => {
@@ -252,6 +319,7 @@ export const getNotificaciones = async (
 
       return {
         ...item,
+        linkTab: item.linkTab?.toLowerCase() === 'chat' ? undefined : item.linkTab,
         leida: !!estaLeida,
       };
     })
@@ -259,107 +327,133 @@ export const getNotificaciones = async (
 };
 
 /**
- * Suscripción en tiempo real a las notificaciones para sincronización instantánea entre dispositivos
+ * Suscripción en tiempo real a las notificaciones para sincronización instantánea entre dispositivos.
+ * C-02: Para usuarios ordinarios utiliza únicamente suscripciones filtradas compatibles con firestore.rules.
  */
 export const subscribeNotificaciones = (
   callback: (notificaciones: Notificacion[]) => void,
   personaId?: string | null,
   uid?: string | null,
-  isAdmin: boolean = false
+  isAdmin: boolean = false,
+  tipoServicio?: TipoServicio
 ): (() => void) => {
   try {
     const colRef = collection(db, NOTIFICACIONES_COLLECTION);
-    const q = query(colRef, orderBy('fechaCreacion', 'desc'));
+    const targetQueries = isAdmin
+      ? [query(colRef, orderBy('fechaCreacion', 'desc'))]
+      : [
+          ...(personaId ? [query(colRef, where('destinatarioPersonaId', '==', personaId))] : []),
+          ...(uid ? [query(colRef, where('destinatarioUid', '==', uid))] : []),
+          ...(tipoServicio
+            ? [
+                query(
+                  colRef,
+                  where('esParaTodos', '==', true),
+                  where('tipoServicio', '==', tipoServicio)
+                ),
+              ]
+            : []),
+        ];
 
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const firestoreNotifs: Notificacion[] = [];
-        snapshot.forEach((docSnap) => {
-          firestoreNotifs.push(docSnap.data() as Notificacion);
-        });
+    if (targetQueries.length === 0) {
+      return () => {};
+    }
 
-        const mergedMap = new Map<string, Notificacion>();
-        memoryNotificacionesCache.forEach((n) => {
-          if (n && n.id) mergedMap.set(n.id, n);
-        });
-        firestoreNotifs.forEach((n) => {
-          if (n && n.id) {
-            const localItem = mergedMap.get(n.id);
-            const combinedLeidoPor = Array.from(
-              new Set([...(localItem?.leidoPor || []), ...(n.leidoPor || [])])
-            );
-            const estaLeidaLocal = !!localItem?.leida;
-            const estaLeidaRemoto = !!n.leida;
-            mergedMap.set(n.id, {
-              ...n,
-              leida: estaLeidaLocal || estaLeidaRemoto,
-              leidoPor: combinedLeidoPor,
-              fechaLeida: localItem?.fechaLeida || n.fechaLeida,
-            });
-          }
-        });
-
-        memoryNotificacionesCache = Array.from(mergedMap.values()).sort(
-          (a, b) => new Date(b.fechaCreacion || 0).getTime() - new Date(a.fechaCreacion || 0).getTime()
-        );
-        saveNotifStorage(false);
-
-        const userKeys: string[] = [];
-        if (uid) userKeys.push(uid);
-        if (personaId) {
-          userKeys.push(personaId);
-          userKeys.push(`user-${personaId}`);
+    const emitFiltered = (firestoreNotifs: Notificacion[]) => {
+      const mergedMap = new Map<string, Notificacion>();
+      memoryNotificacionesCache.forEach((n) => {
+        if (n && n.id) mergedMap.set(n.id, n);
+      });
+      firestoreNotifs.forEach((n) => {
+        if (n && n.id) {
+          const localItem = mergedMap.get(n.id);
+          const combinedLeidoPor = Array.from(
+            new Set([...(localItem?.leidoPor || []), ...(n.leidoPor || [])])
+          );
+          const estaLeidaLocal = !!localItem?.leida;
+          const estaLeidaRemoto = !!n.leida;
+          mergedMap.set(n.id, {
+            ...n,
+            leida: estaLeidaLocal || estaLeidaRemoto,
+            leidoPor: combinedLeidoPor,
+            fechaLeida: localItem?.fechaLeida || n.fechaLeida,
+          });
         }
-        if (isAdmin) {
-          userKeys.push('ADMIN_GLOBAL');
-          if (uid) userKeys.push(`admin-${uid}`);
-        }
+      });
 
-        const resultado = memoryNotificacionesCache
-          .filter((item) => {
-            // 1. Notificaciones expresamente dirigidas a este usuario por su personaId o UID
-            if (personaId && item.destinatarioPersonaId === personaId) return true;
-            if (uid && item.destinatarioUid === uid) return true;
+      memoryNotificacionesCache = Array.from(mergedMap.values()).sort(
+        (a, b) => new Date(b.fechaCreacion || 0).getTime() - new Date(a.fechaCreacion || 0).getTime()
+      );
+      saveNotifStorage(false);
 
-            // 2. Notificaciones globales para toda la plantilla
-            if (item.esParaTodos) return true;
-
-            // 3. Si el usuario actual es Administrador:
-            if (isAdmin) {
-              // Recibe notificaciones dirigidas al rol de administración o que requieran gestión administrativa
-              if (item.esParaAdmin) return true;
-              // Si no tiene destinatario específico de persona ni UID, es un aviso global/sistema para el Administrador
-              if (!item.destinatarioPersonaId && !item.destinatarioUid) return true;
-              // NUNCA recibir notificaciones personales privadas dirigidas a otros usuarios
-              return false;
-            }
-
-            return false;
-          })
-          .map((item) => {
-            const leidoPorArr = Array.isArray(item.leidoPor) ? item.leidoPor : [];
-            const leidaPorEsteUsuario = userKeys.some((k) => leidoPorArr.includes(k));
-            const esDirigidaAUsuario =
-              (personaId && item.destinatarioPersonaId === personaId) ||
-              (uid && item.destinatarioUid === uid);
-            const estaLeida = leidaPorEsteUsuario || (esDirigidaAUsuario && item.leida && leidoPorArr.length > 0);
-
-            return {
-              ...item,
-              leida: !!estaLeida,
-            };
-          })
-          .sort((a, b) => new Date(b.fechaCreacion).getTime() - new Date(a.fechaCreacion).getTime());
-
-        callback(resultado);
-      },
-      (err) => {
-        console.warn('Listener de notificaciones en tiempo real diferido:', err.message || err);
+      const userKeys: string[] = [];
+      if (uid) userKeys.push(uid);
+      if (personaId) {
+        userKeys.push(personaId);
+        userKeys.push(`user-${personaId}`);
       }
+      if (isAdmin) {
+        userKeys.push('ADMIN_GLOBAL');
+        if (uid) userKeys.push(`admin-${uid}`);
+      }
+
+      const resultado = memoryNotificacionesCache
+        .filter((item) => {
+          if (personaId && item.destinatarioPersonaId === personaId) return true;
+          if (uid && item.destinatarioUid === uid) return true;
+
+          if (item.esParaTodos) {
+            if (isAdmin || !tipoServicio || !item.tipoServicio) return true;
+            return item.tipoServicio === tipoServicio;
+          }
+
+          if (isAdmin) {
+            if (item.esParaAdmin) return true;
+            if (!item.destinatarioPersonaId && !item.destinatarioUid) return true;
+            return false;
+          }
+
+          return false;
+        })
+        .map((item) => {
+          const leidoPorArr = Array.isArray(item.leidoPor) ? item.leidoPor : [];
+          const leidaPorEsteUsuario = userKeys.some((k) => leidoPorArr.includes(k));
+          const esDirigidaAUsuario =
+            (personaId && item.destinatarioPersonaId === personaId) ||
+            (uid && item.destinatarioUid === uid);
+          const estaLeida = leidaPorEsteUsuario || (esDirigidaAUsuario && item.leida && leidoPorArr.length > 0);
+
+          return {
+            ...item,
+            linkTab: item.linkTab?.toLowerCase() === 'chat' ? undefined : item.linkTab,
+            leida: !!estaLeida,
+          };
+        })
+        .sort((a, b) => new Date(b.fechaCreacion).getTime() - new Date(a.fechaCreacion).getTime());
+
+      callback(resultado);
+    };
+
+    const unsubscribers = targetQueries.map((qItem) =>
+      onSnapshot(
+        qItem,
+        (snapshot) => {
+          const firestoreNotifs: Notificacion[] = [];
+          snapshot.forEach((docSnap) => {
+            const d = docSnap.data() as Notificacion;
+            firestoreNotifs.push({ ...d, id: d.id || docSnap.id });
+          });
+          emitFiltered(firestoreNotifs);
+        },
+        (err) => {
+          console.warn('Listener de notificaciones en tiempo real diferido:', err.message || err);
+        }
+      )
     );
 
-    return unsubscribe;
+    return () => {
+      unsubscribers.forEach((u) => u());
+    };
   } catch (err: any) {
     console.warn('Error configurando listener de notificaciones:', err.message || err);
     return () => {};
@@ -367,12 +461,41 @@ export const subscribeNotificaciones = (
 };
 
 /**
- * Marca una notificación como leída para un usuario o en general
+ * Construye el payload mínimo autorizado para marcar una notificación como leída
+ * en Firestore (sin tocar nunca titulo ni mensaje y usando el campo canónico fechaLeida).
+ */
+export const buildMarkNotificationReadPayload = (
+  item: Pick<Notificacion, 'destinatarioPersonaId' | 'destinatarioUid' | 'esParaAdmin' | 'esParaTodos'> | undefined,
+  readerKeys: string | string[],
+  nowIso: string,
+  isAdmin: boolean = false
+): Record<string, any> => {
+  const keys = Array.isArray(readerKeys) ? readerKeys : [readerKeys];
+  const updatePayload: Record<string, any> = {
+    leidoPor: arrayUnion(...keys),
+  };
+  const esPrivadaOAdmin = Boolean(
+    item?.destinatarioPersonaId ||
+      item?.destinatarioUid ||
+      (isAdmin && item?.esParaAdmin)
+  );
+  if (esPrivadaOAdmin) {
+    updatePayload.leida = true;
+    updatePayload.fechaLeida = nowIso;
+  }
+  return updatePayload;
+};
+
+/**
+ * Marca una notificación como leída para un usuario o en general.
+ * Utiliza updateDoc únicamente con los campos permitidos por firestore.rules
+ * (leidoPor y, en notificaciones individuales, leida + fechaLeida), sin alterar titulo ni mensaje.
  */
 export const marcarNotificacionLeida = async (
   notificacionId: string,
   userIdentifier?: string | null
 ): Promise<void> => {
+  assertNotImpersonating('marcarNotificacionLeida');
   const item = memoryNotificacionesCache.find((n) => n.id === notificacionId);
   const now = new Date().toISOString();
   const readerKey = userIdentifier || 'unknown-user';
@@ -392,30 +515,25 @@ export const marcarNotificacionLeida = async (
 
   try {
     const docRef = doc(db, NOTIFICACIONES_COLLECTION, notificacionId);
-    const updatePayload: any = {
-      titulo: item?.titulo || 'Notificación',
-      mensaje: item?.mensaje || '',
-      leidoPor: arrayUnion(readerKey),
-    };
-    if (item?.destinatarioPersonaId || item?.destinatarioUid) {
-      updatePayload.leida = true;
-      updatePayload.fechaLeida = now;
-    }
-    await setDoc(docRef, updatePayload, { merge: true });
+    const updatePayload = buildMarkNotificationReadPayload(item, readerKey, now, false);
+    await updateDoc(docRef, updatePayload);
   } catch (err: any) {
     console.warn('Actualización de notificación en Firestore diferida:', err.message || err);
   }
 };
 
 /**
- * Marca todas las notificaciones relevantes como leídas para este usuario
+ * Marca todas las notificaciones relevantes como leídas para este usuario,
+ * incluyendo las notificaciones globales de su unidad operativa (tipoServicio).
  */
 export const marcarTodasNotificacionesLeidas = async (
   personaId?: string | null,
   uid?: string | null,
-  isAdmin: boolean = false
+  isAdmin: boolean = false,
+  tipoServicio?: TipoServicio
 ): Promise<void> => {
-  const items = await getNotificaciones(personaId, uid, isAdmin);
+  assertNotImpersonating('marcarTodasNotificacionesLeidas');
+  const items = await getNotificaciones(personaId, uid, isAdmin, tipoServicio);
   const now = new Date().toISOString();
   const readerKey = uid || (personaId ? `user-${personaId}` : isAdmin ? 'ADMIN_GLOBAL' : 'user');
   const userKeys: string[] = [readerKey];
@@ -456,20 +574,8 @@ export const marcarTodasNotificacionesLeidas = async (
       const batch = writeBatch(db);
       chunk.forEach((n) => {
         const ref = doc(db, NOTIFICACIONES_COLLECTION, n.id);
-        const updateData: any = {
-          titulo: n.titulo || 'Notificación',
-          mensaje: n.mensaje || '',
-          leidoPor: arrayUnion(...userKeys),
-        };
-        if (
-          n.destinatarioPersonaId ||
-          n.destinatarioUid ||
-          (isAdmin && n.esParaAdmin)
-        ) {
-          updateData.leida = true;
-          updateData.fechaLeida = now;
-        }
-        batch.set(ref, updateData, { merge: true });
+        const updateData = buildMarkNotificationReadPayload(n, userKeys, now, isAdmin);
+        batch.update(ref, updateData);
       });
       await batch.commit();
     }

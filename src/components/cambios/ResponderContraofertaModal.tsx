@@ -4,6 +4,8 @@ import {
   responderSolicitudCompanero,
   responderContraofertaCompanero,
 } from '../../services/cambiosService';
+import { getApprovedAliasUS, resolveApprovedAliasById } from '../../utils/aliasHelper';
+import { useAuth } from '../../firebase/context';
 import {
   ArrowRightLeft,
   Calendar,
@@ -39,9 +41,20 @@ export const ResponderContraofertaModal: React.FC<ResponderContraofertaModalProp
   );
   const [propuestaTexto, setPropuestaTexto] = useState<string>('');
   const [motivoRechazo, setMotivoRechazo] = useState<string>('');
-  const [firmaAceptada, setFirmaAceptada] = useState<boolean>(true);
+  const [firmaAceptada, setFirmaAceptada] = useState<boolean>(false);
   const [enviando, setEnviando] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const { personas: sessionPersonas } = useAuth();
+  const isUS =
+    currentPersona.tipoServicio === 'US' ||
+    currentPersona.grupo === 'US_SEGURIDAD' ||
+    solicitud.solicitanteGrupo === 'US_SEGURIDAD' ||
+    solicitud.destinatarioGrupo === 'US_SEGURIDAD';
+  const solicitanteVisible = isUS
+    ? resolveApprovedAliasById(sessionPersonas, solicitud.solicitantePersonaId, 'US')
+    : solicitud.solicitanteNombre;
+  const miNombreVisible = isUS ? getApprovedAliasUS(currentPersona) : currentPersona.nombre;
 
   if (!isOpen) return null;
 
@@ -86,7 +99,7 @@ export const ResponderContraofertaModal: React.FC<ResponderContraofertaModalProp
           solicitudId: solicitud.id,
           aceptada: true,
           firmaDestinatario: `FIRMA_DIGITAL_${currentPersona.id}_${Date.now()}`,
-          personaInfo: { id: currentPersona.id, nombre: currentPersona.nombre, empleo: currentPersona.empleo },
+          personaInfo: { id: currentPersona.id, nombre: miNombreVisible, empleo: currentPersona.empleo },
         });
 
         if (res.success) {
@@ -110,7 +123,7 @@ export const ResponderContraofertaModal: React.FC<ResponderContraofertaModalProp
           propuestaContraoferta: propuestaTexto.trim() || `Propuesta de cobertura recíproca para el ${fechaDevolucion}`,
           servicioDevolucionId: srvDev?.id,
           servicioDevolucionFecha: fechaDevolucion || undefined,
-          personaInfo: { id: currentPersona.id, nombre: currentPersona.nombre, empleo: currentPersona.empleo },
+          personaInfo: { id: currentPersona.id, nombre: miNombreVisible, empleo: currentPersona.empleo },
         });
 
         if (res.success) {
@@ -125,7 +138,7 @@ export const ResponderContraofertaModal: React.FC<ResponderContraofertaModalProp
           solicitudId: solicitud.id,
           aceptada: false,
           motivoRechazo: motivoRechazo.trim() || 'No disponible para esa fecha',
-          personaInfo: { id: currentPersona.id, nombre: currentPersona.nombre, empleo: currentPersona.empleo },
+          personaInfo: { id: currentPersona.id, nombre: miNombreVisible, empleo: currentPersona.empleo },
         });
 
         if (res.success) {
@@ -155,7 +168,7 @@ export const ResponderContraofertaModal: React.FC<ResponderContraofertaModalProp
             <div>
               <h3 className="text-base font-bold">Responder Solicitud de Cambio</h3>
               <p className="text-xs text-slate-300">
-                Petición de {solicitud.solicitanteNombre} para el {solicitud.fechaServicio}
+                Petición de {solicitanteVisible} para el {solicitud.fechaServicio}
               </p>
             </div>
           </div>
@@ -178,7 +191,7 @@ export const ResponderContraofertaModal: React.FC<ResponderContraofertaModalProp
           <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1.5">
             <div className="flex items-center justify-between text-slate-700">
               <span className="font-semibold">Solicitante:</span>
-              <span className="font-bold text-slate-900">{solicitud.solicitanteNombre} ({solicitud.solicitanteEmpleo})</span>
+              <span className="font-bold text-slate-900">{solicitanteVisible} ({solicitud.solicitanteEmpleo})</span>
             </div>
             <div className="flex items-center justify-between text-slate-700">
               <span className="font-semibold">Fecha a cubrir:</span>
@@ -255,7 +268,7 @@ export const ResponderContraofertaModal: React.FC<ResponderContraofertaModalProp
                   className="rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4"
                 />
                 <span className="font-bold text-slate-900">
-                  Firmar como {currentPersona.nombre} ({currentPersona.empleo})
+                  Firmar como {miNombreVisible} ({currentPersona.empleo})
                 </span>
               </label>
             </div>

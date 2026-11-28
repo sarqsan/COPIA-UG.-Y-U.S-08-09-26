@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Notificacion, TipoNotificacion } from '../../types';
+import { Notificacion, TipoNotificacion, TipoServicio } from '../../types';
 import {
   getNotificaciones,
   marcarNotificacionLeida,
@@ -13,7 +13,6 @@ import {
   AlertTriangle,
   RefreshCw,
   X,
-  MessageSquare,
   ShieldAlert,
   ArrowRightLeft,
   Calendar,
@@ -29,6 +28,7 @@ interface NotificacionesModalProps {
   personaId?: string | null;
   uid?: string | null;
   isAdmin?: boolean;
+  tipoServicio?: TipoServicio;
   onNavigateTab?: (tab: string, referenciaId?: string) => void;
 }
 
@@ -38,6 +38,7 @@ export const NotificacionesModal: React.FC<NotificacionesModalProps> = ({
   personaId,
   uid,
   isAdmin = false,
+  tipoServicio,
   onNavigateTab,
 }) => {
   const [notificaciones, setNotificaciones] = useState<Notificacion[]>([]);
@@ -50,7 +51,7 @@ export const NotificacionesModal: React.FC<NotificacionesModalProps> = ({
   const cargar = async (showLoading: boolean = true) => {
     if (showLoading) setCargando(true);
     try {
-      const data = await getNotificaciones(personaId, uid, isAdmin);
+      const data = await getNotificaciones(personaId, uid, isAdmin, tipoServicio);
       setNotificaciones(data);
     } catch (err) {
       console.error('Error cargando notificaciones:', err);
@@ -71,7 +72,7 @@ export const NotificacionesModal: React.FC<NotificacionesModalProps> = ({
         window.removeEventListener('notificaciones_updated', handleUpdate);
       };
     }
-  }, [isOpen, personaId, uid, isAdmin]);
+  }, [isOpen, personaId, uid, isAdmin, tipoServicio]);
 
   if (!isOpen) return null;
 
@@ -90,7 +91,7 @@ export const NotificacionesModal: React.FC<NotificacionesModalProps> = ({
   };
 
   const handleMarcarTodas = async () => {
-    await marcarTodasNotificacionesLeidas(personaId, uid, isAdmin);
+    await marcarTodasNotificacionesLeidas(personaId, uid, isAdmin, tipoServicio);
     setNotificaciones((prev) =>
       prev.map((n) => ({ ...n, leida: true, fechaLeida: new Date().toISOString() }))
     );
@@ -111,8 +112,6 @@ export const NotificacionesModal: React.FC<NotificacionesModalProps> = ({
       case 'SOLICITUD_APROBADA_ADMIN':
       case 'SOLICITUD_PENDIENTE_ADMIN':
         return <ArrowRightLeft className="w-5 h-5 text-emerald-500" />;
-      case 'MENSAJE_ADMINISTRATIVO':
-        return <MessageSquare className="w-5 h-5 text-blue-500" />;
       default:
         return <Bell className="w-5 h-5 text-indigo-500" />;
     }
@@ -241,10 +240,15 @@ export const NotificacionesModal: React.FC<NotificacionesModalProps> = ({
 
             {/* Acciones de navegación contextual */}
             <div className="pt-2 flex flex-col sm:flex-row items-center gap-2">
-              {onNavigateTab && (
+              {onNavigateTab && selectedNotif.linkTab?.toLowerCase() !== 'chat' && (
                 <button
                   onClick={() => {
-                    const targetTab = selectedNotif.linkTab || (selectedNotif.esParaAdmin ? 'cuadrantes' : 'solicitudes');
+                    const targetTab =
+                      selectedNotif.linkTab && selectedNotif.linkTab.toLowerCase() !== 'chat'
+                        ? selectedNotif.linkTab
+                        : selectedNotif.esParaAdmin
+                        ? 'cuadrantes'
+                        : 'solicitudes';
                     onNavigateTab(targetTab, selectedNotif.referenciaId);
                     onClose();
                   }}

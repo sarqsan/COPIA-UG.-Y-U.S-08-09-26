@@ -221,6 +221,7 @@ async function runTests() {
     {
       id: 'us-2',
       nombre: 'CARREÑO US',
+      alias: 'NORTE-02',
       empleo: 'ROL 2',
       grupo: 'US_SEGURIDAD',
       telefono: '600000004',
@@ -561,21 +562,23 @@ async function runTests() {
   const labEne = contarLaborablesMes(eneServicios);
 
   // Noviembre: colTotalesStart = 4 + 30 = 34 -> Diurno=34, Nocturno=35, PR=38, TOT=42, HORAS=43, MAX=44
-  assert.equal(wsNovUS.getCell(6, 2).value, 'ARACIL US');
+  // Sin alias aprobado muestra denominación neutra 'Usuario U.S.' (nunca nombre histórico); con alias muestra el alias aprobado
+  assert.equal(wsNovUS.getCell(6, 2).value, 'Usuario U.S.');
+  assert.equal(wsNovUS.getCell(7, 2).value, 'NORTE-02');
   assert.equal(wsNovUS.getCell(6, 4 + 30 + 0).value, 1, 'Noviembre Diurnos ARACIL = 1');
   assert.equal(wsNovUS.getCell(6, 4 + 30 + 1).value, 0, 'Noviembre Nocturnos ARACIL = 0');
   assert.equal(wsNovUS.getCell(6, 4 + 30 + 9).value, '12h', 'Noviembre debe computar EXCLUSIVAMENTE 12h');
   assert.equal(wsNovUS.getCell(6, 4 + 30 + 10).value, `${labNov * 7}h`, 'Noviembre Horas Máx.');
 
   // Diciembre: colTotalesStart = 4 + 31 = 35
-  assert.equal(wsDicUS.getCell(6, 2).value, 'ARACIL US');
+  assert.equal(wsDicUS.getCell(6, 2).value, 'Usuario U.S.');
   assert.equal(wsDicUS.getCell(6, 4 + 31 + 0).value, 0, 'Diciembre Diurnos ARACIL = 0');
   assert.equal(wsDicUS.getCell(6, 4 + 31 + 1).value, 2, 'Diciembre Nocturnos ARACIL = 2');
   assert.equal(wsDicUS.getCell(6, 4 + 31 + 9).value, '24h', 'Diciembre debe computar EXCLUSIVAMENTE 24h (sin sumar Nov ni Ene)');
   assert.equal(wsDicUS.getCell(6, 4 + 31 + 10).value, `${labDic * 7}h`, 'Diciembre Horas Máx.');
 
   // Enero: colTotalesStart = 4 + 31 = 35
-  assert.equal(wsEneUS.getCell(6, 2).value, 'ARACIL US');
+  assert.equal(wsEneUS.getCell(6, 2).value, 'Usuario U.S.');
   assert.equal(wsEneUS.getCell(6, 4 + 31 + 0).value, 0, 'Enero Diurnos ARACIL = 0');
   assert.equal(wsEneUS.getCell(6, 4 + 31 + 4).value, 1, 'Enero Presentes ARACIL = 1');
   assert.equal(wsEneUS.getCell(6, 4 + 31 + 9).value, '7h', 'Enero debe computar EXCLUSIVAMENTE 7h (sin sumar Nov ni Dic)');

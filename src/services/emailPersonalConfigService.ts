@@ -2,6 +2,7 @@ import { doc, getDoc, setDoc, collection, query, orderBy, limit, getDocs } from 
 import { db } from '../firebase/config';
 import { EmailConfigPersonal, RegistroEnvioEmailCambio } from '../types';
 import { CUENTA_EMISORA_GMAIL } from './gmailAuthService';
+import { assertNotImpersonating } from '../utils/impersonationGuard';
 
 const CONFIG_DOC_PATH = 'configuracion_sistema';
 const CONFIG_DOC_ID = 'email_personal';
@@ -58,7 +59,7 @@ export const getEmailPersonalConfig = async (): Promise<EmailConfigPersonal> => 
       cachedConfig = {
         ...CONFIG_EMAIL_DEFAULT,
         ...data,
-        cuentaEmisora: CUENTA_EMISORA_GMAIL, // Garantizar emisor sarqsan2@gmail.com
+        cuentaEmisora: data.cuentaEmisora || CUENTA_EMISORA_GMAIL,
       };
       try {
         localStorage.setItem(STORAGE_CONFIG_KEY, JSON.stringify(cachedConfig));
@@ -78,10 +79,11 @@ export const guardarEmailPersonalConfig = async (
   nuevaConfig: Partial<EmailConfigPersonal>,
   adminUid?: string
 ): Promise<{ success: boolean; message: string; config: EmailConfigPersonal }> => {
+  assertNotImpersonating('guardarEmailPersonalConfig');
   const configActualizada: EmailConfigPersonal = {
     ...cachedConfig,
     ...nuevaConfig,
-    cuentaEmisora: CUENTA_EMISORA_GMAIL, // Siempre sarqsan2@gmail.com
+    cuentaEmisora: nuevaConfig.cuentaEmisora ?? cachedConfig.cuentaEmisora ?? CUENTA_EMISORA_GMAIL,
     ultimaActualizacion: new Date().toISOString(),
     actualizadoPor: adminUid || 'ADMIN',
   };
@@ -112,6 +114,7 @@ export const guardarEmailPersonalConfig = async (
  * Registra un envío (o intento de envío) en el historial
  */
 export const registrarEnvioEmail = async (registro: RegistroEnvioEmailCambio): Promise<void> => {
+  assertNotImpersonating('registrarEnvioEmail');
   // 1. Guardar en memoria
   const index = cachedEnvios.findIndex((e) => e.id === registro.id);
   if (index >= 0) {

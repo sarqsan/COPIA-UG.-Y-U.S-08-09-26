@@ -7,9 +7,26 @@ import {
 import { generarSimulacionCuadranteUS } from '../src/services/cuadranteUSGeneratorService';
 import { validarCuadranteUS } from '../src/services/cuadranteUSValidatorService';
 import { generateInitialMockPersonas } from '../src/services/seedService';
-import { PERMISOS_HISTORICOS_US } from '../src/services/ausenciasUSService';
 import { AusenciaDiaUS } from '../src/types/usTypes';
 import { generarRangoFechas } from '../src/services/cuadranteGeneratorService';
+
+const PERMISOS_TEST_NAVIDAD_US: {
+  personaId: string;
+  personaNombre: string;
+  tipoAusencia: 'PERMISO' | 'VACACIONES' | 'ASUNTOS_PROPIOS';
+  fechaInicio: string;
+  fechaFin: string;
+  motivo: string;
+}[] = [
+  {
+    personaId: 'test-us-persona-permiso-largo',
+    personaNombre: 'Personal U.S. 1 (Test)',
+    tipoAusencia: 'PERMISO',
+    fechaInicio: '2026-11-30',
+    fechaFin: '2027-01-29',
+    motivo: 'Permiso sintético de prueba para equidad de Navidad',
+  },
+];
 
 let passed = 0;
 let failed = 0;
@@ -40,17 +57,17 @@ async function runNavidadTests() {
   const personas = generateInitialMockPersonas().filter(
     (p) => p.grupo === 'US_SEGURIDAD' || p.tipoServicio === 'US'
   );
-  // Asociar a ARAGON (persona con permiso 30 Nov - 29 Ene)
+  // Asociar persona sintética con permiso 30 Nov - 29 Ene
   personas[0] = {
     ...personas[0],
-    id: 'excel-us-rol2-12-lz7r',
-    nombre: 'ARAGON',
+    id: 'test-us-persona-permiso-largo',
+    nombre: 'Personal U.S. 1 (Test)',
   };
   assert(personas.length === 16, `Plantilla U.S. tiene 16 personas (obtenido: ${personas.length})`);
 
-  // 3. Simular ausencias de Diciembre 2026 (ARAGON tiene permiso concedido 30 Nov - 29 Ene)
+  // 3. Simular ausencias de Diciembre 2026 (1 persona con permiso concedido 30 Nov - 29 Ene)
   const mapaAusencias: Record<string, AusenciaDiaUS[]> = {};
-  PERMISOS_HISTORICOS_US.forEach((perm) => {
+  PERMISOS_TEST_NAVIDAD_US.forEach((perm) => {
     const rango = generarRangoFechas(perm.fechaInicio, perm.fechaFin);
     rango.forEach((f) => {
       if (!mapaAusencias[f]) mapaAusencias[f] = [];
@@ -74,7 +91,7 @@ async function runNavidadTests() {
 
   assert(
     analisis.personalDisponibleCount === 15,
-    `Al haber 1 de permiso (ARAGON), quedan exactamente 15 personas disponibles (obtenido: ${analisis.personalDisponibleCount})`
+    `Al haber 1 persona de permiso, quedan exactamente 15 personas disponibles (obtenido: ${analisis.personalDisponibleCount})`
   );
   assert(
     analisis.repeticionesNecesarias === 1,

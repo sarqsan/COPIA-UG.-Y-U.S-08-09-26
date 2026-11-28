@@ -7,7 +7,6 @@ import {
   SolicitudCambio,
   IncidenciaAusencia,
   Notificacion,
-  ParteMedico,
   TipoServicio,
 } from '../types';
 import { getCuadrantes, getServiciosByCuadranteId } from '../services/cuadranteService';
@@ -21,10 +20,8 @@ import {
   getIncidenciasAusencia,
   aceptarCoberturaImaginaria,
   confirmarRecepcionAvisoImaginaria,
-  getPartesMedicos,
 } from '../services/ausenciasService';
 import { getNotificaciones, subscribeNotificaciones } from '../services/notificacionesService';
-import { ADMIN_CANAL_ID } from '../services/chatService';
 import { registrarAccionAudit } from '../services/auditService';
 import { SolicitarCambioModal } from '../components/cambios/SolicitarCambioModal';
 import { ResponderContraofertaModal } from '../components/cambios/ResponderContraofertaModal';
@@ -33,14 +30,15 @@ import { DocumentosCambioSection } from '../components/cambios/DocumentosCambioS
 import { ComunicarAusenciaModal } from '../components/ausencias/ComunicarAusenciaModal';
 import { NotificacionesModal } from '../components/notificaciones/NotificacionesModal';
 import { PushNotificationPrompt } from '../components/notificaciones/PushNotificationPrompt';
-import { ChatModal } from '../components/chat/ChatModal';
 import { CambiarPasswordModal } from '../components/auth/CambiarPasswordModal';
+import { MiPerfilAliasModal } from '../components/auth/MiPerfilAliasModal';
+import { ConsultaAvisoPrivacidadModal } from '../components/auth/ConsultaAvisoPrivacidadModal';
+import { getVisibleAlias } from '../utils/aliasHelper';
 import { CuadranteMensualView } from '../components/cuadrante/CuadranteMensualView';
 import { CuadranteUSMensualView } from '../components/cuadrante/CuadranteUSMensualView';
 import { clasificarDiaUS } from '../services/cuadranteUSCalendarHelper';
 import { ServicioDiaUS, SolicitudAusenciaUS } from '../types/usTypes';
 import { SolicitarAusenciaUSModal } from '../components/ausencias/SolicitarAusenciaUSModal';
-import { asegurarBackupDiario } from '../services/backupRestoreService';
 import { DetalleDiasConsumidosModal } from '../components/ausencias/DetalleDiasConsumidosModal';
 import { getSolicitudesAusenciaUS, subscribeAusenciasUS } from '../services/ausenciasUSService';
 import {
@@ -49,7 +47,6 @@ import {
 } from '../services/bolsaDiasService';
 import { getPatrullas } from '../services/patrullaService';
 import { Patrulla } from '../types/patrullaTypes';
-import { ChatPage } from './ChatPage';
 import { CuadranteGeneralExcelView } from '../components/cuadrante/CuadranteGeneralExcelView';
 import {
   Calendar,
@@ -59,10 +56,10 @@ import {
   LogOut,
   Clock,
   ArrowRightLeft,
+  Tag,
   ShieldAlert,
   RefreshCw,
   CheckCircle,
-  MessageSquare,
   UserCheck,
   CalendarDays,
   FileText,
@@ -78,10 +75,8 @@ import {
   Shield,
   Palmtree,
   FileSpreadsheet,
-  Car,
   Camera,
 } from 'lucide-react';
-import { MatriculasModuleView } from '../components/matriculas/MatriculasModuleView';
 import { MatriculaScannerModal } from '../components/matriculas/MatriculaScannerModal';
 import {
   getRolUG,
@@ -89,13 +84,33 @@ import {
   formatUsuarioUG,
   NOMBRE_GRUPO_UG,
 } from '../utils/ugNomenclatura';
+import { getApprovedAliasUS, resolveApprovedAliasById } from '../utils/aliasHelper';
 
 export const UserPortalPage: React.FC = () => {
-  const { currentCuenta, currentPersona, logout, loginAsSimulatedUser, personas } = useAuth();
+  const {
+    currentCuenta,
+    currentPersona,
+    logout,
+    personas,
+    dataProtectionStatus,
+    isImpersonating,
+    impersonationState,
+    exitReadOnlyImpersonation,
+  } = useAuth();
 
-  // Detección de Modo Simulación (Administrador viendo como usuario)
-  const impersonatorUid = localStorage.getItem('admin_impersonator_uid');
-  const impersonatorNombre = localStorage.getItem('admin_impersonator_nombre') || 'Administrador';
+  // Modo Simulación estrictamente en memoria y de SOLO LECTURA (R-07)
+  const impersonatorUid = isImpersonating ? impersonationState.impersonatorUid : null;
+  const impersonatorNombre = impersonationState.impersonatorNombre || 'Administrador';
+
+  const blockIfReadOnlyImpersonation = (accion: string): boolean => {
+    if (isImpersonating) {
+      alert(
+        `Acción bloqueada (${accion}): el modo "Ver como usuario" es estrictamente de SOLO LECTURA.`
+      );
+      return true;
+    }
+    return false;
+  };
 
   // Estados de datos
   const [cuadranteActivo, setCuadranteActivo] = useState<CuadranteMaestro | null>(null);
@@ -108,11 +123,10 @@ export const UserPortalPage: React.FC = () => {
   const [servicios, setServicios] = useState<ServicioDia[]>([]);
   const [solicitudes, setSolicitudes] = useState<SolicitudCambio[]>([]);
   const [incidencias, setIncidencias] = useState<IncidenciaAusencia[]>([]);
-  const [partesMedicos, setPartesMedicos] = useState<ParteMedico[]>([]);
   const [notificaciones, setNotificaciones] = useState<Notificacion[]>([]);
 
   // Pestañas activas en el portal del usuario
-  const [activeTab, setActiveTab] = useState<'proximos' | 'imaginarias' | 'solicitudes' | 'documentos' | 'bajas' | 'calendario' | 'cuadranteGeneral' | 'chat' | 'ausenciasUS' | 'patrullas' | 'matriculas'>('proximos');
+  const [activeTab, setActiveTab] = useState<'proximos' | 'imaginarias' | 'solicitudes' | 'documentos' | 'bajas' | 'calendario' | 'cuadranteGeneral' | 'ausenciasUS' | 'patrullas'>('proximos');
   const [misPatrullas, setMisPatrullas] = useState<Patrulla[]>([]);
   const [todasLasPatrullas, setTodasLasPatrullas] = useState<Patrulla[]>([]);
 
@@ -131,9 +145,8 @@ export const UserPortalPage: React.FC = () => {
   const [solicitudesAusenciaUS, setSolicitudesAusenciaUS] = useState<SolicitudAusenciaUS[]>([]);
   const [isNotificacionesOpen, setIsNotificacionesOpen] = useState(false);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
-  const [isChatOpen, setIsChatOpen] = useState(false);
-  const [chatInitialTab, setChatInitialTab] = useState<'GRUPO' | 'PRIVADO' | 'ADMINISTRATIVO'>('GRUPO');
-  const [chatInitialDestinatarioId, setChatInitialDestinatarioId] = useState<string | undefined>(undefined);
+  const [isPerfilAliasModalOpen, setIsPerfilAliasModalOpen] = useState(false);
+  const [isAvisoPrivacidadOpen, setIsAvisoPrivacidadOpen] = useState(false);
 
   const userTipoServicio: TipoServicio = currentPersona?.tipoServicio || (currentPersona?.grupo === 'US_SEGURIDAD' ? 'US' : 'GUARDIA');
 
@@ -223,12 +236,15 @@ export const UserPortalPage: React.FC = () => {
       setServicios(todosServicios);
       setIncidencias(todasIncidencias);
 
-      // Solicitudes de cambio del grupo activo del usuario
-      const sols = await getSolicitudesCambio(undefined, userTipoServicio);
+      // Solicitudes de cambio del grupo activo del usuario (C-02: consultas filtradas por unidad y personaId)
+      const sols = await getSolicitudesCambio(undefined, userTipoServicio, currentPersona?.id);
       setSolicitudes(sols);
 
       if (userTipoServicio === 'US') {
-        const ausUS = await getSolicitudesAusenciaUS();
+        const ausUS = await getSolicitudesAusenciaUS({
+          personaId: currentPersona?.id,
+          isAdmin: false,
+        });
         setSolicitudesAusenciaUS(ausUS);
       }
 
@@ -242,17 +258,18 @@ export const UserPortalPage: React.FC = () => {
       }
 
       if (currentPersona?.id) {
-        const partes = await getPartesMedicos(currentPersona.id, false);
-        setPartesMedicos(partes);
         const pats = await getPatrullas({ personaId: currentPersona.id });
         setMisPatrullas(pats);
       }
 
-      const notifs = await getNotificaciones(currentPersona?.id, currentCuenta?.uid, false);
+      const notifs = await getNotificaciones(
+        currentPersona?.id,
+        currentCuenta?.uid,
+        false,
+        userTipoServicio
+      );
       setNotificaciones(notifs);
-
-      // Garantizar la generación de la copia diaria del sistema incluso si solo accede un usuario
-      asegurarBackupDiario(userTipoServicio === 'US' ? 'US' : 'GUARDIA').catch(() => {});
+      // Los respaldos automáticos están restringidos exclusivamente a sesiones ADMIN autenticadas (R-10).
     } catch (err) {
       console.error('Error cargando datos de usuario:', err);
     }
@@ -266,7 +283,8 @@ export const UserPortalPage: React.FC = () => {
         setSolicitudes(sols);
       },
       undefined,
-      userTipoServicio
+      userTipoServicio,
+      currentPersona?.id
     );
 
     const unsubscribeNotificaciones = subscribeNotificaciones(
@@ -275,16 +293,28 @@ export const UserPortalPage: React.FC = () => {
       },
       currentPersona?.id,
       currentCuenta?.uid,
-      false
+      false,
+      userTipoServicio
     );
 
-    const unsubscribeAusenciasUS = subscribeAusenciasUS((aus) => {
-      setSolicitudesAusenciaUS(aus);
-    });
+    const unsubscribeAusenciasUS =
+      userTipoServicio === 'US'
+        ? subscribeAusenciasUS(
+            (aus) => {
+              setSolicitudesAusenciaUS(aus);
+            },
+            { personaId: currentPersona?.id, isAdmin: false }
+          )
+        : () => {};
 
     const handleUpdate = async () => {
       if (currentPersona?.id || currentCuenta?.uid) {
-        const notifs = await getNotificaciones(currentPersona?.id, currentCuenta?.uid, false);
+        const notifs = await getNotificaciones(
+          currentPersona?.id,
+          currentCuenta?.uid,
+          false,
+          userTipoServicio
+        );
         setNotificaciones(notifs);
       }
     };
@@ -301,9 +331,9 @@ export const UserPortalPage: React.FC = () => {
         const targetTab = event.data.linkTab;
         if (targetTab === 'matriculas') {
           if (userTipoServicio === 'US') {
-            setActiveTab('matriculas');
+            setIsMatriculaScannerOpen(true);
           }
-        } else if (targetTab && ['proximos', 'imaginarias', 'solicitudes', 'documentos', 'bajas', 'calendario', 'cuadranteGeneral', 'chat', 'ausenciasUS', 'patrullas'].includes(targetTab)) {
+        } else if (targetTab && ['proximos', 'imaginarias', 'solicitudes', 'documentos', 'bajas', 'calendario', 'cuadranteGeneral', 'ausenciasUS', 'patrullas'].includes(targetTab)) {
           setActiveTab(targetTab as any);
         } else if (targetTab === 'cuadrantes') {
           setActiveTab('calendario');
@@ -320,13 +350,13 @@ export const UserPortalPage: React.FC = () => {
       const urlTab = params.get('tab');
       if (urlTab === 'matriculas') {
         if (userTipoServicio === 'US') {
-          setActiveTab('matriculas');
+          setIsMatriculaScannerOpen(true);
         } else {
           // Bloqueo estricto para UG: Redirigir a 'proximos'
           setActiveTab('proximos');
         }
       } else if (urlTab) {
-        if (['proximos', 'imaginarias', 'solicitudes', 'documentos', 'bajas', 'calendario', 'cuadranteGeneral', 'chat', 'ausenciasUS', 'patrullas'].includes(urlTab)) {
+        if (['proximos', 'imaginarias', 'solicitudes', 'documentos', 'bajas', 'calendario', 'cuadranteGeneral', 'ausenciasUS', 'patrullas'].includes(urlTab)) {
           setActiveTab(urlTab as any);
         } else if (urlTab === 'cuadrantes') {
           setActiveTab('calendario');
@@ -623,8 +653,8 @@ export const UserPortalPage: React.FC = () => {
     return (solicitudes || []).filter((s) => s.solicitantePersonaId === currentPersona.id);
   }, [solicitudes, currentPersona]);
 
-  // 6. MIS SERVICIOS EN BAJA / INDISPOSICIÓN (Cubiertos por imaginarias)
-  // Servicios donde el usuario era el titular original y están en baja médica o cubiertos por un imaginaria
+  // 6. MIS SERVICIOS CON AUSENCIA SOBREVENIDA (Cubiertos por imaginarias)
+  // Servicios donde el usuario era el titular original y están cubiertos por un imaginaria
   const misServiciosEnBaja = useMemo(() => {
     if (!currentPersona) return [];
     const lista: {
@@ -675,14 +705,14 @@ export const UserPortalPage: React.FC = () => {
           id: inc.id,
           fecha: inc.fechaServicio,
           esFinDeSemana: srv?.esFinDeSemana ?? false,
-          motivo: inc.tipoAusencia || 'Indisposición médica comunicada',
+          motivo: 'AUSENCIA SOBREVENIDA',
           puestoNombre: `${getRolUG(inc.puesto || currentPersona.empleo)} (Titular)`,
           imaginariaCubridorId: inc.imaginariaAceptantePersonaId || inc.imaginariaNotificadaPersonaId,
           imaginariaCubridorNombre: cubridorNombre,
           imaginariaCubridorRol: getRolUG(rolCubridor),
           estadoBaja:
             inc.estado === 'COMUNICADA_PENDIENTE_COBERTURA'
-              ? 'Baja Comunicada — Aviso a Imaginaria'
+              ? 'Ausencia Sobrevenida — Aviso a Imaginaria'
               : 'Servicio Cubierto por Imaginaria',
           fechaComunicacion: (inc as any).fechaRegistro || (inc as any).fechaSolicitud || inc.fechaServicio,
           incidenciaId: inc.id,
@@ -690,7 +720,7 @@ export const UserPortalPage: React.FC = () => {
       }
     });
 
-    // B. Servicios del cuadrante donde era titular original pero está cubierto por baja
+    // B. Servicios del cuadrante donde era titular original pero está cubierto por imaginaria
     (servicios || []).forEach((s) => {
       const yaIncluido = lista.some((item) => item.fecha === s.fecha);
       if (yaIncluido) return;
@@ -710,10 +740,10 @@ export const UserPortalPage: React.FC = () => {
         const cubridor = (personas || []).find((p) => p.id === slotBaja.personaIdReal);
         const rolCubridor = slotBaja.empleoRequerido || currentPersona.empleo;
         lista.push({
-          id: `${s.id}-baja-${currentPersona.id}`,
+          id: `${s.id}-ausencia-${currentPersona.id}`,
           fecha: s.fecha,
           esFinDeSemana: s.esFinDeSemana,
-          motivo: slotBaja.motivoCambio || 'Indisposición / Baja médica',
+          motivo: 'AUSENCIA SOBREVENIDA',
           puestoNombre: `${getRolUG(rolCubridor)} (Titular)`,
           imaginariaCubridorId: slotBaja.personaIdReal,
           imaginariaCubridorNombre: cubridor ? formatUsuarioUG(cubridor, rolCubridor) : 'Imaginaria de guardia',
@@ -741,6 +771,7 @@ export const UserPortalPage: React.FC = () => {
 
   // Confirmar recepción del aviso de imaginaria (cambio a verde)
   const handleConfirmarRecepcionAviso = async (incId: string) => {
+    if (blockIfReadOnlyImpersonation('confirmar recepción de imaginaria')) return;
     if (!currentPersona) return;
     const res = await confirmarRecepcionAvisoImaginaria({
       incidenciaId: incId,
@@ -752,11 +783,15 @@ export const UserPortalPage: React.FC = () => {
 
   // Aceptar contraoferta propuesta por el compañero
   const handleAceptarContraoferta = async (solId: string) => {
+    if (blockIfReadOnlyImpersonation('aceptar contraoferta')) return;
     if (!currentPersona) return;
     const res = await aceptarContraofertaSolicitante({
       solicitudId: solId,
-      firmaSolicitante: `FIRMA_DIGITAL_${currentPersona.id}_${Date.now()}`,
-      personaInfo: { id: currentPersona.id, nombre: currentPersona.nombre },
+      firmaSolicitante: `ACEPTACION_ELECTRONICA_${currentPersona.id}_${Date.now()}`,
+      personaInfo: {
+        id: currentPersona.id,
+        nombre: userTipoServicio === 'US' ? getApprovedAliasUS(currentPersona) : currentPersona.nombre,
+      },
     });
     alert(res.message);
     cargarDatos();
@@ -767,6 +802,7 @@ export const UserPortalPage: React.FC = () => {
     if (!impersonatorUid) return;
 
     try {
+      await exitReadOnlyImpersonation();
       await registrarAccionAudit(
         'MODO_ADMIN_VER_COMO_USUARIO_FIN',
         {
@@ -778,14 +814,10 @@ export const UserPortalPage: React.FC = () => {
           id: currentPersona?.id || 'unknown',
           nombre: currentPersona?.nombre || 'Usuario',
         },
-        `Admin ${impersonatorNombre} finalizó la visualización simulada del usuario ${currentPersona?.nombre}`
+        `Admin ${impersonatorNombre} finalizó la visualización simulada de solo lectura del usuario ${currentPersona?.nombre}`
       );
     } catch (e) {
       console.warn('Error registrando fin de auditoria:', e);
-    } finally {
-      localStorage.removeItem('admin_impersonator_uid');
-      localStorage.removeItem('admin_impersonator_nombre');
-      await loginAsSimulatedUser(impersonatorUid);
     }
   };
 
@@ -841,13 +873,15 @@ export const UserPortalPage: React.FC = () => {
               }`}
             >
               {userTipoServicio === 'US'
-                ? (currentPersona?.nombre || 'U').charAt(0).toUpperCase()
-                : getApellidoUG(currentPersona).charAt(0).toUpperCase()}
+                ? getVisibleAlias(currentPersona || currentCuenta, 'U').charAt(0).toUpperCase()
+                : getApellidoUG(currentPersona || currentCuenta).charAt(0).toUpperCase()}
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-base font-black text-slate-900 dark:text-white sm:text-lg">
-                  {userTipoServicio === 'US' ? currentPersona?.nombre : formatUsuarioUG(currentPersona)}
+                  {userTipoServicio === 'US'
+                    ? getVisibleAlias(currentPersona || currentCuenta)
+                    : formatUsuarioUG(currentPersona || currentCuenta)}
                 </h1>
                 <span
                   className={`px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase ${
@@ -863,7 +897,7 @@ export const UserPortalPage: React.FC = () => {
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
                 {userTipoServicio === 'US' ? (
-                  <>Unidad: <strong>Unidad de Seguridad (U.S.)</strong> • Turnos 12h (D/N)</>
+                  <>Unidad: <strong>U.S.</strong> • Turnos 12h (D/N)</>
                 ) : (
                   <>Grupo: <strong>{NOMBRE_GRUPO_UG}</strong> • Turnos de Guardia 24h</>
                 )}
@@ -886,18 +920,30 @@ export const UserPortalPage: React.FC = () => {
               )}
             </button>
 
-            {/* Botón de Chat con Administración */}
+            {/* Botón de consulta permanente del Aviso de Privacidad */}
             <button
-              onClick={() => {
-                setChatInitialTab('PRIVADO');
-                setChatInitialDestinatarioId(ADMIN_CANAL_ID);
-                setIsChatOpen(true);
-              }}
-              className="flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50/80 px-3.5 py-2.5 text-xs font-bold text-indigo-900 hover:bg-indigo-100 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-300 transition cursor-pointer"
-              title="Chat Privado con Administración"
+              id="btn-abrir-aviso-privacidad"
+              onClick={() => setIsAvisoPrivacidadOpen(true)}
+              className="flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50/70 px-3 py-2.5 text-xs font-bold text-emerald-900 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-slate-800 dark:text-emerald-300 transition cursor-pointer"
+              title="Consultar Aviso de Privacidad vigente"
             >
-              <MessageSquare className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
-              <span className="hidden md:inline">Contactar Administración</span>
+              <FileCheck className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+              <span className="hidden md:inline">Privacidad</span>
+            </button>
+
+            {/* Botón Mi Perfil (Alias Libre) */}
+            <button
+              id="btn-abrir-perfil-alias"
+              disabled={isImpersonating}
+              onClick={() => {
+                if (blockIfReadOnlyImpersonation('editar alias de perfil')) return;
+                setIsPerfilAliasModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-white px-3 py-2.5 text-xs font-bold text-indigo-800 hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed dark:border-indigo-800 dark:bg-slate-800 dark:text-indigo-200 transition cursor-pointer"
+              title="Mi Perfil — Elegir o modificar mi alias libre"
+            >
+              <Tag className="h-3.5 w-3.5 text-indigo-500" />
+              <span className="hidden md:inline">Mi Alias</span>
             </button>
 
             {/* Botón de Cambiar Contraseña */}
@@ -936,7 +982,7 @@ export const UserPortalPage: React.FC = () => {
                   ⚠️ ALERTA DE COBERTURA DE SERVICIO ({alertasCoberturaPendientes.length})
                 </h3>
                 <p className="text-xs text-red-900 mt-0.5 leading-relaxed font-semibold">
-                  Estás designado como Imaginaria en la {NOMBRE_GRUPO_UG} y se ha comunicado una baja médica/indisposición para la guardia de 24h.
+                  Estás designado como Imaginaria en la {NOMBRE_GRUPO_UG} y se ha comunicado una ausencia sobrevenida para la guardia de 24h.
                 </p>
                 <div className="mt-2 p-2 bg-red-100 border border-red-300 rounded-lg text-[11px] font-bold text-red-900 flex items-center gap-1.5">
                   <span>ℹ️</span>
@@ -971,7 +1017,7 @@ export const UserPortalPage: React.FC = () => {
                         )}
                       </div>
                       <p className="text-[11px] text-slate-600 mt-0.5">
-                        Titular indispuesto: <strong>{formatUsuarioUG(inc.titularNombre, inc.puesto)}</strong> • Motivo: {inc.tipoAusencia || 'Indisposición'}
+                        Titular ausente: <strong>{formatUsuarioUG(inc.titularNombre, inc.puesto)}</strong> • Clasificación: AUSENCIA SOBREVENIDA
                       </p>
                     </div>
 
@@ -1008,7 +1054,7 @@ export const UserPortalPage: React.FC = () => {
                 <div>
                   <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400">
                     {userTipoServicio === 'US'
-                      ? 'Tu Próximo Turno de Servicio (Unidad de Seguridad)'
+                      ? 'Tu Próximo Turno de Servicio (U.S.)'
                       : `Tu Próxima Guardia de 24 Horas (${NOMBRE_GRUPO_UG})`}
                   </span>
                   <h2 className="text-lg font-black text-white">
@@ -1053,7 +1099,9 @@ export const UserPortalPage: React.FC = () => {
                           <Sun className="w-3 h-3" /> DIURNO (1):
                         </span>
                         <span className="font-semibold text-slate-200 truncate block mt-0.5">
-                          {personas.find((p) => p.id === sUS?.diurno?.titulares?.[0]?.personaIdReal)?.nombre || (sUS?.diurno?.titulares?.[0] as any)?.nombre || 'Sin asignar'}
+                          {sUS?.diurno?.titulares?.[0]?.personaIdReal
+                            ? resolveApprovedAliasById(personas, sUS.diurno.titulares[0].personaIdReal, 'US')
+                            : 'Sin asignar'}
                         </span>
                       </div>
                       <div className="p-2.5 bg-white/5 border border-white/10 rounded-xl">
@@ -1061,7 +1109,9 @@ export const UserPortalPage: React.FC = () => {
                           <Sun className="w-3 h-3" /> DIURNO (2):
                         </span>
                         <span className="font-semibold text-slate-200 truncate block mt-0.5">
-                          {personas.find((p) => p.id === sUS?.diurno?.titulares?.[1]?.personaIdReal)?.nombre || (sUS?.diurno?.titulares?.[1] as any)?.nombre || 'Sin asignar'}
+                          {sUS?.diurno?.titulares?.[1]?.personaIdReal
+                            ? resolveApprovedAliasById(personas, sUS.diurno.titulares[1].personaIdReal, 'US')
+                            : 'Sin asignar'}
                         </span>
                       </div>
                       <div className="p-2.5 bg-white/5 border border-white/10 rounded-xl">
@@ -1069,7 +1119,9 @@ export const UserPortalPage: React.FC = () => {
                           <Moon className="w-3 h-3" /> NOCTURNO (1):
                         </span>
                         <span className="font-semibold text-slate-200 truncate block mt-0.5">
-                          {personas.find((p) => p.id === sUS?.nocturno?.titulares?.[0]?.personaIdReal)?.nombre || (sUS?.nocturno?.titulares?.[0] as any)?.nombre || 'Sin asignar'}
+                          {sUS?.nocturno?.titulares?.[0]?.personaIdReal
+                            ? resolveApprovedAliasById(personas, sUS.nocturno.titulares[0].personaIdReal, 'US')
+                            : 'Sin asignar'}
                         </span>
                       </div>
                       <div className="p-2.5 bg-white/5 border border-white/10 rounded-xl">
@@ -1077,7 +1129,9 @@ export const UserPortalPage: React.FC = () => {
                           <Moon className="w-3 h-3" /> NOCTURNO (2):
                         </span>
                         <span className="font-semibold text-slate-200 truncate block mt-0.5">
-                          {personas.find((p) => p.id === sUS?.nocturno?.titulares?.[1]?.personaIdReal)?.nombre || (sUS?.nocturno?.titulares?.[1] as any)?.nombre || 'Sin asignar'}
+                          {sUS?.nocturno?.titulares?.[1]?.personaIdReal
+                            ? resolveApprovedAliasById(personas, sUS.nocturno.titulares[1].personaIdReal, 'US')
+                            : 'Sin asignar'}
                         </span>
                       </div>
                     </div>
@@ -1115,56 +1169,63 @@ export const UserPortalPage: React.FC = () => {
           </div>
         ) : (
           <div className="rounded-3xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900 text-center text-xs text-slate-500">
-            No tienes servicios titulares próximos programados en el cuadrante activo de la {userTipoServicio === 'US' ? 'Unidad de Seguridad (U.S.)' : NOMBRE_GRUPO_UG}.
+            No tienes servicios titulares próximos programados en el cuadrante activo de {userTipoServicio === 'US' ? 'U.S.' : NOMBRE_GRUPO_UG}.
           </div>
         )}
 
         {/* ACCIONES RÁPIDAS */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {userTipoServicio === 'US' ? (
             <button
-              onClick={() => setIsAusenciaUSModalOpen(true)}
-              className="flex flex-col items-center justify-center p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800 transition text-center gap-1.5 cursor-pointer"
+              disabled={isImpersonating}
+              onClick={() => {
+                if (blockIfReadOnlyImpersonation('solicitar ausencia U.S.')) return;
+                setIsAusenciaUSModalOpen(true);
+              }}
+              className="flex flex-col items-center justify-center p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-slate-900 dark:border-slate-800 transition text-center gap-1.5 cursor-pointer"
             >
               <div className="p-2.5 bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 rounded-xl">
                 <Palmtree className="w-5 h-5" />
               </div>
               <span className="text-xs font-bold text-slate-900 dark:text-white">Permiso / Vacaciones / A.P.</span>
-              <span className="text-[10px] text-slate-400">Solicitar cupo de ausencia</span>
+              <span className="text-[10px] text-slate-400">
+                {isImpersonating ? 'Solo lectura en simulación' : 'Solicitar cupo de ausencia'}
+              </span>
             </button>
           ) : (
             <button
-              onClick={() => setIsAusenciaModalOpen(true)}
-              className="flex flex-col items-center justify-center p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800 transition text-center gap-1.5 cursor-pointer"
+              disabled={isImpersonating}
+              onClick={() => {
+                if (blockIfReadOnlyImpersonation('comunicar ausencia')) return;
+                setIsAusenciaModalOpen(true);
+              }}
+              className="flex flex-col items-center justify-center p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-slate-900 dark:border-slate-800 transition text-center gap-1.5 cursor-pointer"
             >
               <div className="p-2.5 bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300 rounded-xl">
                 <ShieldAlert className="w-5 h-5" />
               </div>
               <span className="text-xs font-bold text-slate-900 dark:text-white">Comunicar Ausencia</span>
-              <span className="text-[10px] text-slate-400">Alerta a imaginarias</span>
+              <span className="text-[10px] text-slate-400">
+                {isImpersonating ? 'Solo lectura en simulación' : 'Alerta a imaginarias'}
+              </span>
             </button>
           )}
 
           <button
-            onClick={() => setIsCambioModalOpen(true)}
-            className="flex flex-col items-center justify-center p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800 transition text-center gap-1.5 cursor-pointer"
+            disabled={isImpersonating}
+            onClick={() => {
+              if (blockIfReadOnlyImpersonation('solicitar permuta')) return;
+              setIsCambioModalOpen(true);
+            }}
+            className="flex flex-col items-center justify-center p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-slate-900 dark:border-slate-800 transition text-center gap-1.5 cursor-pointer"
           >
             <div className="p-2.5 bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 rounded-xl">
               <ArrowRightLeft className="w-5 h-5" />
             </div>
             <span className="text-xs font-bold text-slate-900 dark:text-white">Solicitar Permuta</span>
-            <span className="text-[10px] text-slate-400">Cambio entre personal</span>
-          </button>
-
-          <button
-            onClick={() => setIsChatOpen(true)}
-            className="flex flex-col items-center justify-center p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800 transition text-center gap-1.5 cursor-pointer"
-          >
-            <div className="p-2.5 bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 rounded-xl">
-              <MessageSquare className="w-5 h-5" />
-            </div>
-            <span className="text-xs font-bold text-slate-900 dark:text-white">{userTipoServicio === 'US' ? 'Chat de la U.S.' : 'Chat del Grupo'}</span>
-            <span className="text-[10px] text-slate-400">Canal y avisos</span>
+            <span className="text-[10px] text-slate-400">
+              {isImpersonating ? 'Solo lectura en simulación' : 'Cambio entre personal'}
+            </span>
           </button>
 
           <button
@@ -1207,7 +1268,7 @@ export const UserPortalPage: React.FC = () => {
                 <Camera className="w-5 h-5" />
               </div>
               <span className="text-xs font-black text-emerald-800 dark:text-emerald-300">Consultar Matrícula</span>
-              <span className="text-[10px] text-emerald-600 dark:text-emerald-400">Cámara rápida • Semáforo</span>
+              <span className="text-[10px] text-emerald-600 dark:text-emerald-400">Cámara o manual • Comprobación</span>
             </button>
           )}
         </div>
@@ -1278,21 +1339,6 @@ export const UserPortalPage: React.FC = () => {
               </button>
             )}
 
-            {userTipoServicio === 'US' && (
-              <button
-                id="btn-portal-matriculas-us"
-                onClick={() => setActiveTab('matriculas')}
-                className={`px-4 py-2 rounded-xl transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
-                  activeTab === 'matriculas'
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'
-                }`}
-              >
-                <Car className="w-4 h-4" />
-                🚘 Reconocimiento de matrículas
-              </button>
-            )}
-
             <button
               onClick={() => setActiveTab('documentos')}
               className={`px-4 py-2 rounded-xl transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
@@ -1315,7 +1361,7 @@ export const UserPortalPage: React.FC = () => {
               }`}
             >
               <ShieldAlert className="w-4 h-4" />
-              Mis Bajas ({misServiciosEnBaja.length})
+              Ausencias Sobrevenidas ({misServiciosEnBaja.length})
             </button>
             <button
               onClick={() => setActiveTab('calendario')}
@@ -1339,17 +1385,6 @@ export const UserPortalPage: React.FC = () => {
               <FileSpreadsheet className="w-4 h-4" />
               Ver cuadrante general
             </button>
-            <button
-              onClick={() => setActiveTab('chat')}
-              className={`px-4 py-2 rounded-xl transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
-                activeTab === 'chat'
-                  ? 'bg-slate-900 text-white shadow-xs dark:bg-white dark:text-slate-900'
-                  : 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'
-              }`}
-            >
-              <MessageSquare className="w-4 h-4" />
-              Canal de Chat
-            </button>
           </div>
 
           {/* Contenido de Tabs */}
@@ -1357,14 +1392,14 @@ export const UserPortalPage: React.FC = () => {
             {/* TAB 1: MIS SERVICIOS */}
             {activeTab === 'proximos' && (
               <div className="space-y-3">
-                {/* Banner de aviso si tiene servicios en situación de baja cubiertos */}
+                {/* Banner de aviso si tiene servicios con ausencia sobrevenida cubiertos */}
                 {misServiciosEnBaja.length > 0 && (
                   <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
                     <div className="flex items-start sm:items-center gap-2.5">
                       <ShieldAlert className="w-5 h-5 text-amber-700 dark:text-amber-400 shrink-0 mt-0.5 sm:mt-0" />
                       <div>
                         <p className="font-bold text-amber-900 dark:text-amber-200">
-                          Tienes {misServiciosEnBaja.length} servicio(s) en situación de baja cubierto(s) por el servicio de imaginaria.
+                          Tienes {misServiciosEnBaja.length} servicio(s) con ausencia sobrevenida cubierto(s) por el servicio de imaginaria.
                         </p>
                         <p className="text-[11px] text-amber-700 dark:text-amber-300 mt-0.5">
                           Para mantener tu cuadrante activo limpio, estos servicios se gestionan en la pestaña especializada.
@@ -1375,7 +1410,7 @@ export const UserPortalPage: React.FC = () => {
                       onClick={() => setActiveTab('bajas')}
                       className="px-3 py-1.5 bg-amber-700 hover:bg-amber-800 text-white rounded-xl text-xs font-bold transition shrink-0 cursor-pointer"
                     >
-                      Ver Mis Bajas ({misServiciosEnBaja.length})
+                      Ver Ausencias Sobrevenidas ({misServiciosEnBaja.length})
                     </button>
                   </div>
                 )}
@@ -1495,7 +1530,7 @@ export const UserPortalPage: React.FC = () => {
                         {item.esCoberturaImaginaria ? (
                           <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 text-[10px] font-bold rounded-lg flex items-center gap-1">
                             <CheckCircle className="w-3 h-3" />
-                            {item.titularOriginalNombre ? `Cubriendo a ${item.titularOriginalNombre}` : 'Cobertura de Baja'}
+                            {item.titularOriginalNombre ? `Cubriendo a ${item.titularOriginalNombre}` : 'Cobertura Ausencia Sobrevenida'}
                           </span>
                         ) : item.estaCambiado ? (
                           <span className="px-2.5 py-1 bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 text-[10px] font-bold rounded-lg flex items-center gap-1">
@@ -1530,11 +1565,11 @@ export const UserPortalPage: React.FC = () => {
                 <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-xl text-xs text-amber-900 dark:text-amber-200 leading-relaxed">
                   {userTipoServicio === 'US' ? (
                     <>
-                      <strong>Servicio de Imaginaria (U.S.):</strong> Turno de disponibilidad de 24h en la Unidad de Seguridad para cubrir posibles indisposiciones en turnos diurnos o nocturnos.
+                      <strong>Servicio de Imaginaria (U.S.):</strong> Turno de disponibilidad de 24h en U.S. para cubrir posibles ausencias sobrevenidas en turnos diurnos o nocturnos.
                     </>
                   ) : (
                     <>
-                      <strong>Servicio de Imaginaria:</strong> Turno de disponibilidad de 24h (08:00 a 08:00) en la {NOMBRE_GRUPO_UG} para cubrir posibles indisposiciones. Si pasas a cubrir una guardia, el servicio se trasladará automáticamente a la pestaña de "Mis Servicios".
+                      <strong>Servicio de Imaginaria:</strong> Turno de disponibilidad de 24h (08:00 a 08:00) en la {NOMBRE_GRUPO_UG} para cubrir posibles ausencias sobrevenidas. Si pasas a cubrir una guardia, el servicio se trasladará automáticamente a la pestaña de "Mis Servicios".
                     </>
                   )}
                 </div>
@@ -1613,7 +1648,9 @@ export const UserPortalPage: React.FC = () => {
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                           <div>
                             <h5 className="text-xs font-bold text-slate-900 dark:text-white">
-                              {formatUsuarioUG(sol.solicitanteNombre, sol.solicitanteEmpleo)} solicita que cubras su guardia del {sol.fechaServicio}
+                              {userTipoServicio === 'US'
+                                ? `${resolveApprovedAliasById(personas, sol.solicitantePersonaId, 'US')} solicita que cubras su servicio del ${sol.fechaServicio}`
+                                : `${formatUsuarioUG(sol.solicitanteNombre, sol.solicitanteEmpleo)} solicita que cubras su guardia del ${sol.fechaServicio}`}
                             </h5>
                             <p className="text-[11px] text-slate-500 mt-0.5">
                               Tipo: <strong>{sol.tipoCambio === 'IMAGINARIA' ? 'Imaginaria' : 'Guardia 24h'}</strong> • Motivo: {sol.motivo || 'Sin motivo especificado'}
@@ -1683,7 +1720,10 @@ export const UserPortalPage: React.FC = () => {
                         <div className="flex items-center justify-between gap-3">
                           <div>
                             <h5 className="text-xs font-bold text-slate-900 dark:text-white">
-                              Permuta para el {sol.fechaServicio} a {formatUsuarioUG(sol.destinatarioNombre, sol.destinatarioEmpleo)}
+                              Permuta para el {sol.fechaServicio} a{' '}
+                              {userTipoServicio === 'US'
+                                ? resolveApprovedAliasById(personas, sol.destinatarioPersonaId, 'US')
+                                : formatUsuarioUG(sol.destinatarioNombre, sol.destinatarioEmpleo)}
                             </h5>
                             <span className="text-[11px] text-slate-500">
                               Enviada el {new Date(sol.fechaSolicitud).toLocaleDateString('es-ES')}
@@ -1712,7 +1752,12 @@ export const UserPortalPage: React.FC = () => {
                           <div className="p-3 bg-purple-50 border border-purple-200 rounded-xl space-y-2 text-xs">
                             <div className="font-bold text-purple-950 flex items-center gap-1.5">
                               <RotateCcw className="w-4 h-4 text-purple-700" />
-                              <span>{formatUsuarioUG(sol.destinatarioNombre, sol.destinatarioEmpleo)} ha propuesto una contraoferta:</span>
+                              <span>
+                                {userTipoServicio === 'US'
+                                  ? resolveApprovedAliasById(personas, sol.destinatarioPersonaId, 'US')
+                                  : formatUsuarioUG(sol.destinatarioNombre, sol.destinatarioEmpleo)}{' '}
+                                ha propuesto una contraoferta:
+                              </span>
                             </div>
                             <p className="text-[11px] text-purple-900">
                               {sol.historialContraofertas?.[sol.historialContraofertas.length - 1]?.propuesta || 'Propuesta de fecha alternativa recibida.'}
@@ -1958,27 +2003,22 @@ export const UserPortalPage: React.FC = () => {
               </div>
             )}
 
-            {/* TAB RECONOCIMIENTO DE MATRÍCULAS (Solo U.S.) */}
-            {activeTab === 'matriculas' && userTipoServicio === 'US' && (
-              <MatriculasModuleView />
-            )}
-
             {/* TAB DOCUMENTOS: DILIGENCIAS FIRMADAS */}
             {activeTab === 'documentos' && (
               <DocumentosCambioSection currentPersona={currentPersona} isAdmin={false} />
             )}
 
-            {/* TAB 4: MIS BAJAS Y SERVICIOS CUBIERTOS */}
+            {/* TAB 4: AUSENCIAS SOBREVENIDAS Y SERVICIOS CUBIERTOS */}
             {activeTab === 'bajas' && (
               <div className="space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
                   <div>
                     <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
                       <ShieldAlert className="w-4 h-4 text-red-600 dark:text-red-400" />
-                      <span>Mis Bajas y Servicios Cubiertos ({NOMBRE_GRUPO_UG})</span>
+                      <span>Ausencias Sobrevenidas y Servicios Cubiertos ({NOMBRE_GRUPO_UG})</span>
                     </h3>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      Tus servicios de guardia asignados que han sido cubiertos por los imaginarias debido a baja o indisposición médica.
+                      Tus servicios de guardia asignados que han sido cubiertos por las imaginarias debido a una ausencia sobrevenida.
                     </p>
                   </div>
                   <button
@@ -1986,7 +2026,7 @@ export const UserPortalPage: React.FC = () => {
                     className="px-3.5 py-1.5 bg-red-700 hover:bg-red-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition shadow-xs cursor-pointer self-start sm:self-auto"
                   >
                     <ShieldAlert className="w-3.5 h-3.5" />
-                    Comunicar Nueva Baja / Indisposición
+                    Comunicar Ausencia Sobrevenida
                   </button>
                 </div>
 
@@ -1999,7 +2039,7 @@ export const UserPortalPage: React.FC = () => {
 
                   {misServiciosEnBaja.length === 0 ? (
                     <div className="text-center py-8 border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl p-6 text-xs text-slate-400">
-                      No tienes ningún servicio de guardia en situación de baja. Todos tus servicios asignados están activos en tu calendario.
+                      No tienes ningún servicio de guardia con ausencia sobrevenida. Todos tus servicios asignados están activos en tu calendario.
                     </div>
                   ) : (
                     <div className="space-y-2.5">
@@ -2060,7 +2100,7 @@ export const UserPortalPage: React.FC = () => {
                                 <AlertTriangle className="w-3.5 h-3.5" />
                               </div>
                               <div>
-                                <span className="text-[10px] text-slate-400 block font-semibold uppercase">Motivo / Causa:</span>
+                                <span className="text-[10px] text-slate-400 block font-semibold uppercase">Clasificación Operativa:</span>
                                 <span className="font-bold text-slate-900 dark:text-white">
                                   {item.motivo}
                                 </span>
@@ -2086,80 +2126,6 @@ export const UserPortalPage: React.FC = () => {
                     </div>
                   )}
                 </div>
-
-                {/* SECCIÓN 2: DOCUMENTOS MÉDICOS (SI HUBIERA) */}
-                {partesMedicos.length > 0 && (
-                  <div className="space-y-3 pt-4 border-t border-slate-100 dark:border-slate-800">
-                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
-                      <FileText className="w-3.5 h-3.5 text-blue-600" />
-                      <span>Partes Médicos Adjuntos ({partesMedicos.length})</span>
-                    </h4>
-                    <div className="space-y-3">
-                      {partesMedicos.map((parte) => (
-                        <div
-                          key={parte.id}
-                          className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/60 shadow-2xs space-y-3"
-                        >
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-700/60 pb-2.5">
-                            <div className="flex items-center gap-2">
-                              <div className="p-2 bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300 rounded-xl">
-                                <FileText className="w-4 h-4" />
-                              </div>
-                              <div>
-                                <h4 className="text-xs font-bold text-slate-900 dark:text-white">
-                                  {parte.documentoNombre || 'Documento de Baja'}
-                                </h4>
-                                <span className="text-[10px] text-slate-400">
-                                  Subido el {new Date(parte.fechaSubida).toLocaleDateString('es-ES')}
-                                </span>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-2">
-                              <span
-                                className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase ${
-                                  parte.estadoAnalisisIA === 'CONFIRMADO'
-                                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                                    : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                                }`}
-                              >
-                                IA: {parte.estadoAnalisisIA === 'CONFIRMADO' ? 'CONFIRMADO' : 'REVISIÓN MANUAL'}
-                              </span>
-                              {parte.documentoUrl && (
-                                <a
-                                  href={parte.documentoUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="px-2.5 py-1 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-200 rounded-lg text-[10px] font-bold flex items-center gap-1 transition"
-                                >
-                                  <ExternalLink className="w-3 h-3" />
-                                  Ver Documento
-                                </a>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-                            <div className="bg-slate-50 dark:bg-slate-900 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
-                              <span className="text-[10px] text-slate-400 block font-semibold uppercase">Fecha Inicio:</span>
-                              <span className="font-bold text-slate-900 dark:text-white">{parte.fechaInicio}</span>
-                            </div>
-                            <div className="bg-slate-50 dark:bg-slate-900 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
-                              <span className="text-[10px] text-slate-400 block font-semibold uppercase">Fecha Fin Prevista:</span>
-                              <span className="font-bold text-slate-900 dark:text-white">{parte.fechaFin || 'Pendiente de alta'}</span>
-                            </div>
-                            <div className="bg-slate-50 dark:bg-slate-900 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
-                              <span className="text-[10px] text-slate-400 block font-semibold uppercase">Días Registrados:</span>
-                              <span className="font-bold text-slate-900 dark:text-white">
-                                {parte.diasDuracion ? `${parte.diasDuracion} días` : 'No explícito'}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
             )}
 
@@ -2478,25 +2444,11 @@ export const UserPortalPage: React.FC = () => {
                 )}
               </div>
             )}
-
-            {/* TAB 6: CHAT DEL GRUPO */}
-            {activeTab === 'chat' && (
-              <ChatPage
-                personas={personas}
-                currentPersona={currentPersona}
-                currentCuentaInfo={{
-                  uid: currentCuenta?.uid || 'user',
-                  nombre: formatUsuarioUG(currentPersona),
-                  rol: 'USUARIO',
-                  personaId: currentPersona?.id,
-                }}
-              />
-            )}
           </div>
         </div>
 
-        {/* Modales */}
-        {currentPersona && cuadranteActivo && (
+        {/* Modales de escritura estrictamente deshabilitados durante modo simulación solo lectura (R-07) */}
+        {!isImpersonating && currentPersona && cuadranteActivo && (
           <SolicitarCambioModal
             isOpen={isCambioModalOpen}
             onClose={() => {
@@ -2515,7 +2467,7 @@ export const UserPortalPage: React.FC = () => {
           />
         )}
 
-        {currentPersona && cuadranteActivo && (
+        {!isImpersonating && currentPersona && cuadranteActivo && (
           <ComunicarAusenciaModal
             isOpen={isAusenciaModalOpen}
             onClose={() => setIsAusenciaModalOpen(false)}
@@ -2527,7 +2479,7 @@ export const UserPortalPage: React.FC = () => {
           />
         )}
 
-        {currentPersona && isAusenciaUSModalOpen && (
+        {!isImpersonating && currentPersona && isAusenciaUSModalOpen && (
           <SolicitarAusenciaUSModal
             persona={currentPersona}
             totalMiembrosUS={personas.filter((p) => p.tipoServicio === 'US' || p.grupo === 'US_SEGURIDAD').length || 16}
@@ -2555,37 +2507,18 @@ export const UserPortalPage: React.FC = () => {
           personaId={currentPersona?.id}
           uid={currentCuenta?.uid}
           isAdmin={false}
-          onNavigateTab={(tab, refId) => {
+          tipoServicio={userTipoServicio}
+          onNavigateTab={(tab) => {
             if (tab === 'cambios' || tab === 'solicitudes') setActiveTab('solicitudes');
             else if (tab === 'imaginarias') setActiveTab('imaginarias');
             else if (tab === 'mis-servicios' || tab === 'servicios') setActiveTab('proximos');
             else if (tab === 'bajas') setActiveTab('bajas');
             else if (tab === 'calendario') setActiveTab('calendario');
             else if (tab === 'cuadranteGeneral' || tab === 'cuadrante') setActiveTab('cuadranteGeneral');
-            else if (tab === 'chat') {
-              setChatInitialTab('PRIVADO');
-              setChatInitialDestinatarioId(refId || ADMIN_CANAL_ID);
-              setIsChatOpen(true);
-            }
           }}
         />
 
-        <ChatModal
-          isOpen={isChatOpen}
-          onClose={() => setIsChatOpen(false)}
-          personas={personas}
-          currentPersona={currentPersona}
-          initialTab={chatInitialTab}
-          initialDestinatarioId={chatInitialDestinatarioId}
-          currentCuentaInfo={{
-            uid: currentCuenta?.uid || 'user',
-            nombre: formatUsuarioUG(currentPersona),
-            rol: 'USUARIO',
-            personaId: currentPersona?.id,
-          }}
-        />
-
-        {selectedSolContraoferta && currentPersona && (
+        {!isImpersonating && selectedSolContraoferta && currentPersona && (
           <ResponderContraofertaModal
             isOpen={!!selectedSolContraoferta}
             onClose={() => setSelectedSolContraoferta(null)}
@@ -2602,9 +2535,28 @@ export const UserPortalPage: React.FC = () => {
           documentoId={selectedDocFirmadoId || undefined}
         />
 
-        <CambiarPasswordModal
-          isOpen={isPasswordModalOpen}
-          onClose={() => setIsPasswordModalOpen(false)}
+        {!isImpersonating && (
+          <CambiarPasswordModal
+            isOpen={isPasswordModalOpen}
+            onClose={() => setIsPasswordModalOpen(false)}
+          />
+        )}
+
+        {!isImpersonating && (
+          <MiPerfilAliasModal
+            isOpen={isPerfilAliasModalOpen}
+            onClose={() => setIsPerfilAliasModalOpen(false)}
+          />
+        )}
+
+        {/* Consulta permanente del Aviso de Privacidad vigente */}
+        <ConsultaAvisoPrivacidadModal
+          isOpen={isAvisoPrivacidadOpen}
+          onClose={() => setIsAvisoPrivacidadOpen(false)}
+          dataProtectionStatus={dataProtectionStatus}
+          onAbrirPerfilAlias={
+            !isImpersonating ? () => setIsPerfilAliasModalOpen(true) : undefined
+          }
         />
 
         {/* Modal de Consulta Rápida de Matrícula mediante Cámara para U.S. */}

@@ -344,13 +344,13 @@ async function runTests() {
   console.log('\n--- BLOQUE B.2: Verificación de Autorización Determinista ---');
 
   const resAutorizadaDirecta = evaluarEstadoAutorizacion({ activo: true });
-  assert(resAutorizadaDirecta === 'AUTORIZADA', 'Documento activo===true devuelve estrictamente AUTORIZADA');
+  assert(resAutorizadaDirecta === 'REGISTRADO', 'Documento activo===true devuelve estrictamente REGISTRADO');
 
   const resInactiva = evaluarEstadoAutorizacion({ activo: false });
-  assert(resInactiva === 'NO_AUTORIZADA', 'Documento activo===false devuelve estrictamente NO_AUTORIZADA');
+  assert(resInactiva === 'NO_REGISTRADO', 'Documento activo===false devuelve estrictamente NO_REGISTRADO');
 
   const resNoExiste = evaluarEstadoAutorizacion(null);
-  assert(resNoExiste === 'NO_AUTORIZADA', 'Documento inexistente (null) devuelve NO_AUTORIZADA');
+  assert(resNoExiste === 'NO_REGISTRADO', 'Documento inexistente (null) devuelve NO_REGISTRADO');
 
   console.log('\n============================================================');
   console.log(`📊 RESUMEN: ${passedTests} superados de ${totalTests} tests (${failedTests} fallos)`);

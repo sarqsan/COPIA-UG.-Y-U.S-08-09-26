@@ -7,14 +7,31 @@ import {
   orderBy,
   limit,
   where,
+  serverTimestamp,
 } from 'firebase/firestore';
-import { db } from '../firebase/config';
+import { auth, db } from '../firebase/config';
 import { AuditLog, TipoAccionAudit } from '../types';
 import { sanitizeForFirestore } from '../utils/firestoreSanitizer';
+import { assertNotImpersonating } from '../utils/impersonationGuard';
 
 const AUDIT_COLLECTION = 'auditLogs';
 
 let memoryAuditLogsCache: AuditLog[] = [];
+
+/**
+ * Resuelve el UID real autenticado en Firebase Auth (NC-16).
+ * Evita usar el literal ficticio 'sistema' desde cliente, que es rechazado por firestore.rules
+ * (`request.resource.data.adminUid == request.auth.uid`). Los eventos de sistema se registran en servidor.
+ */
+function resolveAuthenticatedUid(providedUid?: string): string | null {
+  const realAuthUid = auth?.currentUser?.uid?.trim() || null;
+  if (realAuthUid) return realAuthUid;
+  const cleanProvided = (providedUid || '').trim();
+  if (cleanProvided && cleanProvided !== 'sistema' && cleanProvided !== 'sistema-init') {
+    return cleanProvided;
+  }
+  return null;
+}
 
 export const registrarAuditLog = async (params: {
   adminUid: string;
@@ -30,11 +47,14 @@ export const registrarAuditLog = async (params: {
   detalles: string;
   cambios?: { campo: string; anterior: any; nuevo: any }[];
 }): Promise<string> => {
+  assertNotImpersonating('registrarAuditLog');
+
   const logId = `log-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  const effectiveUid = resolveAuthenticatedUid(params.adminUid);
   const logData: AuditLog = {
     id: logId,
     timestamp: new Date().toISOString(),
-    adminUid: params.adminUid || 'sistema',
+    adminUid: effectiveUid || params.adminUid || 'sin-sesion-autenticada',
     adminNombre: params.adminNombre || 'Administrador',
     accion: params.accion,
     cuadranteId: params.cuadranteId,
@@ -48,12 +68,22 @@ export const registrarAuditLog = async (params: {
     cambios: params.cambios,
   };
 
-  // Keep in-memory for session inspection
   memoryAuditLogsCache.unshift(logData);
+
+  // NC-16: Solo escribir en Firestore desde cliente si existe sesión real autenticada (o entorno con UID válido)
+  // evitando pérdidas silenciosas por rechazo de regla adminUid == request.auth.uid
+  const hasRealFirebaseAuth = Boolean(auth?.currentUser?.uid);
+  if (!hasRealFirebaseAuth) {
+    return logId;
+  }
 
   try {
     const logRef = doc(db, AUDIT_COLLECTION, logId);
-    await setDoc(logRef, sanitizeForFirestore(logData));
+    await setDoc(logRef, {
+      ...sanitizeForFirestore(logData),
+      adminUid: auth.currentUser!.uid,
+      serverTimestamp: serverTimestamp(),
+    });
   } catch (error) {
     console.warn('Error guardando audit log en Firestore:', error);
   }
@@ -83,7 +113,7 @@ export const getAuditLogs = async (options?: {
   adminUid?: string;
   accion?: TipoAccionAudit;
 }): Promise<AuditLog[]> => {
-  const max = options?.maxResults || 100;
+  const max = Math.min(options?.maxResults || 500, 2000);
 
   try {
     let q = query(collection(db, AUDIT_COLLECTION), orderBy('timestamp', 'desc'), limit(max));

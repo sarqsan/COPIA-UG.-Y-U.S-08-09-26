@@ -37,14 +37,14 @@ export const esFechaLaborable = (fechaStr: string): boolean => {
 };
 
 /**
- * MOTOR DE GENERACIÓN DE CUADRANTES — U.S. (UNIDAD DE SEGURIDAD)
+ * MOTOR DE GENERACIÓN DE CUADRANTES — U.S.
  *
  * Características normativas y de equidad:
  * 1. Aislamiento total respecto a U.G.
  * 2. Turnos de 12h: Diurno (07:00 a 19:00) y Nocturno (19:00 a 07:00 / 07:45).
  * 3. Prolongación nocturna: Si el día siguiente es laborable, el nocturno finaliza a las 07:45 (12.75h).
  * 4. Dotación: 2 personas Diurno + 2 personas Nocturno por día (4 asignaciones/día).
- * 5. Sin distinción de ROL 1 / ROL 2 para asignación de servicios de seguridad.
+ * 5. Sin distinción de ROL 1 / ROL 2 para asignación de servicios operativos U.S..
  * 6. Imaginaria: 1 persona por día (24h). Restricción estricta de 3 días: no puede ser imaginaria ni el mismo día, ni el día antes, ni el día después de un servicio.
  * 7. Descanso post-nocturno: Saliente de noche + mínimo 1 día completo libre antes de otro servicio (D -> N -> L -> L...).
  * 8. Patrón preferente: D -> N -> L -> L.
@@ -169,7 +169,7 @@ export const generarSimulacionCuadranteUS = (params: {
     });
     if (matchContiene) return matchContiene;
 
-    // 3. Coincidencia por palabras/apellidos individuales (ej. "SOLIVELLA")
+    // 3. Coincidencia por palabras/apellidos individuales (ej. "APELLIDO")
     const palabrasBuscadas = nBuscado.split(' ').filter((w) => w.length >= 3);
     for (const p of plantillaUS) {
       const nP = limpiarTexto(p.nombre);
