@@ -37,16 +37,20 @@ service cloud.firestore {
     }
 
     function tieneCuentaActivaEnDb() {
-      return exists(cuentaActualPath()) && get(cuentaActualPath()).data.get('activo', false) == true;
+      return exists(cuentaActualPath()) &&
+        'activo' in get(cuentaActualPath()).data &&
+        get(cuentaActualPath()).data.activo == true;
     }
 
     function hasAcceptedCurrentDataProtection() {
       return isSignedIn() && (
-        request.auth.token.get('pdVersion', null) == currentDataProtectionVersion() ||
+        ('pdVersion' in request.auth.token && request.auth.token.pdVersion == currentDataProtectionVersion()) ||
         (
           exists(aceptacionPdPath()) &&
-          get(aceptacionPdPath()).data.get('version', null) == currentDataProtectionVersion() &&
-          get(aceptacionPdPath()).data.get('estado', null) == 'ACEPTADO'
+          'version' in get(aceptacionPdPath()).data &&
+          'estado' in get(aceptacionPdPath()).data &&
+          get(aceptacionPdPath()).data.version == currentDataProtectionVersion() &&
+          get(aceptacionPdPath()).data.estado == 'ACEPTADO'
         )
       );
     }
@@ -55,26 +59,32 @@ service cloud.firestore {
     function isActiveUser() {
       return isSignedIn() &&
         hasAcceptedCurrentDataProtection() &&
-        (request.auth.token.get('activo', false) == true || tieneCuentaActivaEnDb());
+        (('activo' in request.auth.token && request.auth.token.activo == true) || tieneCuentaActivaEnDb());
     }
 
     function isAdmin() {
       return isActiveUser() && (
-        request.auth.token.get('rol', '') == 'ADMIN' ||
-        (exists(cuentaActualPath()) && get(cuentaActualPath()).data.get('rol', '') == 'ADMIN')
+        ('rol' in request.auth.token && request.auth.token.rol == 'ADMIN') ||
+        (exists(cuentaActualPath()) &&
+          'rol' in get(cuentaActualPath()).data &&
+          get(cuentaActualPath()).data.rol == 'ADMIN')
       );
     }
 
     function currentPersonaId() {
-      return request.auth.token.get('personaId', null) != null
-        ? request.auth.token.get('personaId', null)
-        : (exists(cuentaActualPath()) ? get(cuentaActualPath()).data.get('personaId', null) : null);
+      return ('personaId' in request.auth.token && request.auth.token.personaId != null)
+        ? request.auth.token.personaId
+        : (exists(cuentaActualPath()) && 'personaId' in get(cuentaActualPath()).data
+            ? get(cuentaActualPath()).data.personaId
+            : null);
     }
 
     function currentUnit() {
-      return request.auth.token.get('tipoServicio', null) != null
-        ? request.auth.token.get('tipoServicio', null)
-        : (exists(cuentaActualPath()) ? get(cuentaActualPath()).data.get('tipoServicio', 'GUARDIA') : 'GUARDIA');
+      return ('tipoServicio' in request.auth.token && request.auth.token.tipoServicio != null)
+        ? request.auth.token.tipoServicio
+        : (exists(cuentaActualPath()) && 'tipoServicio' in get(cuentaActualPath()).data
+            ? get(cuentaActualPath()).data.tipoServicio
+            : 'GUARDIA');
     }
 
     // Compatibilidad histórica con valor persistido 'US_SEGURIDAD' hasta migración controlada
@@ -93,9 +103,19 @@ service cloud.firestore {
              ('solicitanteGrupo' in data && data.solicitanteGrupo == 'U.G.');
     }
 
-    function docMatchesUserUnit(data) {
-      let unit = currentUnit();
-      return unit == 'US'
+    // Para `allow list` (evaluación simbólica de consultas): exige SIEMPRE predicado positivo
+    // (sin negaciones `!isDataUS` que el analizador simbólico pueda satisfacer en consultas abiertas).
+    function docMatchesUserUnitForList(data) {
+      return currentUnit() == 'US'
+        ? isDataUS(data)
+        : isDataUG(data);
+    }
+
+    // Para `allow get` / `create` / `update` sobre documentos concretos reales:
+    // mantiene compatibilidad con documentos históricos U.G. sin `tipoServicio` ni `grupo`,
+    // bloqueando estrictamente cualquier documento identificado como U.S.
+    function docMatchesUserUnitForGet(data) {
+      return currentUnit() == 'US'
         ? isDataUS(data)
         : (isDataUG(data) || !isDataUS(data));
     }
@@ -254,14 +274,15 @@ service cloud.firestore {
     // 5. CUADRANTES Y SUBCOLECCIÓN SERVICIOS (AISLAMIENTO POR UNIDAD)
     // ------------------------------------------------------------------------
     match /cuadrantes/{cuadranteId} {
-      allow read: if isAdmin() || (isActiveUser() && docMatchesUserUnit(resource.data));
+      allow get: if isAdmin() || (isActiveUser() && docMatchesUserUnitForGet(resource.data));
+      allow list: if isAdmin() || (isActiveUser() && docMatchesUserUnitForList(resource.data));
       allow create, update: if isAdmin();
       allow delete: if false; // Preservación histórica: archivar en cliente o restaurar vía Admin SDK
 
       match /servicios/{servicioId} {
         allow read: if isAdmin() || (
           isActiveUser() &&
-          docMatchesUserUnit(get(/databases/$(database)/documents/cuadrantes/$(cuadranteId)).data)
+          docMatchesUserUnitForGet(get(/databases/$(database)/documents/cuadrantes/$(cuadranteId)).data)
         );
         allow create, update: if isAdmin();
         allow delete: if false;
@@ -272,11 +293,19 @@ service cloud.firestore {
     // 6. SOLICITUDES DE CAMBIO / PERMUTAS (CONTROL DE ACTORES, TRANSICIONES Y CAMPOS — I-05)
     // ------------------------------------------------------------------------
     match /solicitudes_cambio/{solicitudId} {
-      allow read: if isAdmin() || (
+      allow get: if isAdmin() || (
         isActiveUser() && (
           (currentPersonaId() != null && 'solicitantePersonaId' in resource.data && resource.data.solicitantePersonaId == currentPersonaId()) ||
           (currentPersonaId() != null && 'destinatarioPersonaId' in resource.data && resource.data.destinatarioPersonaId == currentPersonaId()) ||
-          docMatchesUserUnit(resource.data)
+          docMatchesUserUnitForGet(resource.data)
+        )
+      );
+
+      allow list: if isAdmin() || (
+        isActiveUser() && (
+          (currentPersonaId() != null && 'solicitantePersonaId' in resource.data && resource.data.solicitantePersonaId == currentPersonaId()) ||
+          (currentPersonaId() != null && 'destinatarioPersonaId' in resource.data && resource.data.destinatarioPersonaId == currentPersonaId()) ||
+          docMatchesUserUnitForList(resource.data)
         )
       );
 
@@ -464,12 +493,21 @@ service cloud.firestore {
     //     Bloquea la creación cliente de notificaciones heredadas exclusivas del chat.
     // ------------------------------------------------------------------------
     match /notificaciones/{notifId} {
-      allow read: if isAdmin() || (
+      allow get: if isAdmin() || (
         isActiveUser() && (
           (currentPersonaId() != null && 'destinatarioPersonaId' in resource.data && resource.data.destinatarioPersonaId == currentPersonaId()) ||
           ('destinatarioUid' in resource.data && resource.data.destinatarioUid == request.auth.uid) ||
           ('esParaTodos' in resource.data && resource.data.esParaTodos == true &&
-            (!('tipoServicio' in resource.data) || docMatchesUserUnit(resource.data)))
+            (!('tipoServicio' in resource.data) || docMatchesUserUnitForGet(resource.data)))
+        )
+      );
+
+      allow list: if isAdmin() || (
+        isActiveUser() && (
+          (currentPersonaId() != null && 'destinatarioPersonaId' in resource.data && resource.data.destinatarioPersonaId == currentPersonaId()) ||
+          ('destinatarioUid' in resource.data && resource.data.destinatarioUid == request.auth.uid) ||
+          ('esParaTodos' in resource.data && resource.data.esParaTodos == true &&
+            docMatchesUserUnitForList(resource.data))
         )
       );
 
@@ -480,7 +518,7 @@ service cloud.firestore {
         isAdmin() || (
           isActiveUser() &&
           (!('esParaTodos' in request.resource.data) || request.resource.data.esParaTodos != true) &&
-          (!('tipoServicio' in request.resource.data) || docMatchesUserUnit(request.resource.data))
+          (!('tipoServicio' in request.resource.data) || docMatchesUserUnitForGet(request.resource.data))
         )
       ) &&
       (!('tipo' in request.resource.data) || !(request.resource.data.tipo in ['MENSAJE_ADMINISTRATIVO', 'MENSAJE_CHAT'])) &&
@@ -499,7 +537,7 @@ service cloud.firestore {
           ) || (
             'esParaTodos' in resource.data &&
             resource.data.esParaTodos == true &&
-            (!('tipoServicio' in resource.data) || docMatchesUserUnit(resource.data)) &&
+            (!('tipoServicio' in resource.data) || docMatchesUserUnitForGet(resource.data)) &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['leidoPor'])
           )
         )

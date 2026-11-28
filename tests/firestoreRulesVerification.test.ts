@@ -148,7 +148,8 @@ test('FR-06 NC-03: subcolección cuentas/{uid}/fcmTokens/{tokenId} autorizada al
 
 test('FR-07 NC-04: notificaciones restringe esParaTodos a ADMIN, aísla por unidad y bloquea tipos/linkTab heredados del chat', () => {
   const block = extractMatchBlock(rules, 'match /notificaciones/{notifId}');
-  assert.ok(block.includes('docMatchesUserUnit(resource.data)'));
+  assert.ok(block.includes('docMatchesUserUnitForGet(resource.data)'));
+  assert.ok(block.includes('docMatchesUserUnitForList(resource.data)'));
   assert.ok(block.includes('request.resource.data.esParaTodos != true'));
   assert.ok(block.includes('destinatarioPersonaId'));
   assert.ok(block.includes("'MENSAJE_ADMINISTRATIVO'"));
@@ -257,10 +258,13 @@ test('FR-10 Matrículas: lectura y escritura de /matriculas_autorizadas y /matri
   );
 });
 
-test('FR-11 C-02: docMatchesUserUnit incluye predicado positivo isDataUG y ausencias_us restringe lectura cliente a propias', () => {
+test('FR-11 C-02: docMatchesUserUnitForList usa predicados positivos isDataUG/isDataUS y ausencias_us restringe lectura cliente a propias', () => {
   assert.ok(rules.includes('function isDataUG(data)'), 'Debe declarar predicado positivo isDataUG para compatibilidad list()');
-  const dmBlock = extractMatchBlock(rules, 'function docMatchesUserUnit(data)');
-  assert.ok(dmBlock.includes('isDataUG(data)'), 'docMatchesUserUnit debe incluir isDataUG(data)');
+  const dmListBlock = extractMatchBlock(rules, 'function docMatchesUserUnitForList(data)');
+  assert.ok(dmListBlock.includes('isDataUG(data)'), 'docMatchesUserUnitForList debe exigir isDataUG(data) positivo');
+  assert.ok(!dmListBlock.includes('!isDataUS(data)'), 'docMatchesUserUnitForList NO debe usar negación !isDataUS en consultas list()');
+  const dmGetBlock = extractMatchBlock(rules, 'function docMatchesUserUnitForGet(data)');
+  assert.ok(dmGetBlock.includes('isDataUG(data)'), 'docMatchesUserUnitForGet debe soportar isDataUG(data) y compatibilidad histórica U.G.');
 
   const ausBlock = extractMatchBlock(rules, 'match /ausencias_us/{ausenciaId}');
   assert.ok(
@@ -268,7 +272,7 @@ test('FR-11 C-02: docMatchesUserUnit incluye predicado positivo isDataUG y ausen
     'ausencias_us debe limitar lectura directa de usuario ordinario a sus propias solicitudes'
   );
   assert.ok(
-    !ausBlock.includes('docMatchesUserUnit(resource.data)'),
+    !ausBlock.includes('docMatchesUserUnit'),
     'ausencias_us no debe exponer lectura directa de solicitudes de terceros a usuarios ordinarios'
   );
 });
