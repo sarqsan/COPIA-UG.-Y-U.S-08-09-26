@@ -40,6 +40,7 @@ export interface RespaldoOperativo {
   estado: EstadoRespaldo;
   versionEsquema: string; // "v1.0"
   checksumIntegridad: string;
+  checksumSha256?: string; // SHA-256 hexadecimal (64 chars) sobre el JSON canónico de `datos`
   motivo?: string;
   estadisticas: EstadisticasRespaldo;
   datos: SnapshotDatosOperativos;

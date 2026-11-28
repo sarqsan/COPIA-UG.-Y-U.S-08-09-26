@@ -24,6 +24,9 @@ import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 
 import { createServerApp } from '../server';
 import {
+  BackupIntegrityError,
+  canonicalJsonStringify,
+  computeBackupPayloadSha256,
   createFirebaseAdminServerStore,
   createInMemoryServerStore,
   DistributedRateLimitUnavailableError,
@@ -497,57 +500,59 @@ async function runSuite(): Promise<void> {
     await rawDb.collection('imaginarias_activadas_us').doc(activeComp2.id).set(activeComp2);
     await rawDb.collection('compensacion_imaginarias_us').doc(legacyComp1.id).set(legacyComp1);
 
-    // Respaldo destino pequeño a restaurar sobre U.S.
+    // Respaldo destino pequeño a restaurar sobre U.S. (con checksumSha256 obligatorio)
+    const targetEmuDatos = {
+      tipoServicio: 'US',
+      cuadrantes: [
+        {
+          id: 'cuad-us-dest-only',
+          nombre: 'Cuadrante US Destino',
+          tipoServicio: 'US',
+          grupo: 'US_SEGURIDAD',
+        },
+      ],
+      serviciosPorCuadrante: {
+        'cuad-us-dest-only': [
+          { id: 'srv-us-dest-1', fecha: '2026-10-01', turno: 'DIURNO' },
+        ],
+      },
+      personas: [
+        {
+          id: 'pers-us-big-1',
+          nombre: 'SEGURIDAD MASIVO UNO',
+          alias: 'DestinoUS',
+          grupo: 'US_SEGURIDAD',
+          tipoServicio: 'US',
+          activo: true,
+        },
+      ],
+      ausenciasIncidencias: [],
+      compensacionesImaginarias: [
+        {
+          id: 'IMAG-ACT-EMU-001',
+          personaId: 'pers-us-big-1',
+          fechaImaginariaActivada: '2026-11-10',
+          compensada: true,
+          motivoActivacion: 'Sobrescrita por destino',
+        },
+      ],
+      compensacionesImaginariasLegacy: [
+        {
+          id: 'COMP-LEG-EMU-001',
+          personaId: 'pers-us-big-1',
+          fechaImaginariaActivada: '2025-08-12',
+          compensada: false,
+          notaHistorica: 'Alterada en destino',
+        },
+      ],
+      solicitudesCambio: [],
+    };
     await rawDb.collection('respaldos_sistema').doc('bkp-us-target-emu').set({
       id: 'bkp-us-target-emu',
       tipoServicio: 'US',
       tipo: 'MANUAL',
-      datos: {
-        tipoServicio: 'US',
-        cuadrantes: [
-          {
-            id: 'cuad-us-dest-only',
-            nombre: 'Cuadrante US Destino',
-            tipoServicio: 'US',
-            grupo: 'US_SEGURIDAD',
-          },
-        ],
-        serviciosPorCuadrante: {
-          'cuad-us-dest-only': [
-            { id: 'srv-us-dest-1', fecha: '2026-10-01', turno: 'DIURNO' },
-          ],
-        },
-        personas: [
-          {
-            id: 'pers-us-big-1',
-            nombre: 'SEGURIDAD MASIVO UNO',
-            alias: 'DestinoUS',
-            grupo: 'US_SEGURIDAD',
-            tipoServicio: 'US',
-            activo: true,
-          },
-        ],
-        ausenciasIncidencias: [],
-        compensacionesImaginarias: [
-          {
-            id: 'IMAG-ACT-EMU-001',
-            personaId: 'pers-us-big-1',
-            fechaImaginariaActivada: '2026-11-10',
-            compensada: true,
-            motivoActivacion: 'Sobrescrita por destino',
-          },
-        ],
-        compensacionesImaginariasLegacy: [
-          {
-            id: 'COMP-LEG-EMU-001',
-            personaId: 'pers-us-big-1',
-            fechaImaginariaActivada: '2025-08-12',
-            compensada: false,
-            notaHistorica: 'Alterada en destino',
-          },
-        ],
-        solicitudesCambio: [],
-      },
+      checksumSha256: computeBackupPayloadSha256(targetEmuDatos),
+      datos: targetEmuDatos,
     });
 
     // Subprueba 4A: Si falla la persistencia del respaldo de emergencia, ABORTA con 0 borrados
@@ -769,8 +774,484 @@ async function runSuite(): Promise<void> {
       `  [OK] Respaldo de emergencia > 1 MiB (${restoreRes.backupEmergenciaBytes} B -> ${restoreRes.backupEmergenciaFragmentos} fragmentos), aborto seguro, recuperación íntegra de ${totalExpectedServices} servicios y procedencia exacta verificados.`
     );
 
+    // =========================================================================
+    // TEST 5 (ORDEN PUNTUAL): Validación OBLIGATORIA de integridad SHA-256
+    //         (inline + fragmentado, 10 casos + HTTP 422 sin fuga interna +
+    //          limpieza acotada de fragmentos huérfanos sin manifiesto padre)
+    // =========================================================================
+    console.log('[TEST 5] Validación OBLIGATORIA SHA-256 (inline + fragmentado + HTTP 422 + limpieza fragmentos incompletos)...');
+    await clearEmulatorFirestore();
+
+    // Sembrar cuenta admin y aceptación de aviso v4 para pruebas HTTP reales
+    const { hash: intAdminHash, salt: intAdminSalt } = hashPasswordScrypt('ClaveInt#2026!');
+    await rawDb.collection('cuentas').doc('admin-int-http').set({
+      id: 'admin-int-http',
+      uid: 'admin-int-http',
+      personaId: 'pers-ug-int-1',
+      username: 'admin_int',
+      email: 'admin-int@example.invalid',
+      nombre: 'Admin Integridad',
+      rol: 'ADMIN',
+      activo: true,
+      tipoServicio: 'GUARDIA',
+      passwordHash: intAdminHash,
+      passwordSalt: intAdminSalt,
+      hashAlgorithm: 'scrypt-v1',
+      fechaCreacion: '2026-01-01T00:00:00.000Z',
+      ultimoAcceso: '2026-01-01T00:00:00.000Z',
+    });
+    const avisoShaInt = crypto
+      .createHash('sha256')
+      .update(getProteccionDatosTextoCompleto(), 'utf8')
+      .digest('hex');
+    await storeA.saveDataProtectionAcceptance({
+      uid: 'admin-int-http',
+      textoId: PROTECCION_DATOS_TEXTO_ID,
+      version: PROTECCION_DATOS_AVISO_VERSION,
+      textoSha256: avisoShaInt,
+      estado: 'ACEPTADO',
+      fechaHoraAceptacion: '2026-11-28T14:00:00.000Z',
+    });
+
+    // Sembrar estado operativo inicial que NO debe alterarse ante ningún rechazo de integridad
+    const seedOperationalState = async () => {
+      await rawDb.collection('cuadrantes').doc('cuad-us-op-orig').set({
+        id: 'cuad-us-op-orig',
+        nombre: 'Cuadrante US Original Intocable',
+        tipoServicio: 'US',
+        grupo: 'US_SEGURIDAD',
+      });
+      await rawDb
+        .collection('cuadrantes')
+        .doc('cuad-us-op-orig')
+        .collection('servicios')
+        .doc('srv-us-op-orig-1')
+        .set({
+          id: 'srv-us-op-orig-1',
+          fecha: '2026-11-20',
+          turno: 'DIURNO',
+          asignadoA: 'pers-us-op-1',
+        });
+      await rawDb.collection('personas').doc('pers-us-op-1').set({
+        id: 'pers-us-op-1',
+        nombre: 'TITULAR ORIGINAL US',
+        alias: 'OriginalIntacto',
+        grupo: 'US_SEGURIDAD',
+        tipoServicio: 'US',
+        activo: true,
+      });
+      await rawDb.collection('imaginarias_activadas_us').doc('IMAG-ACT-OP-1').set({
+        id: 'IMAG-ACT-OP-1',
+        personaId: 'pers-us-op-1',
+        fechaImaginariaActivada: '2026-11-18',
+        compensada: false,
+      });
+    };
+    await seedOperationalState();
+
+    const assertOperationalStateUnchanged = async (contextLabel: string) => {
+      const cuadSnap = await rawDb.collection('cuadrantes').doc('cuad-us-op-orig').get();
+      check(cuadSnap.exists, `[${contextLabel}] Cuadrante original sigue existiendo`);
+      checkEqual(cuadSnap.data()?.nombre, 'Cuadrante US Original Intocable', `[${contextLabel}] Nombre cuadrante intacto`);
+      const srvSnap = await rawDb
+        .collection('cuadrantes')
+        .doc('cuad-us-op-orig')
+        .collection('servicios')
+        .doc('srv-us-op-orig-1')
+        .get();
+      check(srvSnap.exists, `[${contextLabel}] Servicio original sigue existiendo`);
+      const persSnap = await rawDb.collection('personas').doc('pers-us-op-1').get();
+      checkEqual(persSnap.data()?.alias, 'OriginalIntacto', `[${contextLabel}] Persona original intacta`);
+      const compSnap = await rawDb.collection('imaginarias_activadas_us').doc('IMAG-ACT-OP-1').get();
+      check(compSnap.exists && compSnap.data()?.compensada === false, `[${contextLabel}] Compensación original intacta`);
+      const restoredCuadSnap = await rawDb.collection('cuadrantes').doc('cuad-us-from-int-bkp').get();
+      checkEqual(restoredCuadSnap.exists, false, `[${contextLabel}] No se escribió ningún cuadrante del respaldo rechazado`);
+    };
+
+    const validRestoreDatos = {
+      tipoServicio: 'US',
+      cuadrantes: [
+        {
+          id: 'cuad-us-from-int-bkp',
+          nombre: 'Cuadrante US Restaurado Válido',
+          tipoServicio: 'US',
+          grupo: 'US_SEGURIDAD',
+        },
+      ],
+      serviciosPorCuadrante: {
+        'cuad-us-from-int-bkp': [
+          { id: 'srv-us-from-bkp-1', fecha: '2026-11-22', turno: 'NOCTURNO' },
+        ],
+      },
+      personas: [
+        {
+          id: 'pers-us-op-1',
+          nombre: 'TITULAR ORIGINAL US',
+          alias: 'RestauradoValido',
+          grupo: 'US_SEGURIDAD',
+          tipoServicio: 'US',
+          activo: true,
+        },
+      ],
+      ausenciasIncidencias: [],
+      compensacionesImaginarias: [
+        {
+          id: 'IMAG-ACT-OP-1',
+          personaId: 'pers-us-op-1',
+          fechaImaginariaActivada: '2026-11-18',
+          compensada: true,
+        },
+      ],
+      solicitudesCambio: [],
+    };
+    const validPayloadJson = canonicalJsonStringify(validRestoreDatos);
+    const validPayloadSha = sha256Utf8(validPayloadJson);
+
+    // Crear 3 fragmentos válidos para las pruebas fragmentadas
+    const third = Math.ceil(validPayloadJson.length / 3);
+    const fragParts = [
+      validPayloadJson.slice(0, third),
+      validPayloadJson.slice(third, third * 2),
+      validPayloadJson.slice(third * 2),
+    ];
+    checkEqual(fragParts.join(''), validPayloadJson, 'Partición de prueba en 3 fragmentos exacta');
+
+    const seedFragmentedBackup = async (
+      bkpId: string,
+      opts: {
+        manifestSha?: string | null;
+        totalFragmentos?: number;
+        fragments: Array<{
+          docId: string;
+          indice: number;
+          contenido: string;
+          chunkSha256?: string | null;
+          backupId?: string;
+          totalFragmentos?: number;
+        }>;
+      }
+    ) => {
+      const parentDoc: Record<string, any> = {
+        id: bkpId,
+        tipoServicio: 'US',
+        tipo: 'EMERGENCIA_PRE_RESTAURACION',
+        almacenamiento: 'FRAGMENTADO',
+        totalFragmentos: opts.totalFragmentos ?? opts.fragments.length,
+        datos: null,
+      };
+      if (opts.manifestSha !== null) {
+        parentDoc.checksumSha256 = opts.manifestSha ?? validPayloadSha;
+      }
+      await rawDb.collection('respaldos_sistema').doc(bkpId).set(parentDoc);
+      for (const f of opts.fragments) {
+        const fDoc: Record<string, any> = {
+          backupId: f.backupId ?? bkpId,
+          indice: f.indice,
+          totalFragmentos: f.totalFragmentos ?? (opts.totalFragmentos ?? opts.fragments.length),
+          contenido: f.contenido,
+          bytes: Buffer.byteLength(f.contenido, 'utf8'),
+        };
+        if (f.chunkSha256 !== null) {
+          fDoc.chunkSha256 = f.chunkSha256 ?? sha256Utf8(f.contenido);
+        }
+        await rawDb.collection('respaldos_sistema').doc(bkpId).collection('fragmentos').doc(f.docId).set(fDoc);
+      }
+    };
+
+    // Sembrar todos los casos negativos y positivos en /respaldos_sistema
+    // Caso 2: Inline SIN checksumSha256
+    await rawDb.collection('respaldos_sistema').doc('bkp-inline-no-sha').set({
+      id: 'bkp-inline-no-sha',
+      tipoServicio: 'US',
+      tipo: 'MANUAL',
+      datos: validRestoreDatos,
+    });
+    // Caso 2b: Inline con formato inválido (no 64 hex)
+    await rawDb.collection('respaldos_sistema').doc('bkp-inline-bad-fmt').set({
+      id: 'bkp-inline-bad-fmt',
+      tipoServicio: 'US',
+      tipo: 'MANUAL',
+      checksumSha256: 'not-a-valid-64-char-hex-digest',
+      datos: validRestoreDatos,
+    });
+    // Caso 3: Inline con checksumSha256 alterado (64 hex distinto)
+    const tamperedSha = (validPayloadSha.startsWith('a') ? 'b' : 'a') + validPayloadSha.slice(1);
+    await rawDb.collection('respaldos_sistema').doc('bkp-inline-tampered').set({
+      id: 'bkp-inline-tampered',
+      tipoServicio: 'US',
+      tipo: 'MANUAL',
+      checksumSha256: tamperedSha,
+      datos: validRestoreDatos,
+    });
+    // Caso 1: Inline VÁLIDO
+    await rawDb.collection('respaldos_sistema').doc('bkp-inline-valid').set({
+      id: 'bkp-inline-valid',
+      tipoServicio: 'US',
+      tipo: 'MANUAL',
+      checksumSha256: validPayloadSha,
+      datos: validRestoreDatos,
+    });
+
+    // Caso 5: Fragmento SIN chunkSha256
+    await seedFragmentedBackup('bkp-frag-no-chunk-sha', {
+      fragments: [
+        { docId: 'chunk-0000', indice: 0, contenido: fragParts[0] },
+        { docId: 'chunk-0001', indice: 1, contenido: fragParts[1], chunkSha256: null },
+        { docId: 'chunk-0002', indice: 2, contenido: fragParts[2] },
+      ],
+    });
+    // Caso 6: Manifiesto SIN checksumSha256
+    await seedFragmentedBackup('bkp-frag-no-manifest-sha', {
+      manifestSha: null,
+      fragments: [
+        { docId: 'chunk-0000', indice: 0, contenido: fragParts[0] },
+        { docId: 'chunk-0001', indice: 1, contenido: fragParts[1] },
+        { docId: 'chunk-0002', indice: 2, contenido: fragParts[2] },
+      ],
+    });
+    // Caso 7a: Fragmento con contenido modificado (sin coincidir con chunkSha256)
+    const modifiedFrag1 = `${fragParts[1]}_TAMPERED`;
+    await seedFragmentedBackup('bkp-frag-modified-content', {
+      fragments: [
+        { docId: 'chunk-0000', indice: 0, contenido: fragParts[0] },
+        {
+          docId: 'chunk-0001',
+          indice: 1,
+          contenido: modifiedFrag1,
+          chunkSha256: sha256Utf8(fragParts[1]),
+        },
+        { docId: 'chunk-0002', indice: 2, contenido: fragParts[2] },
+      ],
+    });
+    // Caso 7b: Fragmento alterado con chunkSha256 recalculado pero checksum global del manifiesto discordante
+    await seedFragmentedBackup('bkp-frag-global-mismatch', {
+      manifestSha: validPayloadSha,
+      fragments: [
+        { docId: 'chunk-0000', indice: 0, contenido: fragParts[0] },
+        {
+          docId: 'chunk-0001',
+          indice: 1,
+          contenido: modifiedFrag1,
+          chunkSha256: sha256Utf8(modifiedFrag1),
+        },
+        { docId: 'chunk-0002', indice: 2, contenido: fragParts[2] },
+      ],
+    });
+    // Caso 8a: Fragmento AUSENTE (faltante: 2 de 3)
+    await seedFragmentedBackup('bkp-frag-missing-chunk', {
+      totalFragmentos: 3,
+      fragments: [
+        { docId: 'chunk-0000', indice: 0, contenido: fragParts[0] },
+        { docId: 'chunk-0002', indice: 2, contenido: fragParts[2] },
+      ],
+    });
+    // Caso 8b: Fragmento DUPLICADO (índice 0 repetido sustituyendo índice 1, total=3)
+    await seedFragmentedBackup('bkp-frag-duplicate-index', {
+      totalFragmentos: 3,
+      fragments: [
+        { docId: 'chunk-0000', indice: 0, contenido: fragParts[0] },
+        { docId: 'chunk-0001-dup', indice: 0, contenido: fragParts[0] },
+        { docId: 'chunk-0002', indice: 2, contenido: fragParts[2] },
+      ],
+    });
+    // Caso 8c: Fragmento DUPLICADO extra (4 docs con totalFragmentos=3)
+    await seedFragmentedBackup('bkp-frag-extra-duplicate', {
+      totalFragmentos: 3,
+      fragments: [
+        { docId: 'chunk-0000', indice: 0, contenido: fragParts[0] },
+        { docId: 'chunk-0001', indice: 1, contenido: fragParts[1] },
+        { docId: 'chunk-0002', indice: 2, contenido: fragParts[2] },
+        { docId: 'chunk-0003-dup', indice: 2, contenido: fragParts[2] },
+      ],
+    });
+    // Caso 4: Fragmentado VÁLIDO (todos los checksums correctos, además servido para probar orden/reconstrucción)
+    await seedFragmentedBackup('bkp-frag-valid', {
+      fragments: [
+        { docId: 'chunk-0002', indice: 2, contenido: fragParts[2] },
+        { docId: 'chunk-0000', indice: 0, contenido: fragParts[0] },
+        { docId: 'chunk-0001', indice: 1, contenido: fragParts[1] },
+      ],
+    });
+
+    // Servidor HTTP real para verificar respuestas HTTP 422 / 200 sin fuga de detalles internos
+    const { app: intApp } = await createServerApp({
+      store: storeA,
+      enableFrontendMiddleware: false,
+      disableRateLimit: true,
+    });
+    const intSrv = await new Promise<http.Server>((resolve) => {
+      const s = intApp.listen(0, '127.0.0.1', () => resolve(s));
+    });
+
+    try {
+      const intUrl = `http://127.0.0.1:${(intSrv.address() as any).port}`;
+      const intLogin = await httpJson(intUrl, 'POST', '/api/auth/login', {
+        body: { identifier: 'admin_int', password: 'ClaveInt#2026!' },
+      });
+      checkEqual(intLogin.status, 200, 'Login admin para pruebas de integridad HTTP exitoso');
+      const intToken = intLogin.json.sessionToken;
+
+      const backupCountBeforeRejects = (await rawDb.collection('respaldos_sistema').get()).size;
+
+      // Ejecutar TODOS los casos negativos (casos 2, 2b, 3, 5, 6, 7, 8a, 8b, 8c) tanto directo como por HTTP
+      const negativeCases: Array<{ id: string; expectedReason: string; label: string }> = [
+        { id: 'bkp-inline-no-sha', expectedReason: 'INLINE_CHECKSUM_MISSING', label: 'Inline sin checksumSha256' },
+        { id: 'bkp-inline-bad-fmt', expectedReason: 'INLINE_CHECKSUM_FORMAT_INVALID', label: 'Inline checksum formato inválido' },
+        { id: 'bkp-inline-tampered', expectedReason: 'INLINE_CHECKSUM_MISMATCH', label: 'Inline checksum alterado' },
+        { id: 'bkp-frag-no-chunk-sha', expectedReason: 'FRAGMENT_CHECKSUM_MISSING', label: 'Fragmento sin chunkSha256' },
+        { id: 'bkp-frag-no-manifest-sha', expectedReason: 'MANIFEST_CHECKSUM_MISSING', label: 'Manifiesto sin checksumSha256' },
+        { id: 'bkp-frag-modified-content', expectedReason: 'FRAGMENT_CHECKSUM_MISMATCH', label: 'Fragmento contenido modificado' },
+        { id: 'bkp-frag-global-mismatch', expectedReason: 'GLOBAL_CHECKSUM_MISMATCH', label: 'Checksum global manifiesto discordante' },
+        { id: 'bkp-frag-missing-chunk', expectedReason: 'FRAGMENT_COUNT_MISMATCH', label: 'Fragmento ausente' },
+        { id: 'bkp-frag-duplicate-index', expectedReason: 'FRAGMENT_INDEX_DUPLICATE', label: 'Fragmento con índice duplicado' },
+        { id: 'bkp-frag-extra-duplicate', expectedReason: 'FRAGMENT_COUNT_MISMATCH', label: 'Fragmento extra duplicado' },
+      ];
+
+      for (const nc of negativeCases) {
+        // 1. Verificación directa en store
+        let caughtErr: any = null;
+        try {
+          await storeA.restoreBackupByUnitAdmin(nc.id, { uid: 'admin-int-http', nombre: 'Admin Integridad' });
+        } catch (err) {
+          caughtErr = err;
+        }
+        check(
+          caughtErr instanceof BackupIntegrityError && caughtErr.reasonCode === nc.expectedReason,
+          `[${nc.label}] Debe lanzar BackupIntegrityError(${nc.expectedReason}), obtenido: ${caughtErr?.name}/${caughtErr?.reasonCode}`
+        );
+
+        // 2. Verificación HTTP vía POST /api/admin/respaldos/restaurar (HTTP 422 sin detalles internos)
+        const httpResp = await httpJson(intUrl, 'POST', '/api/admin/respaldos/restaurar', {
+          headers: { Authorization: `Bearer ${intToken}` },
+          body: { backupId: nc.id },
+        });
+        checkEqual(httpResp.status, 422, `[${nc.label}] HTTP debe responder 422`);
+        checkEqual(httpResp.json?.success, false, `[${nc.label}] HTTP success=false`);
+        checkEqual(httpResp.json?.code, 'BACKUP_INTEGRITY_ERROR', `[${nc.label}] HTTP code=BACKUP_INTEGRITY_ERROR`);
+        checkEqual(httpResp.json?.datosModificados, false, `[${nc.label}] HTTP confirma datosModificados=false`);
+        // Cero fuga de detalles internos en respuesta HTTP
+        check(!httpResp.text.includes(nc.expectedReason), `[${nc.label}] HTTP no debe filtrar reasonCode interno`);
+        check(!httpResp.text.includes('checksumSha256'), `[${nc.label}] HTTP no debe filtrar nombres de campos internos`);
+        check(!httpResp.text.includes('chunkSha256'), `[${nc.label}] HTTP no debe filtrar chunkSha256`);
+        check(!httpResp.text.includes(nc.id), `[${nc.label}] HTTP no debe reflejar detalles internos del ID/error`);
+        check(!httpResp.text.includes(validPayloadSha), `[${nc.label}] HTTP no debe filtrar ningún digest SHA-256`);
+        check(!httpResp.text.includes(tamperedSha), `[${nc.label}] HTTP no debe filtrar digest almacenado`);
+        check(!httpResp.text.includes('respaldos_sistema'), `[${nc.label}] HTTP no debe filtrar colecciones Firestore`);
+
+        // 3. Verificar que NO se borró ni modificó ningún documento operativo NI se creó backup de emergencia
+        await assertOperationalStateUnchanged(nc.label);
+        const backupCountNow = (await rawDb.collection('respaldos_sistema').get()).size;
+        checkEqual(
+          backupCountNow,
+          backupCountBeforeRejects,
+          `[${nc.label}] Ningún respaldo de emergencia debe crearse cuando falla la integridad previa`
+        );
+      }
+
+      // Caso 1 (Positivo): Respaldo INLINE con checksumSha256 correcto -> ACEPTADO vía HTTP 200
+      const inlineOkResp = await httpJson(intUrl, 'POST', '/api/admin/respaldos/restaurar', {
+        headers: { Authorization: `Bearer ${intToken}` },
+        body: { backupId: 'bkp-inline-valid' },
+      });
+      checkEqual(inlineOkResp.status, 200, '[Caso 1: Inline válido] HTTP debe responder 200');
+      checkEqual(inlineOkResp.json?.success, true, '[Caso 1: Inline válido] Restauración completada');
+      checkEqual(
+        (await rawDb.collection('cuadrantes').doc('cuad-us-from-int-bkp').get()).exists,
+        true,
+        '[Caso 1: Inline válido] Cuadrante destino restaurado en Firestore'
+      );
+      checkEqual(
+        (await rawDb.collection('personas').doc('pers-us-op-1').get()).data()?.alias,
+        'RestauradoValido',
+        '[Caso 1: Inline válido] Persona restaurada correctamente'
+      );
+
+      // Restaurar estado operativo original antes de probar Caso 4 (Fragmentado válido)
+      await rawDb.collection('cuadrantes').doc('cuad-us-from-int-bkp').collection('servicios').doc('srv-us-from-bkp-1').delete();
+      await rawDb.collection('cuadrantes').doc('cuad-us-from-int-bkp').delete();
+      await seedOperationalState();
+
+      // Caso 4 (Positivo): Respaldo FRAGMENTADO con todos los checksums correctos -> ACEPTADO vía HTTP 200
+      const fragOkResp = await httpJson(intUrl, 'POST', '/api/admin/respaldos/restaurar', {
+        headers: { Authorization: `Bearer ${intToken}` },
+        body: { backupId: 'bkp-frag-valid' },
+      });
+      checkEqual(fragOkResp.status, 200, '[Caso 4: Fragmentado válido] HTTP debe responder 200');
+      checkEqual(fragOkResp.json?.success, true, '[Caso 4: Fragmentado válido] Restauración fragmentada completada');
+      checkEqual(
+        (await rawDb.collection('cuadrantes').doc('cuad-us-from-int-bkp').get()).exists,
+        true,
+        '[Caso 4: Fragmentado válido] Cuadrante destino restaurado desde fragmentos'
+      );
+
+      // Punto 4: Limpieza acotada de fragmentos huérfanos cuando falla la escritura ANTES del manifiesto padre,
+      //          sin tocar jamás fragmentos de un respaldo completo (`bkp-frag-valid`) ni datos operativos
+      let failedOrphanEmergId = '';
+      let threwParentManifestErr = false;
+      try {
+        await storeA.restoreBackupByUnitAdmin(
+          'bkp-inline-valid',
+          { uid: 'admin-int-http', nombre: 'Admin Integridad' },
+          {
+            maxInlineDocBytes: 200, // Forzar escritura fragmentada del respaldo de emergencia
+            chunkMaxBytes: 1024,
+            onBeforeEmergencyParentManifestCreate: ({ backupEmergenciaId, writtenFragments }) => {
+              failedOrphanEmergId = backupEmergenciaId;
+              check(writtenFragments >= 1, '[Punto 4] Debieron escribirse fragmentos antes de fallar el manifiesto padre');
+              throw new Error('Simulated parent manifest creation failure');
+            },
+          }
+        );
+      } catch (err: any) {
+        threwParentManifestErr = err instanceof EmergencyBackupError && err.code === 'EMERGENCY_BACKUP_FAILED';
+      }
+      check(threwParentManifestErr, '[Punto 4] Fallo al crear manifiesto padre debe lanzar EmergencyBackupError');
+      check(failedOrphanEmergId.startsWith('backup-emerg-us-'), '[Punto 4] ID de emergencia fallido capturado');
+
+      // Verificar en Firestore que el manifiesto padre NO existe Y que los fragmentos huérfanos fueron limpiados (0 docs)
+      checkEqual(
+        (await rawDb.collection('respaldos_sistema').doc(failedOrphanEmergId).get()).exists,
+        false,
+        '[Punto 4] Manifiesto padre no existe tras fallo'
+      );
+      const orphanFragsSnap = await rawDb
+        .collection('respaldos_sistema')
+        .doc(failedOrphanEmergId)
+        .collection('fragmentos')
+        .get();
+      checkEqual(
+        orphanFragsSnap.size,
+        0,
+        '[Punto 4] Limpieza acotada debe eliminar los fragmentos huérfanos de la escritura incompleta (0 remanentes)'
+      );
+
+      // Verificar que los fragmentos del respaldo completo `bkp-frag-valid` siguen 100% intactos
+      const completeFragsSnap = await rawDb
+        .collection('respaldos_sistema')
+        .doc('bkp-frag-valid')
+        .collection('fragmentos')
+        .get();
+      checkEqual(
+        completeFragsSnap.size,
+        3,
+        '[Punto 4] Limpieza acotada JAMÁS debe eliminar fragmentos de respaldos completos existentes'
+      );
+      // Y verificar que el cuadrante operativo sigue intacto tras el aborto de emergencia
+      checkEqual(
+        (await rawDb.collection('cuadrantes').doc('cuad-us-from-int-bkp').get()).exists,
+        true,
+        '[Punto 4] Ningún dato operativo se borró tras aborto en creación de manifiesto de emergencia'
+      );
+
+      console.log(
+        '  [OK] Validación obligatoria SHA-256 (9 casos negativos rechazados con HTTP 422 sin fuga + 2 positivos aceptados + limpieza acotada de fragmentos huérfanos) verificada en Emulador Oficial.'
+      );
+    } finally {
+      await new Promise<void>((resolve) => intSrv.close(() => resolve()));
+    }
+
     console.log(
-      `\n[PASS] Suite distribuida y respaldo >1 MiB en Emulador Oficial Firestore: ${assertions}/${assertions} aserciones correctas.\n`
+      `\n[PASS] Suite distribuida, respaldo >1 MiB e integridad obligatoria en Emulador Oficial Firestore: ${assertions}/${assertions} aserciones correctas.\n`
     );
   } finally {
     // Cerrar todas las apps Firebase Admin para salida limpia del proceso

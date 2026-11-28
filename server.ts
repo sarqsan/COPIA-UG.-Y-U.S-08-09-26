@@ -43,6 +43,7 @@ import {
   type AuthenticatedRequest,
 } from './server/authMiddleware';
 import {
+  BackupIntegrityError,
   createDefaultServerStore,
   DistributedRateLimitUnavailableError,
   EmergencyBackupError,
@@ -2764,6 +2765,24 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
 
         return res.status(200).json(result);
       } catch (err: any) {
+        if (err instanceof BackupIntegrityError || err?.code === 'BACKUP_INTEGRITY_ERROR') {
+          recordSecurityAudit(
+            req,
+            {
+              event: 'RESTAURAR_RESPALDO_INTEGRIDAD_INVALIDA',
+              outcome: 'DENIED',
+              detail: `Restauración rechazada antes de iniciarse por fallo obligatorio de integridad SHA-256 (motivo interno: ${err.reasonCode || 'INTEGRITY_FAILED'}). Ningún dato modificado.`,
+            },
+            persistAudit
+          );
+          return res.status(422).json({
+            success: false,
+            code: 'BACKUP_INTEGRITY_ERROR',
+            datosModificados: false,
+            error:
+              'El respaldo seleccionado no supera la verificación obligatoria de integridad. La restauración no se ha iniciado y no se ha modificado ningún dato.',
+          });
+        }
         if (err instanceof EmergencyBackupError || err?.code === 'EMERGENCY_BACKUP_FAILED') {
           recordSecurityAudit(
             req,

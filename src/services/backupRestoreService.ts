@@ -23,6 +23,7 @@ import { ServicioDia } from '../types';
 import { ServicioDiaUS, SolicitudAusenciaUS } from '../types/usTypes';
 import { Patrulla } from '../types/patrullaTypes';
 import { sanitizeForFirestore } from '../utils/firestoreSanitizer';
+import { canonicalizeForHash, sha256Hex } from '../utils/cryptoHelper';
 import { registrarAuditLog } from './auditService';
 import { assertNotImpersonating } from '../utils/impersonationGuard';
 import { restoreBackupViaAdminServer } from './authClientService';
@@ -243,8 +244,10 @@ const crearYPersistirRespaldo = async (params: {
   const datos = await capturarSnapshotOperativo(tipoServicio);
 
   // 2. Calcular checksum criptográfico SHA-256 y estadísticas (R-10)
-  const checksum = await calcularChecksumSnapshotSha256(datos);
-  const estadisticas = calcularEstadisticasSnapshot(datos);
+  const sanitizedDatos = sanitizeForFirestore(datos) as SnapshotDatosOperativos;
+  const checksum = await calcularChecksumSnapshotSha256(sanitizedDatos);
+  const checksumSha256 = await sha256Hex(canonicalizeForHash(sanitizedDatos));
+  const estadisticas = calcularEstadisticasSnapshot(sanitizedDatos);
 
   const respaldo: RespaldoOperativo = {
     id,
@@ -256,9 +259,10 @@ const crearYPersistirRespaldo = async (params: {
     estado: 'CORRECTO',
     versionEsquema: 'v2.0-sha256',
     checksumIntegridad: checksum,
+    checksumSha256,
     motivo,
     estadisticas,
-    datos,
+    datos: sanitizedDatos,
     creadoPorUid: adminInfo.uid || 'sistema',
     creadoPorNombre: adminInfo.nombre || 'Sistema de Respaldo',
     origen,

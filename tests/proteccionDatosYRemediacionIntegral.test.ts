@@ -23,7 +23,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createServerApp } from '../server';
-import { createInMemoryServerStore } from '../server/firebaseAdminStore';
+import {
+  computeBackupPayloadSha256,
+  createInMemoryServerStore,
+} from '../server/firebaseAdminStore';
 import { hashPasswordScrypt } from '../server/securityConfig';
 import {
   PROTECCION_DATOS_AVISO_VERSION,
@@ -159,18 +162,22 @@ async function runSuite() {
         ultimoAcceso: null,
       },
     ],
-    backups: [
-      {
-        id: 'bkp-ug-test-001',
-        tipoServicio: 'GUARDIA',
-        fechaLegible: '27/11/2026 10:00',
-        datos: {
-          cuadrantes: [{ id: 'cuad-ug-1', tipoServicio: 'GUARDIA' }],
-          serviciosPorCuadrante: { 'cuad-ug-1': [{ id: 'srv-1' }, { id: 'srv-2' }] },
-          personas: [{ id: 'pers-ug-1' }],
+    backups: (() => {
+      const bkpTestDatos = {
+        cuadrantes: [{ id: 'cuad-ug-1', tipoServicio: 'GUARDIA' }],
+        serviciosPorCuadrante: { 'cuad-ug-1': [{ id: 'srv-1' }, { id: 'srv-2' }] },
+        personas: [{ id: 'pers-ug-1' }],
+      };
+      return [
+        {
+          id: 'bkp-ug-test-001',
+          tipoServicio: 'GUARDIA',
+          fechaLegible: '27/11/2026 10:00',
+          checksumSha256: computeBackupPayloadSha256(bkpTestDatos),
+          datos: bkpTestDatos,
         },
-      },
-    ],
+      ];
+    })(),
   });
 
   const { app } = await createServerApp({ store });

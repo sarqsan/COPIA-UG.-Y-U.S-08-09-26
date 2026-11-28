@@ -28,15 +28,19 @@ import path from 'node:path';
 import http from 'node:http';
 import { createServerApp } from '../server';
 import {
+  BackupIntegrityError,
   createInMemoryServerStore,
   createDefaultServerStore,
   chunkOperations,
+  computeBackupPayloadSha256,
   DistributedRateLimitUnavailableError,
   EmergencyBackupError,
   FIRESTORE_SAFE_BATCH_LIMIT,
   PartialRestoreError,
   sha256Utf8,
   splitUtf8StringByMaxBytes,
+  validateFragmentedBackupIntegrity,
+  validateInlineBackupIntegrity,
 } from '../server/firebaseAdminStore';
 import {
   ProductionConfigError,
@@ -835,6 +839,7 @@ async function runSuite() {
             tipoServicio: 'US',
             tipo: 'MANUAL',
             fechaCreacion: '2026-11-27T08:00:00.000Z',
+            checksumSha256: computeBackupPayloadSha256(snapshotLarge),
             datos: snapshotLarge,
           },
         ],
@@ -934,23 +939,27 @@ async function runSuite() {
           { id: 'sol-ug-prev-1', tipoServicio: 'GUARDIA', solicitanteGrupo: 'U.G.', estado: 'PENDIENTE_COMPAÑERO' },
           { id: 'sol-us-keep-1', tipoServicio: 'US', solicitanteGrupo: 'US_SEGURIDAD', estado: 'PENDIENTE_ADMIN' },
         ],
-        backups: [
-          {
-            id: 'BKP-UG-MULTI-BATCH',
+        backups: (() => {
+          const ugMultiBatchDatos = {
             tipoServicio: 'GUARDIA',
-            tipo: 'MANUAL',
-            fechaCreacion: '2026-10-15T08:00:00.000Z',
-            datos: {
+            cuadrantes: [{ id: 'cuad-ug-new', tipoServicio: 'GUARDIA', grupo: 'U.G.', nombre: 'UG Nuevo' }],
+            serviciosPorCuadrante: { 'cuad-ug-new': serviciosUGRestaurar },
+            personas: [{ id: 'pers-ug-1', nombre: 'ALTERADO POR BKP', alias: 'AltUG', grupo: 'U.G.', tipoServicio: 'GUARDIA', activo: true }],
+            ausenciasIncidencias: [{ id: 'inc-ug-prev-1', titularPersonaId: 'pers-ug-1', estado: 'RESUELTA_APROBADA', tipoServicio: 'GUARDIA' }],
+            patrullas: [{ id: 'pat-ug-prev-1', numero: 12, descripcion: 'Patrulla alterada' }],
+            solicitudesCambio: [{ id: 'sol-ug-prev-1', tipoServicio: 'GUARDIA', solicitanteGrupo: 'U.G.', estado: 'APROBADA_ADMIN' }],
+          };
+          return [
+            {
+              id: 'BKP-UG-MULTI-BATCH',
               tipoServicio: 'GUARDIA',
-              cuadrantes: [{ id: 'cuad-ug-new', tipoServicio: 'GUARDIA', grupo: 'U.G.', nombre: 'UG Nuevo' }],
-              serviciosPorCuadrante: { 'cuad-ug-new': serviciosUGRestaurar },
-              personas: [{ id: 'pers-ug-1', nombre: 'ALTERADO POR BKP', alias: 'AltUG', grupo: 'U.G.', tipoServicio: 'GUARDIA', activo: true }],
-              ausenciasIncidencias: [{ id: 'inc-ug-prev-1', titularPersonaId: 'pers-ug-1', estado: 'RESUELTA_APROBADA', tipoServicio: 'GUARDIA' }],
-              patrullas: [{ id: 'pat-ug-prev-1', numero: 12, descripcion: 'Patrulla alterada' }],
-              solicitudesCambio: [{ id: 'sol-ug-prev-1', tipoServicio: 'GUARDIA', solicitanteGrupo: 'U.G.', estado: 'APROBADA_ADMIN' }],
+              tipo: 'MANUAL',
+              fechaCreacion: '2026-10-15T08:00:00.000Z',
+              checksumSha256: computeBackupPayloadSha256(ugMultiBatchDatos),
+              datos: ugMultiBatchDatos,
             },
-          },
-        ],
+          ];
+        })(),
       });
 
       // 1. Simular fallo transitorio justo antes del 2º lote de escritura (después de haber borrado y escrito lote 1)
@@ -1067,22 +1076,26 @@ async function runSuite() {
         compensacionesImaginariasLegacy: [
           { id: 'COMP-LEG-UNIT-1', personaId: 'p-us-1', fechaImaginariaActivada: '2025-07-01', compensada: true },
         ],
-        backups: [
-          {
-            id: 'bkp-us-dest-frag',
+        backups: (() => {
+          const destFragDatos = {
             tipoServicio: 'US',
-            datos: {
+            cuadrantes: [{ id: 'cuad-us-small-dest', nombre: 'Destino Pequeño', tipoServicio: 'US', grupo: 'US_SEGURIDAD' }],
+            serviciosPorCuadrante: { 'cuad-us-small-dest': [{ id: 'srv-dest-1', fecha: '2026-10-01' }] },
+            personas: [],
+            ausenciasIncidencias: [],
+            compensacionesImaginarias: [],
+            compensacionesImaginariasLegacy: [],
+            solicitudesCambio: [],
+          };
+          return [
+            {
+              id: 'bkp-us-dest-frag',
               tipoServicio: 'US',
-              cuadrantes: [{ id: 'cuad-us-small-dest', nombre: 'Destino Pequeño', tipoServicio: 'US', grupo: 'US_SEGURIDAD' }],
-              serviciosPorCuadrante: { 'cuad-us-small-dest': [{ id: 'srv-dest-1', fecha: '2026-10-01' }] },
-              personas: [],
-              ausenciasIncidencias: [],
-              compensacionesImaginarias: [],
-              compensacionesImaginariasLegacy: [],
-              solicitudesCambio: [],
+              checksumSha256: computeBackupPayloadSha256(destFragDatos),
+              datos: destFragDatos,
             },
-          },
-        ],
+          ];
+        })(),
       });
 
       // 1. Fallo al guardar el respaldo de emergencia -> aborta con EmergencyBackupError y 0 borrados
@@ -1148,6 +1161,98 @@ async function runSuite() {
         Array.from(finalFragState.compensacionesImaginariasLegacy.keys()),
         ['COMP-LEG-UNIT-1'],
         'compensacion_imaginarias_us mantiene su registro original sin moverlo ni duplicarlo'
+      );
+
+      // 4. Validación obligatoria de integridad SHA-256 (sin omisiones condicionales) y limpieza de fragmentos incompletos
+      const validInlinePayload = { tipoServicio: 'US', cuadrantes: [{ id: 'c1' }] };
+      const validInlineHash = computeBackupPayloadSha256(validInlinePayload);
+      assert.deepEqual(
+        validateInlineBackupIntegrity('bkp-ok', { checksumSha256: validInlineHash, datos: validInlinePayload }),
+        validInlinePayload
+      );
+      assert.throws(
+        () => validateInlineBackupIntegrity('bkp-no-sha', { datos: validInlinePayload }),
+        (e: any) => e instanceof BackupIntegrityError && e.reasonCode === 'INLINE_CHECKSUM_MISSING'
+      );
+      assert.throws(
+        () => validateInlineBackupIntegrity('bkp-bad-fmt', { checksumSha256: 'abc123', datos: validInlinePayload }),
+        (e: any) => e instanceof BackupIntegrityError && e.reasonCode === 'INLINE_CHECKSUM_FORMAT_INVALID'
+      );
+      assert.throws(
+        () =>
+          validateInlineBackupIntegrity('bkp-tampered', {
+            checksumSha256: '0'.repeat(64),
+            datos: validInlinePayload,
+          }),
+        (e: any) => e instanceof BackupIntegrityError && e.reasonCode === 'INLINE_CHECKSUM_MISMATCH'
+      );
+
+      const fragText = JSON.stringify(validInlinePayload);
+      const fragA = fragText.slice(0, 15);
+      const fragB = fragText.slice(15);
+      const validManifest = {
+        almacenamiento: 'FRAGMENTADO',
+        totalFragmentos: 2,
+        checksumSha256: sha256Utf8(fragText),
+      };
+      const validFrags = [
+        { backupId: 'bkp-f', indice: 0, totalFragmentos: 2, contenido: fragA, chunkSha256: sha256Utf8(fragA) },
+        { backupId: 'bkp-f', indice: 1, totalFragmentos: 2, contenido: fragB, chunkSha256: sha256Utf8(fragB) },
+      ];
+      assert.deepEqual(validateFragmentedBackupIntegrity('bkp-f', validManifest, validFrags), validInlinePayload);
+      assert.throws(
+        () => validateFragmentedBackupIntegrity('bkp-f', { almacenamiento: 'FRAGMENTADO', totalFragmentos: 2 }, validFrags),
+        (e: any) => e instanceof BackupIntegrityError && e.reasonCode === 'MANIFEST_CHECKSUM_MISSING'
+      );
+      assert.throws(
+        () =>
+          validateFragmentedBackupIntegrity('bkp-f', validManifest, [
+            { backupId: 'bkp-f', indice: 0, totalFragmentos: 2, contenido: fragA },
+            validFrags[1],
+          ]),
+        (e: any) => e instanceof BackupIntegrityError && e.reasonCode === 'FRAGMENT_CHECKSUM_MISSING'
+      );
+      assert.throws(
+        () =>
+          validateFragmentedBackupIntegrity('bkp-f', validManifest, [
+            validFrags[0],
+            { ...validFrags[1], indice: 0 },
+          ]),
+        (e: any) => e instanceof BackupIntegrityError && e.reasonCode === 'FRAGMENT_INDEX_DUPLICATE'
+      );
+
+      // 5. Limpieza acotada de fragmentos huérfanos en memoria si falla antes del manifiesto padre
+      let failedEmergId = '';
+      let threwParentFail = false;
+      try {
+        await fragStore.restoreBackupByUnitAdmin(
+          'bkp-us-dest-frag',
+          { uid: 'admin-1', nombre: 'Admin' },
+          {
+            maxInlineDocBytes: 40_000,
+            chunkMaxBytes: 30_000,
+            onBeforeEmergencyParentManifestCreate: ({ backupEmergenciaId }) => {
+              failedEmergId = backupEmergenciaId;
+              throw new Error('Fallo simulado antes del manifiesto padre');
+            },
+          }
+        );
+      } catch (err: any) {
+        threwParentFail = err instanceof EmergencyBackupError;
+      }
+      assert.equal(threwParentFail, true);
+      assert.ok(failedEmergId.startsWith('backup-emerg-us-'));
+      const afterOrphanCleanup = fragStore.__inspectMemoryState!();
+      assert.equal(afterOrphanCleanup.backups.has(failedEmergId), false, 'Manifiesto padre no creado');
+      assert.equal(
+        afterOrphanCleanup.backupFragments.has(failedEmergId),
+        false,
+        'Fragmentos huérfanos de escritura incompleta eliminados limpiamente'
+      );
+      assert.equal(
+        afterOrphanCleanup.backupFragments.has(resFrag.backupEmergenciaId),
+        true,
+        'Fragmentos de respaldo completo previo preservados intactos'
       );
     });
 

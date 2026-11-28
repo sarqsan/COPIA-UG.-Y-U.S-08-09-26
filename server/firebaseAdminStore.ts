@@ -36,8 +36,48 @@ export const RATE_LIMIT_CLEANUP_GRACE_MS = 60 * 1000; // 60 s tras expiración a
 export const RATE_LIMIT_CLEANUP_INTERVAL_MS = 10 * 60 * 1000; // Barrido oportunista acotado cada 10 min por instancia
 export const RATE_LIMIT_CLEANUP_BATCH_LIMIT = 25;
 
+export const SHA256_HEX_REGEX = /^[0-9a-f]{64}$/i;
+
 export function sha256Utf8(text: string): string {
   return crypto.createHash('sha256').update(text, 'utf8').digest('hex');
+}
+
+export function isValidSha256Hex(value: unknown): value is string {
+  return typeof value === 'string' && SHA256_HEX_REGEX.test(value);
+}
+
+function timingSafeSha256Equal(computedHex: string, storedHex: string): boolean {
+  if (!isValidSha256Hex(computedHex) || !isValidSha256Hex(storedHex)) {
+    return false;
+  }
+  const a = Buffer.from(computedHex.toLowerCase(), 'hex');
+  const b = Buffer.from(storedHex.toLowerCase(), 'hex');
+  return a.length === 32 && b.length === 32 && crypto.timingSafeEqual(a, b);
+}
+
+/**
+ * Serialización JSON canónica determinista (claves de objetos ordenadas recursivamente,
+ * omitiendo propiedades `undefined` igual que JSON.stringify). Garantiza que el SHA-256
+ * de un respaldo inline o reconstruido sea idéntico antes y después de pasar por Firestore/protobuf.
+ */
+export function canonicalJsonStringify(value: unknown): string {
+  if (value === null || value === undefined) return 'null';
+  if (typeof value === 'object' && typeof (value as any).toJSON === 'function') {
+    return canonicalJsonStringify((value as any).toJSON());
+  }
+  if (typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => (item === undefined ? 'null' : canonicalJsonStringify(item))).join(',')}]`;
+  }
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj)
+    .filter((k) => obj[k] !== undefined)
+    .sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJsonStringify(obj[k])}`).join(',')}}`;
+}
+
+export function computeBackupPayloadSha256(datos: Record<string, any>): string {
+  return sha256Utf8(canonicalJsonStringify(datos));
 }
 
 export function measureApproxJsonBytes(value: unknown): number {
@@ -128,10 +168,251 @@ export interface AdminBackupRestoreOptions {
     totalBytes: number;
     fragmented: boolean;
   }) => void | Promise<void>;
+  /** Gancho opcional exclusivo para pruebas aisladas de fallo tras escribir fragmentos y antes de crear el manifiesto padre */
+  onBeforeEmergencyParentManifestCreate?: (ctx: {
+    backupEmergenciaId: string;
+    writtenFragments: number;
+  }) => void | Promise<void>;
   /** Límite máximo de bytes para almacenamiento inline (por defecto FIRESTORE_SAFE_BACKUP_DOC_BYTES) */
   maxInlineDocBytes?: number;
   /** Tamaño máximo por fragmento en bytes (por defecto FIRESTORE_BACKUP_CHUNK_BYTES) */
   chunkMaxBytes?: number;
+}
+
+export class BackupIntegrityError extends Error {
+  readonly code = 'BACKUP_INTEGRITY_ERROR' as const;
+  readonly backupId: string;
+  readonly reasonCode: string;
+
+  constructor(params: { backupId: string; reasonCode: string; detail: string }) {
+    super(
+      `Integridad de respaldo inválida para "${params.backupId}" [${params.reasonCode}]: ${params.detail}`
+    );
+    this.name = 'BackupIntegrityError';
+    this.backupId = params.backupId;
+    this.reasonCode = params.reasonCode;
+  }
+}
+
+/**
+ * Validación OBLIGATORIA de integridad SHA-256 para respaldos almacenados en modo INLINE.
+ * Nunca omite la comprobación cuando falta `checksumSha256` o tiene formato inválido.
+ */
+export function validateInlineBackupIntegrity(
+  backupId: string,
+  respaldo: Record<string, any>
+): Record<string, any> {
+  if (!respaldo || typeof respaldo !== 'object') {
+    throw new BackupIntegrityError({
+      backupId,
+      reasonCode: 'INLINE_DOCUMENT_INVALID',
+      detail: 'El documento de respaldo no es válido.',
+    });
+  }
+  const storedChecksum = respaldo.checksumSha256;
+  if (typeof storedChecksum !== 'string' || storedChecksum.length === 0) {
+    throw new BackupIntegrityError({
+      backupId,
+      reasonCode: 'INLINE_CHECKSUM_MISSING',
+      detail: 'El respaldo inline carece del campo obligatorio checksumSha256.',
+    });
+  }
+  if (!isValidSha256Hex(storedChecksum)) {
+    throw new BackupIntegrityError({
+      backupId,
+      reasonCode: 'INLINE_CHECKSUM_FORMAT_INVALID',
+      detail: 'El campo checksumSha256 del respaldo inline no es una cadena hexadecimal de 64 caracteres.',
+    });
+  }
+  const datosInline = respaldo.datos;
+  if (!datosInline || typeof datosInline !== 'object' || Array.isArray(datosInline)) {
+    throw new BackupIntegrityError({
+      backupId,
+      reasonCode: 'INLINE_PAYLOAD_INVALID',
+      detail: 'El respaldo inline no contiene un objeto de datos reconstruible válido.',
+    });
+  }
+
+  const computedCanonical = computeBackupPayloadSha256(datosInline);
+  if (!timingSafeSha256Equal(computedCanonical, storedChecksum)) {
+    throw new BackupIntegrityError({
+      backupId,
+      reasonCode: 'INLINE_CHECKSUM_MISMATCH',
+      detail: 'El SHA-256 calculado del contenido inline no coincide con checksumSha256.',
+    });
+  }
+
+  return datosInline;
+}
+
+/**
+ * Validación OBLIGATORIA de integridad SHA-256 para respaldos almacenados en modo FRAGMENTADO.
+ * Verifica obligatoriamente:
+ * - checksumSha256 global válido en el manifiesto (64 hex),
+ * - totalFragmentos entero positivo y coincidencia exacta de conteo,
+ * - índices enteros 0..total-1 sin ausencias ni duplicados,
+ * - chunkSha256 válido (64 hex) y coincidente en cada fragmento,
+ * - reconstrucción completa ordenada y verificación del checksum global SHA-256,
+ * - parseo JSON válido de objeto reconstruido.
+ */
+export function validateFragmentedBackupIntegrity(
+  backupId: string,
+  respaldo: Record<string, any>,
+  fragmentDocs: Array<Record<string, any>>
+): Record<string, any> {
+  if (!respaldo || typeof respaldo !== 'object') {
+    throw new BackupIntegrityError({
+      backupId,
+      reasonCode: 'MANIFEST_INVALID',
+      detail: 'El manifiesto del respaldo fragmentado no es válido.',
+    });
+  }
+
+  const storedGlobalChecksum = respaldo.checksumSha256;
+  if (typeof storedGlobalChecksum !== 'string' || storedGlobalChecksum.length === 0) {
+    throw new BackupIntegrityError({
+      backupId,
+      reasonCode: 'MANIFEST_CHECKSUM_MISSING',
+      detail: 'El manifiesto fragmentado carece del campo obligatorio checksumSha256.',
+    });
+  }
+  if (!isValidSha256Hex(storedGlobalChecksum)) {
+    throw new BackupIntegrityError({
+      backupId,
+      reasonCode: 'MANIFEST_CHECKSUM_FORMAT_INVALID',
+      detail: 'El campo checksumSha256 del manifiesto no es una cadena hexadecimal de 64 caracteres.',
+    });
+  }
+
+  const totalEsperado = respaldo.totalFragmentos;
+  if (typeof totalEsperado !== 'number' || !Number.isInteger(totalEsperado) || totalEsperado <= 0) {
+    throw new BackupIntegrityError({
+      backupId,
+      reasonCode: 'MANIFEST_TOTAL_FRAGMENTS_INVALID',
+      detail: `totalFragmentos inválido (${String(totalEsperado)}).`,
+    });
+  }
+
+  if (!Array.isArray(fragmentDocs) || fragmentDocs.length !== totalEsperado) {
+    throw new BackupIntegrityError({
+      backupId,
+      reasonCode: 'FRAGMENT_COUNT_MISMATCH',
+      detail: `Número de fragmentos inconsistente: esperados ${totalEsperado}, encontrados ${Array.isArray(fragmentDocs) ? fragmentDocs.length : 0}.`,
+    });
+  }
+
+  const byIndex = new Map<number, Record<string, any>>();
+  for (const frag of fragmentDocs) {
+    if (!frag || typeof frag !== 'object') {
+      throw new BackupIntegrityError({
+        backupId,
+        reasonCode: 'FRAGMENT_INVALID',
+        detail: 'Documento de fragmento inválido.',
+      });
+    }
+    if (frag.backupId !== undefined && String(frag.backupId) !== backupId) {
+      throw new BackupIntegrityError({
+        backupId,
+        reasonCode: 'FRAGMENT_BACKUP_ID_MISMATCH',
+        detail: 'Un fragmento pertenece a un backupId distinto al manifiesto.',
+      });
+    }
+    if (frag.totalFragmentos !== undefined && frag.totalFragmentos !== totalEsperado) {
+      throw new BackupIntegrityError({
+        backupId,
+        reasonCode: 'FRAGMENT_TOTAL_MISMATCH',
+        detail: 'Un fragmento declara un totalFragmentos distinto al manifiesto.',
+      });
+    }
+    const idx = frag.indice;
+    if (typeof idx !== 'number' || !Number.isInteger(idx) || idx < 0 || idx >= totalEsperado) {
+      throw new BackupIntegrityError({
+        backupId,
+        reasonCode: 'FRAGMENT_INDEX_INVALID',
+        detail: `Índice de fragmento fuera de rango o inválido (${String(idx)}).`,
+      });
+    }
+    if (byIndex.has(idx)) {
+      throw new BackupIntegrityError({
+        backupId,
+        reasonCode: 'FRAGMENT_INDEX_DUPLICATE',
+        detail: `Índice de fragmento duplicado (#${idx}).`,
+      });
+    }
+    if (typeof frag.contenido !== 'string') {
+      throw new BackupIntegrityError({
+        backupId,
+        reasonCode: 'FRAGMENT_CONTENT_INVALID',
+        detail: `Contenido ausente o no textual en fragmento #${idx}.`,
+      });
+    }
+    const chunkSha = frag.chunkSha256;
+    if (typeof chunkSha !== 'string' || chunkSha.length === 0) {
+      throw new BackupIntegrityError({
+        backupId,
+        reasonCode: 'FRAGMENT_CHECKSUM_MISSING',
+        detail: `El fragmento #${idx} carece del campo obligatorio chunkSha256.`,
+      });
+    }
+    if (!isValidSha256Hex(chunkSha)) {
+      throw new BackupIntegrityError({
+        backupId,
+        reasonCode: 'FRAGMENT_CHECKSUM_FORMAT_INVALID',
+        detail: `El campo chunkSha256 del fragmento #${idx} no es una cadena hexadecimal de 64 caracteres.`,
+      });
+    }
+    const computedChunkSha = sha256Utf8(frag.contenido);
+    if (!timingSafeSha256Equal(computedChunkSha, chunkSha)) {
+      throw new BackupIntegrityError({
+        backupId,
+        reasonCode: 'FRAGMENT_CHECKSUM_MISMATCH',
+        detail: `El SHA-256 calculado del fragmento #${idx} no coincide con chunkSha256.`,
+      });
+    }
+    byIndex.set(idx, frag);
+  }
+
+  let assembled = '';
+  for (let i = 0; i < totalEsperado; i++) {
+    const orderedFrag = byIndex.get(i);
+    if (!orderedFrag) {
+      throw new BackupIntegrityError({
+        backupId,
+        reasonCode: 'FRAGMENT_INDEX_MISSING',
+        detail: `Falta el fragmento obligatorio con índice #${i}.`,
+      });
+    }
+    assembled += orderedFrag.contenido;
+  }
+
+  const computedGlobalSha = sha256Utf8(assembled);
+  if (!timingSafeSha256Equal(computedGlobalSha, storedGlobalChecksum)) {
+    throw new BackupIntegrityError({
+      backupId,
+      reasonCode: 'GLOBAL_CHECKSUM_MISMATCH',
+      detail: 'El SHA-256 global del contenido reconstruido no coincide con checksumSha256 del manifiesto.',
+    });
+  }
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(assembled);
+  } catch {
+    throw new BackupIntegrityError({
+      backupId,
+      reasonCode: 'FRAGMENTED_JSON_INVALID',
+      detail: 'El contenido reconstruido no es un JSON válido.',
+    });
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new BackupIntegrityError({
+      backupId,
+      reasonCode: 'FRAGMENTED_PAYLOAD_INVALID',
+      detail: 'El JSON reconstruido no representa un objeto de snapshot válido.',
+    });
+  }
+
+  return parsed as Record<string, any>;
 }
 
 export class DistributedRateLimitUnavailableError extends Error {
@@ -879,39 +1160,26 @@ export function createInMemoryServerStore(initial?: {
     },
 
     async restoreBackupByUnitAdmin(backupId, actor, options) {
-      const respaldo = backups.get(backupId);
-      if (!respaldo) {
-        throw new Error(`Respaldo no encontrado: ${backupId}`);
-      }
-      const tipoServicio: 'GUARDIA' | 'US' = respaldo.tipoServicio === 'US' ? 'US' : 'GUARDIA';
+      const readMemoryBackupPayloadWithIntegrity = (
+        targetId: string
+      ): { respaldo: Record<string, any>; datos: Record<string, any> } => {
+        const doc = backups.get(targetId);
+        if (!doc) {
+          throw new Error(`Respaldo no encontrado: ${targetId}`);
+        }
+        if (doc.almacenamiento === 'FRAGMENTADO') {
+          const fragMap = backupFragments.get(targetId);
+          const fragDocs = fragMap ? Array.from(fragMap.values()) : [];
+          const datosFrag = validateFragmentedBackupIntegrity(targetId, doc, fragDocs);
+          return { respaldo: doc, datos: datosFrag };
+        }
+        const datosInline = validateInlineBackupIntegrity(targetId, doc);
+        return { respaldo: doc, datos: datosInline };
+      };
 
-      // Reconstruir payload si el respaldo origen estaba almacenado de forma fragmentada
-      let datos: Record<string, any> = respaldo.datos || {};
-      if (respaldo.almacenamiento === 'FRAGMENTADO') {
-        const fragMap = backupFragments.get(backupId);
-        const totalEsperado = Number(respaldo.totalFragmentos || 0);
-        if (!fragMap || totalEsperado <= 0 || fragMap.size !== totalEsperado) {
-          throw new Error(
-            `Respaldo fragmentado incompleto o corrupto (${backupId}): esperados ${totalEsperado} fragmentos, encontrados ${fragMap?.size || 0}.`
-          );
-        }
-        const ordered = Array.from(fragMap.values()).sort((a, b) => Number(a.indice) - Number(b.indice));
-        let assembled = '';
-        for (let i = 0; i < totalEsperado; i++) {
-          const frag = ordered[i];
-          if (!frag || Number(frag.indice) !== i || typeof frag.contenido !== 'string') {
-            throw new Error(`Fragmento #${i} inválido o ausente en respaldo "${backupId}".`);
-          }
-          if (frag.chunkSha256 && sha256Utf8(frag.contenido) !== frag.chunkSha256) {
-            throw new Error(`Checksum de fragmento #${i} inválido en respaldo "${backupId}".`);
-          }
-          assembled += frag.contenido;
-        }
-        if (respaldo.checksumSha256 && sha256Utf8(assembled) !== respaldo.checksumSha256) {
-          throw new Error(`Checksum global SHA-256 inválido al reensamblar respaldo "${backupId}".`);
-        }
-        datos = JSON.parse(assembled);
-      }
+      // Validación obligatoria de integridad ANTES de crear respaldo de emergencia o modificar cualquier dato
+      const { respaldo, datos } = readMemoryBackupPayloadWithIntegrity(backupId);
+      const tipoServicio: 'GUARDIA' | 'US' = respaldo.tipoServicio === 'US' ? 'US' : 'GUARDIA';
 
       // 1. 3.E: Resguardo automático previo COMPLETO de TODAS las colecciones modificables de la unidad
       //    antes de comenzar cualquier borrado o sobrescritura.
@@ -1033,7 +1301,7 @@ export function createInMemoryServerStore(initial?: {
       };
 
       const backupEmergenciaId = `backup-emerg-${tipoServicio.toLowerCase()}-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`;
-      const snapshotJson = JSON.stringify(emergencyDatos);
+      const snapshotJson = canonicalJsonStringify(emergencyDatos);
       const backupEmergenciaChecksumSha256 = sha256Utf8(snapshotJson);
       const backupEmergenciaBytes = Buffer.byteLength(snapshotJson, 'utf8');
       const maxInlineDocBytes = options?.maxInlineDocBytes ?? FIRESTORE_SAFE_BACKUP_DOC_BYTES;
@@ -1057,6 +1325,8 @@ export function createInMemoryServerStore(initial?: {
       const inlineBytes = measureApproxJsonBytes({ ...baseEmergencyMeta, datos: emergencyDatos });
       const needsFragmentation = inlineBytes > maxInlineDocBytes;
       let backupEmergenciaFragmentos = 0;
+      let parentManifestCreated = false;
+      let wroteAnyFragments = false;
 
       try {
         if (options?.onBeforeEmergencyBackupWrite) {
@@ -1073,6 +1343,7 @@ export function createInMemoryServerStore(initial?: {
             totalFragmentos: 0,
             datos: emergencyDatos,
           });
+          parentManifestCreated = true;
         } else {
           const parts = splitUtf8StringByMaxBytes(snapshotJson, chunkMaxBytes);
           const fragMap = new Map<string, Record<string, any>>();
@@ -1088,36 +1359,39 @@ export function createInMemoryServerStore(initial?: {
             });
           });
           backupFragments.set(backupEmergenciaId, fragMap);
+          wroteAnyFragments = true;
           backupEmergenciaFragmentos = parts.length;
+
+          if (options?.onBeforeEmergencyParentManifestCreate) {
+            await options.onBeforeEmergencyParentManifestCreate({
+              backupEmergenciaId,
+              writtenFragments: parts.length,
+            });
+          }
+
           backups.set(backupEmergenciaId, {
             ...baseEmergencyMeta,
             almacenamiento: 'FRAGMENTADO',
             totalFragmentos: parts.length,
             datos: null,
           });
+          parentManifestCreated = true;
         }
 
         // Verificación obligatoria de integridad del respaldo de emergencia ANTES de borrar nada
-        const persisted = backups.get(backupEmergenciaId);
-        if (!persisted || persisted.estado !== 'COMPLETADO_PRE_RESTAURACION') {
+        const verified = readMemoryBackupPayloadWithIntegrity(backupEmergenciaId);
+        if (verified.respaldo.estado !== 'COMPLETADO_PRE_RESTAURACION') {
           throw new Error('Documento manifiesto de emergencia no confirmado.');
         }
-        if (persisted.almacenamiento === 'FRAGMENTADO') {
-          const savedFrags = backupFragments.get(backupEmergenciaId);
-          if (!savedFrags || savedFrags.size !== persisted.totalFragmentos) {
-            throw new Error('Conteo de fragmentos persistidos no coincide.');
-          }
-          const verifyJson = Array.from(savedFrags.values())
-            .sort((a, b) => Number(a.indice) - Number(b.indice))
-            .map((f) => String(f.contenido))
-            .join('');
-          if (sha256Utf8(verifyJson) !== backupEmergenciaChecksumSha256) {
-            throw new Error('Checksum de verificación pre-borrado no coincide.');
-          }
-        } else if (sha256Utf8(JSON.stringify(persisted.datos)) !== backupEmergenciaChecksumSha256) {
-          throw new Error('Checksum de verificación inline pre-borrado no coincide.');
+        if (!timingSafeSha256Equal(computeBackupPayloadSha256(verified.datos), backupEmergenciaChecksumSha256)) {
+          throw new Error('Checksum de verificación pre-borrado no coincide.');
         }
       } catch (err: any) {
+        // Limpieza acotada: únicamente elimina fragmentos recién escritos por esta operación fallida
+        // cuando el manifiesto padre NO llegó a crearse (jamás toca respaldos completos)
+        if (wroteAnyFragments && !parentManifestCreated && !backups.has(backupEmergenciaId)) {
+          backupFragments.delete(backupEmergenciaId);
+        }
         throw new EmergencyBackupError({
           backupId,
           backupEmergenciaId,
@@ -1603,7 +1877,8 @@ export async function createFirebaseAdminServerStore(
 
   const normalize = (v?: string) => (v || '').trim().toLowerCase();
 
-  // Helper compartido para reconstruir un respaldo almacenado inline o fragmentado
+  // Helper compartido para reconstruir y validar OBLIGATORIAMENTE un respaldo inline o fragmentado.
+  // Nunca omite la comprobación SHA-256 cuando falta checksumSha256 o chunkSha256.
   const readBackupPayloadWithIntegrity = async (
     targetBackupId: string
   ): Promise<{ respaldo: Record<string, any>; datos: Record<string, any> }> => {
@@ -1613,45 +1888,46 @@ export async function createFirebaseAdminServerStore(
     }
     const respaldo = respaldoSnap.data() as Record<string, any>;
     if (respaldo.almacenamiento !== 'FRAGMENTADO') {
-      const datosInline = respaldo.datos || {};
-      if (respaldo.checksumSha256 && sha256Utf8(JSON.stringify(datosInline)) !== respaldo.checksumSha256) {
-        throw new Error(`Checksum SHA-256 inválido en respaldo inline "${targetBackupId}".`);
-      }
+      const datosInline = validateInlineBackupIntegrity(targetBackupId, respaldo);
       return { respaldo, datos: datosInline };
     }
 
-    const totalEsperado = Number(respaldo.totalFragmentos || 0);
-    if (totalEsperado <= 0) {
-      throw new Error(`Manifiesto fragmentado inválido en respaldo "${targetBackupId}" (totalFragmentos=${totalEsperado}).`);
-    }
     const fragsSnap = await adminDb
       .collection('respaldos_sistema')
       .doc(targetBackupId)
       .collection('fragmentos')
       .get();
-    if (fragsSnap.size !== totalEsperado) {
-      throw new Error(
-        `Respaldo fragmentado incompleto "${targetBackupId}": esperados ${totalEsperado} fragmentos, encontrados ${fragsSnap.size}.`
-      );
+    const fragDocs = fragsSnap.docs.map((d) => d.data() as Record<string, any>);
+    const datosFrag = validateFragmentedBackupIntegrity(targetBackupId, respaldo, fragDocs);
+    return { respaldo, datos: datosFrag };
+  };
+
+  // Limpieza acotada de fragmentos huérfanos pertenecientes ÚNICAMENTE a una escritura de emergencia
+  // fallida antes de crear su manifiesto padre. Nunca elimina fragmentos de respaldos completos ni
+  // escanea respaldos históricos.
+  const cleanupIncompleteEmergencyFragments = async (
+    emergRef: FirebaseFirestore.DocumentReference,
+    committedFragmentRefs: FirebaseFirestore.DocumentReference[]
+  ): Promise<{ cleaned: number; skippedBecauseParentExists: boolean }> => {
+    if (committedFragmentRefs.length === 0) {
+      return { cleaned: 0, skippedBecauseParentExists: false };
     }
-    const ordered = fragsSnap.docs
-      .map((d) => d.data() as Record<string, any>)
-      .sort((a, b) => Number(a.indice) - Number(b.indice));
-    let assembled = '';
-    for (let i = 0; i < totalEsperado; i++) {
-      const frag = ordered[i];
-      if (!frag || Number(frag.indice) !== i || typeof frag.contenido !== 'string') {
-        throw new Error(`Fragmento #${i} ausente o inválido en respaldo "${targetBackupId}".`);
+    // Garantía absoluta: si el manifiesto padre existe, JAMÁS tocar sus fragmentos
+    const parentSnap = await emergRef.get();
+    if (parentSnap.exists) {
+      return { cleaned: 0, skippedBecauseParentExists: true };
+    }
+    let cleaned = 0;
+    const cleanupBatches = chunkOperations(committedFragmentRefs, FIRESTORE_SAFE_BATCH_LIMIT);
+    for (const batchRefs of cleanupBatches) {
+      const batch = adminDb.batch();
+      for (const ref of batchRefs) {
+        batch.delete(ref);
       }
-      if (frag.chunkSha256 && sha256Utf8(frag.contenido) !== frag.chunkSha256) {
-        throw new Error(`Checksum de fragmento #${i} corrupto en respaldo "${targetBackupId}".`);
-      }
-      assembled += frag.contenido;
+      await batch.commit();
+      cleaned += batchRefs.length;
     }
-    if (respaldo.checksumSha256 && sha256Utf8(assembled) !== respaldo.checksumSha256) {
-      throw new Error(`Checksum global SHA-256 inválido al reensamblar respaldo "${targetBackupId}".`);
-    }
-    return { respaldo, datos: JSON.parse(assembled) };
+    return { cleaned, skippedBecauseParentExists: false };
   };
 
   // Helper de limpieza segura y atómica de contadores expirados en rate_limits_servidor
@@ -2295,7 +2571,7 @@ export async function createFirebaseAdminServerStore(
         };
 
         const backupEmergenciaId = `backup-emerg-${tipoServicio.toLowerCase()}-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`;
-        const snapshotJson = JSON.stringify(emergencyDatos);
+        const snapshotJson = canonicalJsonStringify(emergencyDatos);
         const backupEmergenciaChecksumSha256 = sha256Utf8(snapshotJson);
         const backupEmergenciaBytes = Buffer.byteLength(snapshotJson, 'utf8');
         const maxInlineDocBytes = options?.maxInlineDocBytes ?? FIRESTORE_SAFE_BACKUP_DOC_BYTES;
@@ -2321,6 +2597,9 @@ export async function createFirebaseAdminServerStore(
         const inlineBytes = measureApproxJsonBytes({ ...baseEmergencyMeta, datos: emergencyDatos });
         const needsFragmentation = inlineBytes > maxInlineDocBytes;
         let backupEmergenciaFragmentos = 0;
+        const emergRef = adminDb.collection('respaldos_sistema').doc(backupEmergenciaId);
+        const committedFragmentRefs: FirebaseFirestore.DocumentReference[] = [];
+        let parentManifestCreated = false;
 
         try {
           if (options?.onBeforeEmergencyBackupWrite) {
@@ -2331,7 +2610,6 @@ export async function createFirebaseAdminServerStore(
             });
           }
 
-          const emergRef = adminDb.collection('respaldos_sistema').doc(backupEmergenciaId);
           if (!needsFragmentation) {
             await emergRef.create({
               ...baseEmergencyMeta,
@@ -2339,6 +2617,7 @@ export async function createFirebaseAdminServerStore(
               totalFragmentos: 0,
               datos: emergencyDatos,
             });
+            parentManifestCreated = true;
           } else {
             // Almacenamiento fragmentado: escribir TODOS los fragmentos antes del manifiesto padre
             const parts = splitUtf8StringByMaxBytes(snapshotJson, chunkMaxBytes);
@@ -2361,6 +2640,16 @@ export async function createFirebaseAdminServerStore(
                 fb.create(item.ref, item.data);
               }
               await fb.commit();
+              for (const item of fChunk) {
+                committedFragmentRefs.push(item.ref);
+              }
+            }
+
+            if (options?.onBeforeEmergencyParentManifestCreate) {
+              await options.onBeforeEmergencyParentManifestCreate({
+                backupEmergenciaId,
+                writtenFragments: committedFragmentRefs.length,
+              });
             }
 
             // En manifiestos muy grandes evitamos sobrepasar 1 MiB con listas masivas de IDs en el padre
@@ -2375,6 +2664,7 @@ export async function createFirebaseAdminServerStore(
               metaForParent.documentosIdsOmitidosEnManifiestoPorTamano = true;
             }
             await emergRef.create(metaForParent);
+            parentManifestCreated = true;
           }
 
           // Confirmar integridad real leyendo el respaldo recién persistido ANTES de iniciar cualquier borrado
@@ -2382,10 +2672,22 @@ export async function createFirebaseAdminServerStore(
           if (verified.respaldo.estado !== 'COMPLETADO_PRE_RESTAURACION') {
             throw new Error('Estado de respaldo de emergencia no confirmado.');
           }
-          if (sha256Utf8(JSON.stringify(verified.datos)) !== backupEmergenciaChecksumSha256) {
+          if (!timingSafeSha256Equal(computeBackupPayloadSha256(verified.datos), backupEmergenciaChecksumSha256)) {
             throw new Error('Checksum de verificación post-escritura no coincide.');
           }
         } catch (err: any) {
+          // Limpieza acotada: solo borra fragmentos recién escritos por esta invocación fallida
+          // si el manifiesto padre NO llegó a crearse (jamás elimina respaldos completos)
+          if (!parentManifestCreated && committedFragmentRefs.length > 0) {
+            try {
+              await cleanupIncompleteEmergencyFragments(emergRef, committedFragmentRefs);
+            } catch (cleanupErr: any) {
+              console.warn(
+                '[EmergencyBackupCleanup] No se pudieron limpiar fragmentos huérfanos incompletos:',
+                cleanupErr?.message || 'error'
+              );
+            }
+          }
           throw new EmergencyBackupError({
             backupId,
             backupEmergenciaId,
