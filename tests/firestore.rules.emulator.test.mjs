@@ -37,7 +37,29 @@ async function main() {
     process.exit(2);
   }
 
-  const { initializeTestEnvironment, assertFails, assertSucceeds } = testing;
+  const { initializeTestEnvironment, assertFails: rawAssertFails, assertSucceeds: rawAssertSucceeds } = testing;
+
+  let checkIndex = 0;
+  let currentSection = 'init';
+  const section = (name) => {
+    currentSection = name;
+  };
+  const assertSucceeds = async (promise) => {
+    const idx = ++checkIndex;
+    try {
+      return await rawAssertSucceeds(promise);
+    } catch (err) {
+      throw new Error(`[CHECK #${idx} assertSucceeds FAILED in "${currentSection}"] ${err?.message || err}`);
+    }
+  };
+  const assertFails = async (promise) => {
+    const idx = ++checkIndex;
+    try {
+      return await rawAssertFails(promise);
+    } catch (err) {
+      throw new Error(`[CHECK #${idx} assertFails FAILED in "${currentSection}"] ${err?.message || err}`);
+    }
+  };
 
   const testEnv = await initializeTestEnvironment({
     projectId: process.env.GCLOUD_PROJECT || 'demo-ug-us-rules-test',
@@ -278,10 +300,12 @@ async function main() {
     const ugNoDpDb = testEnv.authenticatedContext('ug-sin-aviso', { rol: 'USUARIO' }).firestore();
 
     // 1. Anónimo bloqueado en todo
+    section('1. anon');
     await assertFails(anonDb.doc('cuadrantes/cuad-ug').get());
     await assertFails(anonDb.doc('cuentas/ug-1').get());
 
     // 2. Bloque 4: usuario sin aceptación bloqueado en colecciones operativas, pero puede leer su propia constancia
+    section('2. no-dp');
     await assertFails(ugNoDpDb.doc('cuadrantes/cuad-ug').get());
     await assertSucceeds(ugNoDpDb.doc('aceptaciones_proteccion_datos/ug-sin-aviso').get());
     await assertFails(
@@ -293,12 +317,14 @@ async function main() {
     );
 
     // 3. Aislamiento U.G. vs U.S.
+    section('3. unit-isolation');
     await assertSucceeds(ugDb.doc('cuadrantes/cuad-ug').get());
     await assertFails(ugDb.doc('cuadrantes/cuad-us').get());
     await assertSucceeds(usDb.doc('cuadrantes/cuad-us').get());
     await assertFails(usDb.doc('cuadrantes/cuad-ug').get());
 
     // 4. Matrículas lectura/escritura directa solo ADMIN (U.S. y U.G. bloqueados en Firestore; U.S. usa API /api/matriculas/comprobar); Patrullas solo U.G. y ADMIN
+    section('4. matriculas-patrullas');
     await assertFails(ugDb.doc('matriculas_autorizadas/mat-1').get());
     await assertFails(usDb.doc('matriculas_autorizadas/mat-1').get());
     await assertFails(usDb.collection('matriculas_autorizadas').get());
@@ -310,6 +336,7 @@ async function main() {
     await assertSucceeds(ugDb.doc('patrullas/pat-1').get());
 
     // 5. NC-02 + 3.C: respaldos_sistema (admin read/create con tipo válido, bloqueo si falta tipo o delete; usuario denegado)
+    section('5. respaldos');
     await assertSucceeds(adminDb.doc('respaldos_sistema/bkp-1').get());
     await assertSucceeds(
       adminDb.doc('respaldos_sistema/bkp-2').set({
@@ -335,6 +362,7 @@ async function main() {
     await assertFails(ugDb.doc('respaldos_sistema/bkp-1').get());
 
     // 6. NC-03/04: notificaciones operativas activas, rechazo notificaciones heredadas de chat, incidencias y fcmTokens
+    section('6. notificaciones-chat-fcm');
     await assertFails(ugDb.doc('notificaciones/notif-us-all').get());
     await assertSucceeds(usDb.doc('notificaciones/notif-us-all').get());
     await assertSucceeds(
@@ -443,6 +471,7 @@ async function main() {
     );
 
     // 7. Orden Complementaria + Ampliación Alias: bloqueo estricto de escritura directa en /cuentas/{uid}, /personas, /decisiones_alias, /propuestas_alias y /configuracion_politica_alias
+    section('7. cuentas-personas-alias');
     await assertSucceeds(
       ugDb.doc('cuentas/ug-1').update({ ultimoAcceso: new Date().toISOString() })
     );
@@ -483,6 +512,7 @@ async function main() {
 
     // 8. I-01 + C-02: Consultas list() reales por perfil (reglas NO son filtros)
     // 8.1 Cuadrantes: list() filtrado por unidad PERMITIDO; list() sin filtro o cruzado DENEGADO
+    section('8.1 list-cuadrantes');
     await assertSucceeds(ugDb.collection('cuadrantes').where('tipoServicio', '==', 'GUARDIA').get());
     await assertSucceeds(ugDb.collection('cuadrantes').where('grupo', '==', 'U.G.').get());
     await assertFails(ugDb.collection('cuadrantes').get());
@@ -494,6 +524,7 @@ async function main() {
     await assertSucceeds(adminDb.collection('cuadrantes').get());
 
     // 8.2 Solicitudes de cambio y documentos firmados (canónico + legacy): list() filtrado PERMITIDO; sin filtro DENEGADO
+    section('8.2 list-solicitudes-docs');
     await assertSucceeds(ugDb.collection('solicitudes_cambio').where('tipoServicio', '==', 'GUARDIA').get());
     await assertSucceeds(ugDb.collection('solicitudes_cambio').where('destinatarioPersonaId', '==', 'pers-ug-1').get());
     await assertFails(ugDb.collection('solicitudes_cambio').get());
@@ -509,6 +540,7 @@ async function main() {
     await assertSucceeds(adminDb.collection('documentos_cambios_firmados').get());
 
     // 8.3 Notificaciones: list() acotado por destinatario/unidad PERMITIDO; list() abierto o cruzado DENEGADO
+    section('8.3 list-notificaciones');
     await assertSucceeds(ugDb.collection('notificaciones').where('destinatarioPersonaId', '==', 'pers-ug-1').get());
     await assertSucceeds(ugDb.collection('notificaciones').where('destinatarioUid', '==', 'ug-1').get());
     await assertSucceeds(
@@ -524,6 +556,7 @@ async function main() {
     await assertSucceeds(adminDb.collection('notificaciones').get());
 
     // 9. I-01 + C-02 + C-03: ausencias_us (list propio, bloqueo terceros, create PENDIENTE_ADMIN y anti-autoaprobación)
+    section('9. ausencias_us');
     await assertSucceeds(usDb.collection('ausencias_us').where('personaId', '==', 'pers-us-1').get());
     await assertFails(usDb.collection('ausencias_us').get());
     await assertFails(usDb.doc('ausencias_us/aus-us-other').get());
@@ -567,6 +600,7 @@ async function main() {
     await assertFails(adminDb.doc('ausencias_us/aus-us-own').delete());
 
     // 10. I-01 + C-04: imaginarias_activadas_us y compensacion_imaginarias_us
+    section('10. imaginarias_us');
     await assertSucceeds(usDb.doc('imaginarias_activadas_us/img-act-1').get());
     await assertSucceeds(usDb.collection('imaginarias_activadas_us').get());
     await assertFails(ugDb.doc('imaginarias_activadas_us/img-act-1').get());
@@ -589,6 +623,7 @@ async function main() {
     await assertFails(ugDb.doc('compensacion_imaginarias_us/comp-leg-1').get());
 
     // 11. I-05: Validación estricta de campos en incidencias_ausencia y solicitudes_cambio
+    section('11. incidencias-solicitudes-update');
     await assertSucceeds(
       ugDb.doc('incidencias_ausencia/inc-ok-sobrevenida').set({
         id: 'inc-ok-sobrevenida',
@@ -635,6 +670,7 @@ async function main() {
 
     // 12. 3.A: Propiedades inexistentes / documentos históricos sin campos opcionales
     // 12.1 Documentos antiguos sin tipoServicio y con solo grupo
+    section('12.1 legacy-cuadrantes');
     await assertSucceeds(ugDb.doc('cuadrantes/cuad-legacy-ug-bare').get());
     await assertFails(usDb.doc('cuadrantes/cuad-legacy-ug-bare').get());
     await assertSucceeds(ugDb.doc('cuadrantes/cuad-legacy-ug-grupo').get());
@@ -643,6 +679,7 @@ async function main() {
     await assertFails(ugDb.doc('cuadrantes/cuad-legacy-us-grupo').get());
 
     // 12.2 Solicitudes con solicitanteGrupo y sin tipoServicio
+    section('12.2 legacy-solicitudes');
     await assertSucceeds(ugDb.doc('solicitudes_cambio/sol-legacy-ug-grupo').get());
     await assertSucceeds(
       ugDb.collection('solicitudes_cambio').where('solicitanteGrupo', '==', 'U.G.').get()
@@ -658,6 +695,7 @@ async function main() {
     await assertFails(ugDb.doc('solicitudes_cambio/sol-legacy-us-grupo').get());
 
     // 12.3 Notificaciones globales sin destinatarios e individuales con solo UID o solo personaId + 3.B marcado leídas
+    section('12.3 legacy-notificaciones-3B');
     await assertSucceeds(ugDb.doc('notificaciones/notif-ug-all').get());
     await assertSucceeds(ugDb.doc('notificaciones/notif-ug-all').update({ leidoPor: ['ug-1'] }));
     await assertFails(
@@ -704,6 +742,7 @@ async function main() {
     await assertFails(usDb.doc('notificaciones/notif-ug-persona-only').get());
 
     // 12.4 Incidencia con solo imaginariaRol2PersonaId (sin otros campos de imaginaria) + bloqueo médico en update
+    section('12.4 legacy-incidencias');
     await assertSucceeds(
       ugDb.doc('incidencias_ausencia/inc-rol2-only').update({
         estado: 'IMAGINARIA_ACTIVADA_COBERTURA',
@@ -719,18 +758,20 @@ async function main() {
     await assertFails(usDb.doc('incidencias_ausencia/inc-rol2-only').get());
 
     // 12.5 Documentos firmados que carecen de personaB o de personaA
+    section('12.5 legacy-signed-docs');
     await assertSucceeds(ugDb.doc('documentos_cambios_firmados/doc-only-a').get());
     await assertFails(usDb.doc('documentos_cambios_firmados/doc-only-a').get());
     await assertSucceeds(ugDb.doc('documentos_cambio_firmados/doc-only-b').get());
     await assertFails(usDb.doc('documentos_cambio_firmados/doc-only-b').get());
 
     // 12.6 Colección interna rate_limits_servidor bloqueada desde cliente para todos los perfiles (3.G)
+    section('12.6 rate_limits_servidor');
     await assertFails(anonDb.doc('rate_limits_servidor/rl-test-1').get());
     await assertFails(ugDb.doc('rate_limits_servidor/rl-test-1').get());
     await assertFails(adminDb.doc('rate_limits_servidor/rl-test-1').get());
     await assertFails(adminDb.doc('rate_limits_servidor/rl-new').set({ count: 0 }));
 
-    console.log('[PASS] Suite oficial Firebase Firestore Rules Emulator completada sin errores.');
+    console.log(`[PASS] Suite oficial Firebase Firestore Rules Emulator completada sin errores (${checkIndex} aserciones verificadas).`);
   } finally {
     await testEnv.cleanup();
   }

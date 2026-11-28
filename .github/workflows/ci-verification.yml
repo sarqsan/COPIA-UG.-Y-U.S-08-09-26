@@ -28,7 +28,7 @@ jobs:
           cache: 'npm'
 
       - name: Configurar Java 21 (requerido por Firebase Firestore Emulator)
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '21'
@@ -57,4 +57,13 @@ jobs:
         run: npm test
 
       - name: Suite oficial del Emulador Firestore Rules (npm run test:rules:emulator)
-        run: npm run test:rules:emulator
+        run: |
+          set +e
+          npm run test:rules:emulator 2>&1 | tee /tmp/emulator-test.log
+          EC=${PIPESTATUS[0]}
+          if [ "$EC" -ne 0 ]; then
+            echo "::error title=Firestore Emulator Failure::$(tail -n 40 /tmp/emulator-test.log | tr '\n' ' ' | sed 's/%/%25/g')"
+            exit "$EC"
+          fi
+          SUMMARY=$(grep -E '^\[PASS\]' /tmp/emulator-test.log | tail -n 5 | tr '\n' ' ')
+          echo "::notice title=Firestore Emulator Summary::$SUMMARY"
