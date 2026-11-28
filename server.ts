@@ -2,15 +2,14 @@ import express, { type Request, type Response, type NextFunction } from 'express
 import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
-import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
-import { fileURLToPath } from 'url';
 
 import {
+  assertProductionSecurityConfig,
   checkLoginLockoutPersistent,
   clearLoginAttemptsPersistent,
   computeSha256Utf8,
@@ -21,6 +20,7 @@ import {
   hashInvitationToken,
   hashPasswordScrypt,
   INVITE_DEFAULT_TTL_MS,
+  isStrictProductionEnv,
   isValidEmailAddress,
   recordFailedLoginAttemptPersistent,
   revokeSessionToken,
@@ -92,22 +92,52 @@ import type { Grupo, Persona, TipoServicio } from './src/types';
 dotenv.config();
 
 const PORT = Number(process.env.PORT) || 3000;
-const CURRENT_DIR =
-  typeof __dirname !== 'undefined'
-    ? __dirname
-    : path.dirname(fileURLToPath(import.meta.url));
+const CURRENT_DIR = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
 const DIST_DIR = fs.existsSync(path.join(CURRENT_DIR, 'index.html'))
   ? CURRENT_DIR
   : path.resolve(CURRENT_DIR, 'dist');
 const INDEX_HTML_PATH = path.join(DIST_DIR, 'index.html');
-const IS_PRODUCTION =
-  process.env.NODE_ENV === 'production' || fs.existsSync(INDEX_HTML_PATH);
+const HAS_BUILT_FRONTEND = fs.existsSync(INDEX_HTML_PATH);
+const IS_PRODUCTION = isStrictProductionEnv() || HAS_BUILT_FRONTEND;
 
 export interface CreateServerAppOptions {
   store?: ServerDataStore;
   disableRateLimit?: boolean;
+  documentoVerifyMaxRequests?: number;
   allowedOrigins?: string[];
   enableFrontendMiddleware?: boolean;
+}
+
+function projectOwnPersonaSummary(
+  persona: Persona | null,
+  tipoServicio: TipoServicio
+): Record<string, any> | null {
+  if (!persona) return null;
+  const approvedAlias =
+    typeof persona.alias === 'string' && persona.alias.trim().length > 0
+      ? persona.alias.trim()
+      : undefined;
+  return {
+    id: persona.id,
+    ...(approvedAlias ? { alias: approvedAlias } : {}),
+    ...(persona.aliasActualizadoEn ? { aliasActualizadoEn: persona.aliasActualizadoEn } : {}),
+    nombre: getApprovedVisibleAlias(persona, tipoServicio),
+    empleo: persona.empleo,
+    grupo: persona.grupo,
+    tipoServicio,
+    activo: persona.activo,
+    ...(persona.ordenRotacion !== undefined ? { ordenRotacion: persona.ordenRotacion } : {}),
+    ...(persona.cicloId ? { cicloId: persona.cicloId } : {}),
+    ...(persona.diasVacacionesAsignados !== undefined
+      ? { diasVacacionesAsignados: persona.diasVacacionesAsignados }
+      : {}),
+    ...(persona.diasAsuntosPropiosAsignados !== undefined
+      ? { diasAsuntosPropiosAsignados: persona.diasAsuntosPropiosAsignados }
+      : {}),
+    ...(persona.diasPermisoAsignados !== undefined
+      ? { diasPermisoAsignados: persona.diasPermisoAsignados }
+      : {}),
+  };
 }
 
 function buildDataProtectionStatus(
@@ -128,6 +158,11 @@ function buildDataProtectionStatus(
 }
 
 export async function createServerApp(options: CreateServerAppOptions = {}) {
+  // I-02: En producción real, fallar de forma explícita si faltan secretos o credenciales obligatorias
+  if (!options.store) {
+    assertProductionSecurityConfig({ requireFirebaseAdmin: true });
+  }
+
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
@@ -274,6 +309,21 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         legacyHeaders: false,
         message: {
           error: 'Límite de comprobaciones de matrícula alcanzado temporalmente. Espera unos minutos.',
+        },
+      });
+
+  // I-04: Limitador dedicado contra enumeración abusiva en verificación pública de comprobantes CSV
+  const documentoVerifyLimiter = options.disableRateLimit
+    ? noopLimiter
+    : rateLimit({
+        windowMs: 15 * 60 * 1000,
+        max: options.documentoVerifyMaxRequests ?? 30,
+        standardHeaders: true,
+        legacyHeaders: false,
+        message: {
+          valido: false,
+          code: 'RATE_LIMITED',
+          error: 'Demasiadas consultas de verificación desde esta dirección. Espera unos minutos.',
         },
       });
 
@@ -1180,6 +1230,111 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
     }
   );
 
+  /**
+   * C-02: Resumen operativo proyectado de ausencias U.S. (vacaciones, permisos y asuntos propios).
+   * Permite a usuarios ordinarios U.S. consultar sus propias solicitudes y calcular cupos diarios
+   * compartidos SIN leer solicitudes completas de terceros desde Firestore y SIN exponer motivos
+   * ni nombres históricos ajenos.
+   */
+  app.get(
+    '/api/ausencias-us/resumen-operativo',
+    requireAuth,
+    requireDataProtection,
+    requireUnitUSOrAdmin,
+    async (req: AuthenticatedRequest, res: Response) => {
+      try {
+        const isAdminReq = req.authUser!.rol === 'ADMIN';
+        const requesterPersonaId = req.authUser!.personaId || null;
+
+        const [ausenciasRaw, personasUS] = await Promise.all([
+          store.listAusenciasUSOperativas(),
+          store.listPersonasByUnit('US'),
+        ]);
+
+        const personaById = new Map<string, Persona>();
+        for (const p of personasUS) {
+          personaById.set(p.id, p);
+        }
+
+        const solicitudes = ausenciasRaw
+          .filter((a: any) => a && !a.eliminadoLogico)
+          .map((a: any) => {
+            const pid = String(a.personaId || '');
+            const personaObj = personaById.get(pid) || null;
+            const visibleLabel = personaObj
+              ? getApprovedVisibleAlias(personaObj, 'US')
+              : 'Usuario U.S.';
+            const isOwn = Boolean(requesterPersonaId && pid === requesterPersonaId);
+
+            if (isAdminReq) {
+              return { ...a };
+            }
+
+            if (isOwn) {
+              return {
+                id: a.id,
+                personaId: pid,
+                personaNombre: visibleLabel,
+                tipoAusencia: a.tipoAusencia,
+                fechaInicio: a.fechaInicio,
+                fechaFin: a.fechaFin,
+                fechasAfectadas: Array.isArray(a.fechasAfectadas) ? a.fechasAfectadas : [],
+                diasConsumibles: a.diasConsumibles,
+                diasTotales: a.diasTotales,
+                diasNoConsumibles: a.diasNoConsumibles,
+                festivosExcluidos: Array.isArray(a.festivosExcluidos) ? a.festivosExcluidos : [],
+                finesSemanaExcluidos: Array.isArray(a.finesSemanaExcluidos)
+                  ? a.finesSemanaExcluidos
+                  : [],
+                motivo: a.motivo || '',
+                estado: a.estado,
+                fechaSolicitud: a.fechaSolicitud,
+                fechaResolucion: a.fechaResolucion,
+                documentoJustificativoEntregado: Boolean(a.documentoJustificativoEntregado),
+              };
+            }
+
+            // Terceros de U.S.: solo se exponen ausencias activas/pendientes que computan cupo diario
+            // (se omiten solicitudes rechazadas o canceladas de terceros) y con proyección mínima
+            // (sin motivo, sin nombre histórico, sin metadatos administrativos ni observaciones)
+            const estadoNorm = String(a.estado || '').toUpperCase();
+            if (
+              estadoNorm !== 'APROBADA' &&
+              estadoNorm !== 'PENDIENTE_ADMIN' &&
+              estadoNorm !== 'PENDIENTE'
+            ) {
+              return null;
+            }
+            return {
+              id: a.id,
+              personaId: pid,
+              personaNombre: visibleLabel,
+              tipoAusencia: a.tipoAusencia,
+              fechaInicio: a.fechaInicio,
+              fechaFin: a.fechaFin,
+              fechasAfectadas: Array.isArray(a.fechasAfectadas) ? a.fechasAfectadas : [],
+              estado: a.estado,
+              fechaSolicitud: a.fechaSolicitud,
+            };
+          })
+          .filter((item): item is NonNullable<typeof item> => item !== null);
+
+        return res.status(200).json({
+          success: true,
+          proyeccionMinima: !isAdminReq,
+          total: solicitudes.length,
+          solicitudes,
+        });
+      } catch (err: any) {
+        console.error('[Ausencias US Resumen Operativo] Error:', err?.message || err);
+        return res.status(500).json({
+          success: false,
+          error: 'No se pudo cargar el resumen operativo de ausencias U.S.',
+        });
+      }
+    }
+  );
+
   app.get('/api/perfil', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
     const account = await store.getAccountByUid(req.authUser!.uid);
     if (!account || !account.activo) {
@@ -1404,6 +1559,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
             persistAudit
           );
 
+          const tipoServicioAcc: TipoServicio = account.tipoServicio === 'US' ? 'US' : 'GUARDIA';
           return res.status(201).json({
             success: true,
             estado: 'MANTENIDO',
@@ -1412,7 +1568,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
             propuestaPendiente: await store.getPendingAliasProposalForUser(account.uid),
             decisionAlias: decisionRecord,
             cuenta: sanitizeAccountForClient(account),
-            persona,
+            persona: projectOwnPersonaSummary(persona, tipoServicioAcc),
           });
         }
 
@@ -1426,6 +1582,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
           });
         }
 
+        const tipoServicioAcc: TipoServicio = account.tipoServicio === 'US' ? 'US' : 'GUARDIA';
         return res.status(202).json({
           success: true,
           estado: 'PENDIENTE_REVISION',
@@ -1436,7 +1593,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
           propuestaPendiente: result.proposal,
           decisionAlias: result.decision,
           cuenta: sanitizeAccountForClient(account),
-          persona,
+          persona: projectOwnPersonaSummary(persona, tipoServicioAcc),
         });
       } catch (err: any) {
         console.error('[Perfil Alias Decision] Error:', err?.message || err);
@@ -1492,6 +1649,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         });
       }
 
+      const tipoServicioAcc: TipoServicio = account.tipoServicio === 'US' ? 'US' : 'GUARDIA';
       return res.status(202).json({
         success: true,
         estado: 'PENDIENTE_REVISION',
@@ -1503,7 +1661,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         propuestaPendiente: result.proposal,
         decisionAlias: result.decision,
         cuenta: sanitizeAccountForClient(account),
-        persona,
+        persona: projectOwnPersonaSummary(persona, tipoServicioAcc),
       });
     } catch (err: any) {
       console.error('[Perfil Alias Propose] Error:', err?.message || err);
@@ -1801,6 +1959,26 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
           return res.status(409).json({
             success: false,
             error: `La propuesta ya fue procesada (estado actual: ${proposal.estado}).`,
+          });
+        }
+
+        // M-01: Impedir auto-resolución (ningún usuario/admin puede aprobar ni rechazar su propia propuesta)
+        if (proposal.uid === req.authUser!.uid) {
+          recordSecurityAudit(
+            req,
+            {
+              event: 'ALIAS_AUTOREVISION_BLOQUEADA',
+              actorUid: req.authUser!.uid,
+              actorRol: req.authUser!.rol,
+              outcome: 'DENIED',
+              detail: `Intento bloqueado de auto-rechazar la propuesta ${proposalId}.`,
+            },
+            persistAudit
+          );
+          return res.status(403).json({
+            success: false,
+            code: 'SELF_REVIEW_FORBIDDEN',
+            error: 'No está permitido resolver tu propia propuesta de alias.',
           });
         }
 
@@ -2433,31 +2611,35 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
     }
   );
 
-  app.get('/api/documentos/verificar/:codigo', async (req: AuthenticatedRequest, res: Response) => {
-    const codigo = String(req.params.codigo || '').trim();
-    if (!codigo || codigo.length > 80) {
-      return res.status(400).json({ valido: false, error: 'Código de verificación inválido.' });
-    }
+  app.get(
+    '/api/documentos/verificar/:codigo',
+    documentoVerifyLimiter,
+    async (req: AuthenticatedRequest, res: Response) => {
+      const codigo = String(req.params.codigo || '').trim();
+      if (!codigo || codigo.length < 8 || codigo.length > 80 || !/^[A-Za-z0-9-]+$/.test(codigo)) {
+        return res.status(400).json({ valido: false, error: 'Código de verificación inválido.' });
+      }
 
-    const doc = await store.getDocumentoByCodigo(codigo);
-    if (!doc) {
-      return res.status(404).json({
-        valido: false,
-        error: 'No existe ningún documento registrado con ese código de verificación.',
+      const doc = await store.getDocumentoByCodigo(codigo);
+      if (!doc) {
+        return res.status(404).json({
+          valido: false,
+          error: 'No existe ningún documento registrado con ese código de verificación.',
+        });
+      }
+
+      const verificacion = verifyCambioDocumentIntegrity(doc);
+      return res.status(200).json({
+        ...verificacion,
+        fechaEmision: doc.fechaEmision,
+        fechaSelladoServidor: doc.fechaSelladoServidor || null,
+        tipoCambio: doc.tipoCambio,
+        versionDocumento: doc.versionDocumento || 1,
+        avisoLegalEidas:
+          'Aceptación electrónica interna con trazabilidad criptográfica de integridad (SHA-256 + HMAC-SHA256). No constituye firma electrónica avanzada ni cualificada conforme al Reglamento (UE) n.º 910/2014 (eIDAS).',
       });
     }
-
-    const verificacion = verifyCambioDocumentIntegrity(doc);
-    return res.status(200).json({
-      ...verificacion,
-      fechaEmision: doc.fechaEmision,
-      fechaSelladoServidor: doc.fechaSelladoServidor || null,
-      tipoCambio: doc.tipoCambio,
-      versionDocumento: doc.versionDocumento || 1,
-      avisoLegalEidas:
-        'Aceptación electrónica interna con trazabilidad criptográfica de integridad (SHA-256 + HMAC-SHA256). No constituye firma electrónica avanzada ni cualificada conforme al Reglamento (UE) n.º 910/2014 (eIDAS).',
-    });
-  });
+  );
 
   app.post(
     '/api/documentos/verificar',
@@ -2698,6 +2880,8 @@ Reglas:
   // =========================================================================
   // 8. PUSH NOTIFICATIONS — FCM HTTP v1 (BLOQUE 4 + AUTENTICADO)
   // =========================================================================
+  // 8. ENVÍO PUSH FCM HTTP V1 (I-03: RESOLUCIÓN AUTORITATIVA EN SERVIDOR)
+  // =========================================================================
   app.post(
     '/api/push/send',
     requireAuth,
@@ -2706,21 +2890,17 @@ Reglas:
     emailPushLimiter,
     async (req: AuthenticatedRequest, res: Response) => {
       try {
-        const { tokens, payload } = req.body || {};
-        if (!Array.isArray(tokens) || tokens.length === 0 || tokens.length > 500) {
-          return res.status(400).json({
-            success: false,
-            error: 'Se requiere una lista válida de entre 1 y 500 tokens de destino.',
-          });
-        }
+        const {
+          tokens,
+          payload,
+          destinatarioUid,
+          destinatarioPersonaId,
+          esParaAdmin,
+          esParaTodos,
+          tipoServicio,
+        } = req.body || {};
 
-        if (tokens.length > 5 && req.authUser!.rol !== 'ADMIN') {
-          return res.status(403).json({
-            success: false,
-            error: 'Solo un administrador puede enviar notificaciones masivas.',
-          });
-        }
-
+        // 1. Retirada definitiva del chat interno (prioridad máxima para todos los roles -> HTTP 410)
         const requestedTab = String(payload?.linkTab || '').trim().toLowerCase();
         const requestedTipo = String(payload?.tipo || '').trim().toUpperCase();
         if (
@@ -2744,7 +2924,150 @@ Reglas:
           });
         }
 
-        const safeTokens = tokens
+        const isAdminSender = req.authUser!.rol === 'ADMIN';
+        const senderUnit: 'GUARDIA' | 'US' =
+          req.authUser!.tipoServicio === 'US' ? 'US' : 'GUARDIA';
+
+        let resolvedRawTokens: string[] = [];
+
+        if (!isAdminSender) {
+          // I-03: Los usuarios ordinarios NUNCA pueden suministrar tokens FCM arbitrarios
+          if (tokens !== undefined) {
+            recordSecurityAudit(
+              req,
+              {
+                event: 'PUSH_ARBITRARY_TOKENS_BLOCKED',
+                actorUid: req.authUser!.uid,
+                actorRol: req.authUser!.rol,
+                outcome: 'DENIED',
+                detail: 'Usuario ordinario intentó suministrar tokens FCM arbitrarios en /api/push/send.',
+              },
+              persistAudit
+            );
+            return res.status(403).json({
+              success: false,
+              code: 'ARBITRARY_TOKENS_FORBIDDEN',
+              error:
+                'Los usuarios ordinarios no pueden indicar tokens FCM directamente; el servidor resuelve los destinatarios autorizados.',
+            });
+          }
+
+          if (esParaTodos === true) {
+            recordSecurityAudit(
+              req,
+              {
+                event: 'PUSH_BROADCAST_FORBIDDEN',
+                actorUid: req.authUser!.uid,
+                actorRol: req.authUser!.rol,
+                outcome: 'DENIED',
+                detail: 'Usuario ordinario intentó enviar una notificación push masiva (esParaTodos).',
+              },
+              persistAudit
+            );
+            return res.status(403).json({
+              success: false,
+              code: 'BROADCAST_PUSH_FORBIDDEN',
+              error: 'Solo un administrador puede enviar notificaciones masivas.',
+            });
+          }
+
+          const hasTarget = Boolean(
+            esParaAdmin === true ||
+              (typeof destinatarioUid === 'string' && destinatarioUid.trim()) ||
+              (typeof destinatarioPersonaId === 'string' && destinatarioPersonaId.trim())
+          );
+          if (!hasTarget) {
+            return res.status(400).json({
+              success: false,
+              error:
+                'Debes indicar un destinatario operativo válido (esParaAdmin, destinatarioUid o destinatarioPersonaId).',
+            });
+          }
+
+          const resolution = await store.resolvePushTargetTokens({
+            destinatarioUid: typeof destinatarioUid === 'string' ? destinatarioUid.trim() : null,
+            destinatarioPersonaId:
+              typeof destinatarioPersonaId === 'string' ? destinatarioPersonaId.trim() : null,
+            esParaAdmin: esParaAdmin === true,
+            esParaTodos: false,
+          });
+
+          if (!esParaAdmin) {
+            if (!resolution.found || !resolution.targetAccount || !resolution.targetAccount.activo) {
+              recordSecurityAudit(
+                req,
+                {
+                  event: 'PUSH_TARGET_NOT_FOUND',
+                  actorUid: req.authUser!.uid,
+                  actorRol: req.authUser!.rol,
+                  outcome: 'DENIED',
+                  detail: 'Destinatario de notificación push inexistente o inactivo.',
+                },
+                persistAudit
+              );
+              return res.status(404).json({
+                success: false,
+                code: 'PUSH_TARGET_INVALID',
+                error: 'Destinatario de notificación no localizado o inactivo.',
+              });
+            }
+
+            // Aislamiento estricto por unidad (se permite notificar a ADMIN o a compañeros de la misma unidad)
+            const targetIsAdmin = resolution.targetAccount.rol === 'ADMIN';
+            if (!targetIsAdmin && resolution.targetAccount.tipoServicio !== senderUnit) {
+              recordSecurityAudit(
+                req,
+                {
+                  event: 'PUSH_CROSS_UNIT_BLOCKED',
+                  actorUid: req.authUser!.uid,
+                  actorRol: req.authUser!.rol,
+                  outcome: 'DENIED',
+                  detail: `Intento bloqueado de notificación push hacia otra unidad (${senderUnit} -> ${resolution.targetAccount.tipoServicio}).`,
+                },
+                persistAudit
+              );
+              return res.status(403).json({
+                success: false,
+                code: 'CROSS_UNIT_PUSH_FORBIDDEN',
+                error: 'No puedes enviar notificaciones push a destinatarios de otra unidad.',
+              });
+            }
+          }
+
+          resolvedRawTokens = resolution.tokens;
+        } else {
+          // ADMIN: admite resolución estructurada en servidor o lista explícita de tokens administrativos
+          const hasStructuredTarget = Boolean(
+            esParaTodos === true ||
+              esParaAdmin === true ||
+              (typeof destinatarioUid === 'string' && destinatarioUid.trim()) ||
+              (typeof destinatarioPersonaId === 'string' && destinatarioPersonaId.trim())
+          );
+
+          if (hasStructuredTarget && tokens === undefined) {
+            const unitFilter: 'GUARDIA' | 'US' | undefined =
+              tipoServicio === 'US' ? 'US' : tipoServicio === 'GUARDIA' ? 'GUARDIA' : undefined;
+            const resolution = await store.resolvePushTargetTokens({
+              destinatarioUid: typeof destinatarioUid === 'string' ? destinatarioUid.trim() : null,
+              destinatarioPersonaId:
+                typeof destinatarioPersonaId === 'string' ? destinatarioPersonaId.trim() : null,
+              esParaAdmin: esParaAdmin === true,
+              esParaTodos: esParaTodos === true,
+              tipoServicio: unitFilter,
+            });
+            resolvedRawTokens = resolution.tokens;
+          } else {
+            if (!Array.isArray(tokens) || tokens.length === 0 || tokens.length > 500) {
+              return res.status(400).json({
+                success: false,
+                error: 'Se requiere una lista válida de entre 1 y 500 tokens o un destinatario estructurado.',
+              });
+            }
+            resolvedRawTokens = tokens;
+          }
+        }
+
+        const safeTokens = resolvedRawTokens
           .filter((t): t is string => typeof t === 'string' && t.trim().length > 0 && !t.startsWith('dev-'))
           .slice(0, 500);
 
@@ -2985,10 +3308,13 @@ Reglas:
   });
 
   // =========================================================================
-  // 12. SERVICIO FRONTEND (VITE DEV O DIST STATIC EN PRODUCCIÓN)
+  // 12. SERVICIO FRONTEND (VITE DEV CONDICIONAL O DIST STATIC EN PRODUCCIÓN)
+  //     C-01: Carga dinámica no-estática de Vite para evitar empaquetarlo en Vercel Serverless
   // =========================================================================
   if (options.enableFrontendMiddleware !== false) {
     if (!IS_PRODUCTION) {
+      const vitePkg = 'vite';
+      const { createServer: createViteServer } = await import(vitePkg);
       const vite = await createViteServer({
         server: { middlewareMode: true },
         appType: 'spa',

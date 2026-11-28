@@ -18,12 +18,14 @@ import {
   updateDoc,
   onSnapshot,
   query,
+  where,
   orderBy,
   writeBatch,
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { assertNotImpersonating, isImpersonating } from '../utils/impersonationGuard';
 import { getApprovedAliasUS } from '../utils/aliasHelper';
+import { fetchOperationalAusenciasUSViaServer } from './authClientService';
 
 export { expandirRangoFechas };
 
@@ -170,12 +172,14 @@ export const calcularCupoMaximoAusenciasUS = (totalMiembrosUS: number = 16): num
  * Restaura el historial, recalcula días computables y no computables,
  * actualiza la memoria, el almacenamiento local y persiste en Firestore.
  */
-export const reconstruirAusenciasUSDesdeCuadrantes = async (): Promise<SolicitudAusenciaUS[]> => {
+export const reconstruirAusenciasUSDesdeCuadrantes = async (options?: {
+  isAdmin?: boolean;
+}): Promise<SolicitudAusenciaUS[]> => {
   const recuperadasMap = new Map<string, SolicitudAusenciaUS>();
 
-  // 1. Escanear Cuadrantes U.S. (tanto en Firestore como en caché local)
+  // 1. Escanear Cuadrantes U.S. (C-02: filtrado explícito por tipoServicio='US')
   try {
-    const cuadrantes = await getCuadrantes();
+    const cuadrantes = await getCuadrantes({ tipoServicio: 'US' });
     const cuadrantesUS = cuadrantes.filter(
       (c) => c.tipoServicio === 'US' || c.id?.includes('-us-') || (c as any).configuracionUS
     );
@@ -295,90 +299,93 @@ export const reconstruirAusenciasUSDesdeCuadrantes = async (): Promise<Solicitud
     console.warn('Aviso recuperando ausencias desde cuadrantes:', errCuadrantes);
   }
 
-  // 3. Escanear registros de auditoría inmutables (auditLogs)
-  try {
-    const auditSnap = await getDocs(collection(db, 'auditLogs'));
-    const logs = auditSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
-    logs.sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+  // 3. M-05: Escanear registros de auditoría inmutables (auditLogs) solo en sesiones ADMIN
+  //    (auditLogs es estrictamente solo-ADMIN en firestore.rules; evita lecturas denegadas a usuarios ordinarios).
+  if (options?.isAdmin !== false) {
+    try {
+      const auditSnap = await getDocs(collection(db, 'auditLogs'));
+      const logs = auditSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+      logs.sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
 
-    for (const l of logs) {
-      const det = l.detalles || '';
-      const acc = l.accion || '';
+      for (const l of logs) {
+        const det = l.detalles || '';
+        const acc = l.accion || '';
 
-      // Ignorar mocks sintéticos de pruebas
-      if (
-        (l.personaNombre && l.personaNombre.startsWith('Guardia US')) ||
-        (l.personaId && l.personaId.startsWith('test-'))
-      ) {
-        continue;
-      }
+        // Ignorar mocks sintéticos de pruebas
+        if (
+          (l.personaNombre && l.personaNombre.startsWith('Guardia US')) ||
+          (l.personaId && l.personaId.startsWith('test-'))
+        ) {
+          continue;
+        }
 
-      // Anulaciones / cancelaciones
-      if (acc === 'ELIMINAR_BLOQUEO' || det.includes('Eliminación/anulación de permiso')) {
-        const matchElim = det.match(/\(([A-Z_]+)\s+(\d{4}-\d{2}-\d{2})\s+a\s+(\d{4}-\d{2}-\d{2})\)/);
-        if (matchElim) {
-          const [, , inicio, fin] = matchElim;
-          for (const [k, s] of recuperadasMap.entries()) {
-            if (
-              s.personaNombre === l.personaNombre &&
-              s.fechaInicio === inicio &&
-              s.fechaFin === fin
-            ) {
-              recuperadasMap.delete(k);
+        // Anulaciones / cancelaciones
+        if (acc === 'ELIMINAR_BLOQUEO' || det.includes('Eliminación/anulación de permiso')) {
+          const matchElim = det.match(/\(([A-Z_]+)\s+(\d{4}-\d{2}-\d{2})\s+a\s+(\d{4}-\d{2}-\d{2})\)/);
+          if (matchElim) {
+            const [, , inicio, fin] = matchElim;
+            for (const [k, s] of recuperadasMap.entries()) {
+              if (
+                s.personaNombre === l.personaNombre &&
+                s.fechaInicio === inicio &&
+                s.fechaFin === fin
+              ) {
+                recuperadasMap.delete(k);
+              }
             }
           }
+          continue;
         }
-        continue;
+
+        // Asignaciones o autorizaciones de solicitudes
+        const matchAsig = det.match(
+          /(?:Asignación manual.*?de|Autorización de solicitud.*?de)\s+([A-Z_]+)\s+\((\d{4}-\d{2}-\d{2})\s+a\s+(\d{4}-\d{2}-\d{2})\)/
+        );
+        if (matchAsig) {
+          const [, tipoRaw, fechaInicio, fechaFin] = matchAsig;
+          const tipo: TipoAusenciaUS =
+            tipoRaw === 'VACACIONES'
+              ? 'VACACIONES'
+              : tipoRaw === 'PERMISO'
+              ? 'PERMISO'
+              : 'ASUNTOS_PROPIOS';
+
+          const personaNombre = l.personaNombre || 'Usuario U.S.';
+          const personaId = l.personaId || `us-persona-${personaNombre.toLowerCase()}`;
+
+          const matchId = det.match(/\[ID:\s*([a-zA-Z0-9_-]+)\]/);
+          const solId = matchId ? matchId[1] : `sol-audit-${l.id || Date.now()}`;
+
+          const fechas = expandirRangoFechas(fechaInicio, fechaFin);
+          const desglose = desglosarPeriodoPermisoUS(fechas, tipo);
+
+          const solAudit: SolicitudAusenciaUS = {
+            id: solId,
+            personaId,
+            personaNombre,
+            tipoAusencia: tipo,
+            fechaInicio,
+            fechaFin,
+            fechasAfectadas: fechas,
+            diasConsumibles: desglose.totalDiasConsumibles,
+            diasTotales: desglose.totalDiasSolicitados,
+            diasNoConsumibles: desglose.totalDiasNoConsumibles,
+            festivosExcluidos: desglose.fechasFestivas,
+            finesSemanaExcluidos: desglose.fechasFinesSemana,
+            motivo: l.motivo || 'Asignación registrada en auditoría',
+            estado: 'APROBADA',
+            fechaSolicitud: l.timestamp || new Date().toISOString(),
+            fechaResolucion: l.timestamp || new Date().toISOString(),
+            adminResolucionNombre: l.adminNombre || 'Administrador',
+            documentoJustificativoEntregado: true,
+          };
+
+          recuperadasMap.set(solAudit.id, solAudit);
+        }
       }
-
-      // Asignaciones o autorizaciones de solicitudes
-      const matchAsig = det.match(
-        /(?:Asignación manual.*?de|Autorización de solicitud.*?de)\s+([A-Z_]+)\s+\((\d{4}-\d{2}-\d{2})\s+a\s+(\d{4}-\d{2}-\d{2})\)/
-      );
-      if (matchAsig) {
-        const [, tipoRaw, fechaInicio, fechaFin] = matchAsig;
-        const tipo: TipoAusenciaUS =
-          tipoRaw === 'VACACIONES'
-            ? 'VACACIONES'
-            : tipoRaw === 'PERMISO'
-            ? 'PERMISO'
-            : 'ASUNTOS_PROPIOS';
-
-        const personaNombre = l.personaNombre || 'Usuario U.S.';
-        const personaId = l.personaId || `us-persona-${personaNombre.toLowerCase()}`;
-
-        const matchId = det.match(/\[ID:\s*([a-zA-Z0-9_-]+)\]/);
-        const solId = matchId ? matchId[1] : `sol-audit-${l.id || Date.now()}`;
-
-        const fechas = expandirRangoFechas(fechaInicio, fechaFin);
-        const desglose = desglosarPeriodoPermisoUS(fechas, tipo);
-
-        const solAudit: SolicitudAusenciaUS = {
-          id: solId,
-          personaId,
-          personaNombre,
-          tipoAusencia: tipo,
-          fechaInicio,
-          fechaFin,
-          fechasAfectadas: fechas,
-          diasConsumibles: desglose.totalDiasConsumibles,
-          diasTotales: desglose.totalDiasSolicitados,
-          diasNoConsumibles: desglose.totalDiasNoConsumibles,
-          festivosExcluidos: desglose.fechasFestivas,
-          finesSemanaExcluidos: desglose.fechasFinesSemana,
-          motivo: l.motivo || 'Asignación registrada en auditoría',
-          estado: 'APROBADA',
-          fechaSolicitud: l.timestamp || new Date().toISOString(),
-          fechaResolucion: l.timestamp || new Date().toISOString(),
-          adminResolucionNombre: l.adminNombre || 'Administrador',
-          documentoJustificativoEntregado: true,
-        };
-
-        recuperadasMap.set(solAudit.id, solAudit);
-      }
+    } catch {
+      // Si no hay acceso a auditLogs, el paso 1 y 2 ya garantizan la reconstrucción
     }
-  } catch (errAudit) {
-    // Si no hay acceso a auditLogs, el paso 1 y 2 ya garantizan la reconstrucción
   }
 
   // 4. Escanear respaldos en localStorage ('app_cached_respaldos_v1')
@@ -437,28 +444,83 @@ export const reconstruirAusenciasUSDesdeCuadrantes = async (): Promise<Solicitud
 };
 
 /**
- * Obtiene todas las solicitudes de ausencia de la U.S.
- * Protegido contra purgas automáticas y con autorrecuperación desde cuadrantes y registros históricos.
+ * Obtiene las solicitudes de ausencia de la U.S.
+ * C-02: Para usuarios ordinarios U.S., utiliza el resumen operativo proyectado del servidor
+ * (para cálculo de cupo diario sin exponer motivos ni nombres históricos ajenos) complementado
+ * con la consulta filtrada `where('personaId', '==', personaId)` compatible con firestore.rules.
  */
-export const getSolicitudesAusenciaUS = async (): Promise<SolicitudAusenciaUS[]> => {
+export const getSolicitudesAusenciaUS = async (options?: {
+  personaId?: string | null;
+  isAdmin?: boolean;
+}): Promise<SolicitudAusenciaUS[]> => {
+  const isOrdinaryUserScope = options?.isAdmin === false;
   let firestoreItems: SolicitudAusenciaUS[] = [];
-  try {
-    const colRef = collection(db, AUSENCIAS_US_COLLECTION);
-    const snap = await getDocs(colRef);
-    snap.forEach((d) => {
-      const it = d.data() as SolicitudAusenciaUS & { eliminadoLogico?: boolean };
-      if (
-        it &&
-        !it.eliminadoLogico &&
-        it.personaNombre &&
-        !it.personaNombre.startsWith('Guardia US') &&
-        !it.personaId?.startsWith('test-')
-      ) {
-        firestoreItems.push(it);
+
+  if (isOrdinaryUserScope) {
+    // 1. Resumen operativo proyectado vía servidor (propias completas + cupo mínimo de terceros)
+    try {
+      const serverRes = await fetchOperationalAusenciasUSViaServer();
+      if (serverRes.success && Array.isArray(serverRes.solicitudes)) {
+        for (const it of serverRes.solicitudes as Array<SolicitudAusenciaUS & { eliminadoLogico?: boolean }>) {
+          if (
+            it &&
+            !it.eliminadoLogico &&
+            it.personaNombre &&
+            !it.personaNombre.startsWith('Guardia US') &&
+            !it.personaId?.startsWith('test-')
+          ) {
+            firestoreItems.push(it);
+          }
+        }
       }
-    });
-  } catch (e: any) {
-    console.warn('Aviso de lectura Firestore ausencias_us:', e?.message || e);
+    } catch {
+      // Fallback a consulta filtrada propia + cuadrantes
+    }
+
+    // 2. Consulta directa acotada en Firestore únicamente de sus propias solicitudes
+    if (options?.personaId) {
+      try {
+        const colRef = collection(db, AUSENCIAS_US_COLLECTION);
+        const qOwn = query(colRef, where('personaId', '==', options.personaId));
+        const snap = await getDocs(qOwn);
+        const byId = new Map<string, SolicitudAusenciaUS>();
+        firestoreItems.forEach((it) => byId.set(it.id, it));
+        snap.forEach((d) => {
+          const it = d.data() as SolicitudAusenciaUS & { eliminadoLogico?: boolean };
+          if (
+            it &&
+            !it.eliminadoLogico &&
+            it.personaNombre &&
+            !it.personaNombre.startsWith('Guardia US') &&
+            !it.personaId?.startsWith('test-')
+          ) {
+            byId.set(it.id || d.id, { ...it, id: it.id || d.id });
+          }
+        });
+        firestoreItems = Array.from(byId.values());
+      } catch (e: any) {
+        console.warn('Aviso de lectura filtrada Firestore ausencias_us:', e?.message || e);
+      }
+    }
+  } else {
+    try {
+      const colRef = collection(db, AUSENCIAS_US_COLLECTION);
+      const snap = await getDocs(colRef);
+      snap.forEach((d) => {
+        const it = d.data() as SolicitudAusenciaUS & { eliminadoLogico?: boolean };
+        if (
+          it &&
+          !it.eliminadoLogico &&
+          it.personaNombre &&
+          !it.personaNombre.startsWith('Guardia US') &&
+          !it.personaId?.startsWith('test-')
+        ) {
+          firestoreItems.push(it);
+        }
+      });
+    } catch (e: any) {
+      console.warn('Aviso de lectura Firestore ausencias_us:', e?.message || e);
+    }
   }
 
   const cached = loadAusenciasCache().filter(
@@ -468,7 +530,9 @@ export const getSolicitudesAusenciaUS = async (): Promise<SolicitudAusenciaUS[]>
   // Si Firestore o la caché contienen menos de 5 registros, asegurar la sincronización integral
   let baseRecuperadas: SolicitudAusenciaUS[] = [];
   if (firestoreItems.length < 5 || cached.length < 5) {
-    baseRecuperadas = await reconstruirAusenciasUSDesdeCuadrantes();
+    baseRecuperadas = await reconstruirAusenciasUSDesdeCuadrantes({
+      isAdmin: !isOrdinaryUserScope,
+    });
   }
 
   const mergedMap = new Map<string, SolicitudAusenciaUS>();
@@ -580,7 +644,10 @@ export const solicitarAusenciaUS = async (params: {
     }
   }
 
-  const todas = await getSolicitudesAusenciaUS();
+  const todas = await getSolicitudesAusenciaUS({
+    personaId: persona.id,
+    isAdmin: Boolean(forzarPorAdmin),
+  });
 
   // 2. Validar cupo máximo de personas por día para usuarios comunes (4 para plantilla 16, o N - 12 si son más)
   // REGLA: El Administrador NO tiene este límite al asignar o gestionar ausencias
@@ -1031,22 +1098,29 @@ export const eliminarSolicitudAusenciaUS = async (params: {
 
 /**
  * Suscripción en tiempo real a las solicitudes de ausencia U.S.
+ * C-02: Para usuarios ordinarios U.S. suscribe únicamente `where('personaId', '==', personaId)`
+ * compatible con firestore.rules, preservando los cupos proyectados en memoria.
  */
 export const subscribeSolicitudesAusenciaUS = (
-  callback: (solicitudes: SolicitudAusenciaUS[]) => void
+  callback: (solicitudes: SolicitudAusenciaUS[]) => void,
+  options?: { personaId?: string | null; isAdmin?: boolean }
 ): (() => void) => {
+  const isOrdinaryUserScope = options?.isAdmin === false;
   try {
     const colRef = collection(db, AUSENCIAS_US_COLLECTION);
-    const q = query(colRef, orderBy('fechaSolicitud', 'desc'));
+    if (isOrdinaryUserScope && !options?.personaId) {
+      loadAusenciasCache();
+      callback([...memoryAusenciasUS]);
+      return () => {};
+    }
+    const q =
+      isOrdinaryUserScope && options?.personaId
+        ? query(colRef, where('personaId', '==', options.personaId))
+        : query(colRef, orderBy('fechaSolicitud', 'desc'));
 
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        const firestoreItems: SolicitudAusenciaUS[] = [];
-        snapshot.forEach((docSnap) => {
-          firestoreItems.push(docSnap.data() as SolicitudAusenciaUS);
-        });
-
         const validFirestoreItems: SolicitudAusenciaUS[] = [];
         snapshot.forEach((docSnap) => {
           const it = docSnap.data() as SolicitudAusenciaUS & { eliminadoLogico?: boolean };
@@ -1057,7 +1131,7 @@ export const subscribeSolicitudesAusenciaUS = (
             !it.personaNombre.startsWith('Guardia US') &&
             !it.personaId?.startsWith('test-')
           ) {
-            validFirestoreItems.push(it);
+            validFirestoreItems.push({ ...it, id: it.id || docSnap.id });
           }
         });
 
@@ -1071,7 +1145,7 @@ export const subscribeSolicitudesAusenciaUS = (
         validFirestoreItems.forEach((s) => mergedMap.set(s.id, s));
 
         if (mergedMap.size < 5) {
-          reconstruirAusenciasUSDesdeCuadrantes()
+          reconstruirAusenciasUSDesdeCuadrantes({ isAdmin: !isOrdinaryUserScope })
             .then((recuperadas) => {
               recuperadas.forEach((s) => mergedMap.set(s.id, s));
               memoryAusenciasUS = Array.from(mergedMap.values()).sort((a, b) =>

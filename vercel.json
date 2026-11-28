@@ -4,8 +4,7 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "functions": {
-    "api/[...route].ts": {
-      "runtime": "@vercel/node@3.2.29",
+    "api/**/*.ts": {
       "maxDuration": 30
     }
   },
@@ -21,7 +20,6 @@
     }
   ],
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/[...route]" },
     { "source": "/((?!api/|assets/|firebase-messaging-sw\\.js|favicon\\.ico).*)", "destination": "/index.html" }
   ]
 }

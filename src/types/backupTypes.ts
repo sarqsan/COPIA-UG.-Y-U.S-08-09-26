@@ -12,6 +12,7 @@ export interface EstadisticasRespaldo {
   totalServicios: number;
   totalPersonas: number;
   totalAusenciasIncidencias: number;
+  totalCompensacionesImaginarias?: number;
   totalSolicitudesCambio: number;
   totalPatrullas?: number;
   totalRegistros: number;
@@ -23,6 +24,7 @@ export interface SnapshotDatosOperativos {
   serviciosPorCuadrante: Record<string, (ServicioDia | ServicioDiaUS)[]>;
   personas: Persona[];
   ausenciasIncidencias: any[];
+  compensacionesImaginarias?: any[]; // Solo para U.S. (imaginarias_activadas_us / compensacion_imaginarias_us)
   solicitudesCambio: SolicitudCambio[];
   patrullas?: Patrulla[]; // Solo para U.G.
 }

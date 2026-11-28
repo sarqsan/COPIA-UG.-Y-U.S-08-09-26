@@ -35,6 +35,7 @@ export const ALL_SYSTEM_COLLECTIONS = [
   'incidencias_ausencia',
   'ausencias_us',
   'compensacion_imaginarias_us',
+  'imaginarias_activadas_us', // Colección activa utilizada por compensacionImaginariasUSService.ts (C-04)
   'patrullas',
   'patrullas_config',
   'patrullas_audit',

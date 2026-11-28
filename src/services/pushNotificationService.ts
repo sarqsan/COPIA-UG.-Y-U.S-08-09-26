@@ -401,28 +401,30 @@ export const enviarPushParaNotificacion = async (params: {
     }
     processedNotificationIds.set(notifId, Date.now());
 
-    // 2. Resolver los tokens de los destinatarios
-    const tokens = await resolverTokensDestinatarios({
-      destinatarioPersonaId: params.destinatarioPersonaId,
-      destinatarioUid: params.destinatarioUid,
-      esParaAdmin: params.esParaAdmin,
-      esParaTodos: params.esParaTodos,
-    });
+    // 2. Formatear payload seguro para push
+    const payload = formatearPayloadPushSeguro(params.notificacion);
 
-    if (tokens.length === 0) {
-      // No hay dispositivos registrados aún para este usuario/s
+    // 3. I-03: Enviar destino estructurado al servidor para que resuelva y autorice
+    //    los tokens FCM en backend (Admin SDK), evitando que el cliente suministre tokens arbitrarios.
+    const hasTarget = Boolean(
+      params.esParaTodos ||
+        params.esParaAdmin ||
+        params.destinatarioUid ||
+        params.destinatarioPersonaId
+    );
+    if (!hasTarget) {
       return { sent: true, count: 0 };
     }
 
-    // 3. Formatear payload seguro para push
-    const payload = formatearPayloadPushSeguro(params.notificacion);
-
-    // 4. Enviar mediante el endpoint autenticado de backend (FCM HTTP v1)
     const response = await fetch('/api/push/send', {
       method: 'POST',
       headers: buildAuthenticatedHeaders(),
       body: JSON.stringify({
-        tokens,
+        destinatarioUid: params.destinatarioUid || undefined,
+        destinatarioPersonaId: params.destinatarioPersonaId || undefined,
+        esParaAdmin: params.esParaAdmin === true ? true : undefined,
+        esParaTodos: params.esParaTodos === true ? true : undefined,
+        tipoServicio: params.notificacion.tipoServicio || undefined,
         payload,
       }),
     });
@@ -435,12 +437,12 @@ export const enviarPushParaNotificacion = async (params: {
 
     const result = await response.json();
 
-    // 5. Proyectar notificación nativa en el dispositivo si los permisos del sistema están activos
+    // 4. Proyectar notificación nativa en el dispositivo si los permisos del sistema están activos
     mostrarNotificacionSistema(payload).catch(() => {});
 
     return {
       sent: true,
-      count: result.sentCount || tokens.length,
+      count: result.sentCount || 0,
     };
   } catch (err: any) {
     // Garantía absoluta de fallback: FCM nunca debe causar fallos operativos

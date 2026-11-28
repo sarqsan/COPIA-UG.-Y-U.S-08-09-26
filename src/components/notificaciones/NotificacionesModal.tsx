@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Notificacion, TipoNotificacion } from '../../types';
+import { Notificacion, TipoNotificacion, TipoServicio } from '../../types';
 import {
   getNotificaciones,
   marcarNotificacionLeida,
@@ -28,6 +28,7 @@ interface NotificacionesModalProps {
   personaId?: string | null;
   uid?: string | null;
   isAdmin?: boolean;
+  tipoServicio?: TipoServicio;
   onNavigateTab?: (tab: string, referenciaId?: string) => void;
 }
 
@@ -37,6 +38,7 @@ export const NotificacionesModal: React.FC<NotificacionesModalProps> = ({
   personaId,
   uid,
   isAdmin = false,
+  tipoServicio,
   onNavigateTab,
 }) => {
   const [notificaciones, setNotificaciones] = useState<Notificacion[]>([]);
@@ -49,7 +51,7 @@ export const NotificacionesModal: React.FC<NotificacionesModalProps> = ({
   const cargar = async (showLoading: boolean = true) => {
     if (showLoading) setCargando(true);
     try {
-      const data = await getNotificaciones(personaId, uid, isAdmin);
+      const data = await getNotificaciones(personaId, uid, isAdmin, tipoServicio);
       setNotificaciones(data);
     } catch (err) {
       console.error('Error cargando notificaciones:', err);

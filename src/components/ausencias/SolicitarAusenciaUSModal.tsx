@@ -83,7 +83,7 @@ export const SolicitarAusenciaUSModal: FC<SolicitarAusenciaUSModalProps> = ({
   // Cargar balance de días de la persona
   useEffect(() => {
     const cargarBalance = async () => {
-      const todas = await getSolicitudesAusenciaUS();
+      const todas = await getSolicitudesAusenciaUS({ personaId: persona.id, isAdmin: false });
       const bal = calcularBalanceDiasPersona(persona, todas);
       setBalance(bal);
     };
@@ -109,7 +109,7 @@ export const SolicitarAusenciaUSModal: FC<SolicitarAusenciaUSModalProps> = ({
 
     const checkCuposYSaldo = async () => {
       const fechas = expandirRangoFechas(fechaInicio, fechaFin);
-      const todas = await getSolicitudesAusenciaUS();
+      const todas = await getSolicitudesAusenciaUS({ personaId: persona.id, isAdmin: false });
       
       // 1. Verificación de cupo diario compartido
       const resultado = fechas.map((f) => {

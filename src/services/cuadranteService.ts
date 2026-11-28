@@ -7,6 +7,7 @@ import {
   writeBatch,
   updateDoc,
   query,
+  where,
   orderBy,
 } from 'firebase/firestore';
 import { db, FIREBASE_RUNTIME_ENV } from '../firebase/config';
@@ -165,18 +166,56 @@ export const getCuadrantes = async (options?: { tipoServicio?: TipoServicio }): 
   loadLocalCache();
   const reqTipo = options?.tipoServicio || 'GUARDIA';
   try {
-    const q = query(
-      collection(db, CUADRANTES_COLLECTION),
-      orderBy('fechaCreacion', 'desc')
-    );
-    const snapshot = await getDocs(q);
-    const todosCuadrantes: CuadranteMaestro[] = [];
-    snapshot.forEach((docSnap) => {
-      const item = docSnap.data() as CuadranteMaestro & { eliminadoLogico?: boolean };
-      if (!item.eliminadoLogico) {
-        todosCuadrantes.push(normalizeCuadrante(item));
+    const colRef = collection(db, CUADRANTES_COLLECTION);
+    const byId = new Map<string, CuadranteMaestro>();
+
+    if (options?.tipoServicio) {
+      // C-02: Consultas filtradas compatibles con firestore.rules ("Rules are not filters")
+      // sin orderBy en Firestore (evita requerir índices compuestos; se ordena en memoria).
+      // Se ejecutan en paralelo los predicados canónico e histórico para preservar documentos previos.
+      const unitQueries =
+        options.tipoServicio === 'US'
+          ? [
+              query(colRef, where('tipoServicio', '==', 'US')),
+              query(colRef, where('grupo', '==', 'US_SEGURIDAD')),
+            ]
+          : [
+              query(colRef, where('tipoServicio', '==', 'GUARDIA')),
+              query(colRef, where('grupo', '==', 'U.G.')),
+            ];
+
+      const settled = await Promise.allSettled(unitQueries.map((uq) => getDocs(uq)));
+      let anySuccess = false;
+      for (const res of settled) {
+        if (res.status === 'fulfilled') {
+          anySuccess = true;
+          res.value.forEach((docSnap) => {
+            const item = docSnap.data() as CuadranteMaestro & { eliminadoLogico?: boolean };
+            if (!item.eliminadoLogico) {
+              const norm = normalizeCuadrante({ ...item, id: item.id || docSnap.id });
+              byId.set(norm.id, norm);
+            }
+          });
+        }
       }
-    });
+      if (!anySuccess) {
+        const firstErr = settled.find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined;
+        throw firstErr?.reason || new Error('Error consultando cuadrantes filtrados por unidad.');
+      }
+    } else {
+      // Consulta global reservada a sesiones ADMIN (p. ej. respaldos o mantenimiento)
+      const q = query(colRef, orderBy('fechaCreacion', 'desc'));
+      const snapshot = await getDocs(q);
+      snapshot.forEach((docSnap) => {
+        const item = docSnap.data() as CuadranteMaestro & { eliminadoLogico?: boolean };
+        if (!item.eliminadoLogico) {
+          const norm = normalizeCuadrante({ ...item, id: item.id || docSnap.id });
+          byId.set(norm.id, norm);
+        }
+      });
+    }
+
+    const todosCuadrantes = Array.from(byId.values());
     
     if (todosCuadrantes.length > 0) {
       // Merge seguro: Firestore + Local Cache para no perder nunca cuadrantes de la otra unidad

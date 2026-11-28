@@ -25,6 +25,10 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({ onToggleMobileMenu, onNavigateTab }) => {
   const { currentCuenta, currentPersona, rol, logout, dataProtectionStatus } = useAuth();
+  const userTipoServicio: 'GUARDIA' | 'US' =
+    currentPersona?.grupo === 'US_SEGURIDAD' || currentCuenta?.tipoServicio === 'US'
+      ? 'US'
+      : 'GUARDIA';
 
   const [isNotifsOpen, setIsNotifsOpen] = useState(false);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
@@ -37,7 +41,8 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileMenu, onNavigateTa
       const notifs = await getNotificaciones(
         currentPersona?.id,
         currentCuenta?.uid,
-        rol === 'ADMIN'
+        rol === 'ADMIN',
+        rol === 'ADMIN' ? undefined : userTipoServicio
       );
       setUnreadCount((notifs || []).filter((n) => !n.leida).length);
     } catch (err) {
@@ -54,7 +59,8 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileMenu, onNavigateTa
       },
       currentPersona?.id,
       currentCuenta?.uid,
-      rol === 'ADMIN'
+      rol === 'ADMIN',
+      rol === 'ADMIN' ? undefined : userTipoServicio
     );
 
     const handleUpdate = () => {
@@ -65,7 +71,7 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileMenu, onNavigateTa
       unsubscribe();
       window.removeEventListener('notificaciones_updated', handleUpdate);
     };
-  }, [currentPersona?.id, currentCuenta?.uid, rol]);
+  }, [currentPersona?.id, currentCuenta?.uid, rol, userTipoServicio]);
 
   return (
     <>
@@ -221,6 +227,7 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileMenu, onNavigateTa
       personaId={currentPersona?.id}
       uid={currentCuenta?.uid}
       isAdmin={rol === 'ADMIN'}
+      tipoServicio={rol === 'ADMIN' ? undefined : userTipoServicio}
       onNavigateTab={onNavigateTab}
     />
   </>

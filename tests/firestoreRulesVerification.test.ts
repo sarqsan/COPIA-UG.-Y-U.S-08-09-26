@@ -257,6 +257,56 @@ test('FR-10 Matrículas: lectura y escritura de /matriculas_autorizadas y /matri
   );
 });
 
+test('FR-11 C-02: docMatchesUserUnit incluye predicado positivo isDataUG y ausencias_us restringe lectura cliente a propias', () => {
+  assert.ok(rules.includes('function isDataUG(data)'), 'Debe declarar predicado positivo isDataUG para compatibilidad list()');
+  const dmBlock = extractMatchBlock(rules, 'function docMatchesUserUnit(data)');
+  assert.ok(dmBlock.includes('isDataUG(data)'), 'docMatchesUserUnit debe incluir isDataUG(data)');
+
+  const ausBlock = extractMatchBlock(rules, 'match /ausencias_us/{ausenciaId}');
+  assert.ok(
+    ausBlock.includes('resource.data.personaId == currentPersonaId()'),
+    'ausencias_us debe limitar lectura directa de usuario ordinario a sus propias solicitudes'
+  );
+  assert.ok(
+    !ausBlock.includes('docMatchesUserUnit(resource.data)'),
+    'ausencias_us no debe exponer lectura directa de solicitudes de terceros a usuarios ordinarios'
+  );
+});
+
+test('FR-12 C-03: ausencias_us permite creación con PENDIENTE_ADMIN (y retrocompat PENDIENTE) bloqueando auto-aprobación', () => {
+  const ausBlock = extractMatchBlock(rules, 'match /ausencias_us/{ausenciaId}');
+  assert.ok(ausBlock.includes("'PENDIENTE_ADMIN'"), 'ausencias_us debe permitir estado PENDIENTE_ADMIN en create');
+  assert.ok(ausBlock.includes("'PENDIENTE'"), 'ausencias_us debe conservar retrocompatibilidad con PENDIENTE');
+  assert.ok(ausBlock.includes('adminResolucionNombre'), 'ausencias_us debe bloquear inyección de campos de resolución admin');
+  assert.ok(ausBlock.includes('allow update: if isAdmin();'), 'ausencias_us debe impedir auto-aprobación en update');
+  assert.ok(ausBlock.includes('allow delete: if false;'), 'ausencias_us debe preservar historial (delete: false)');
+});
+
+test('FR-13 C-04: imaginarias_activadas_us explícitamente gobernada en firestore.rules junto a compensacion_imaginarias_us', () => {
+  const actBlock = extractMatchBlock(rules, 'match /imaginarias_activadas_us/{compId}');
+  assert.ok(actBlock.includes("allow read: if isAdmin() || (isActiveUser() && currentUnit() == 'US');"));
+  assert.ok(actBlock.includes('allow create, update: if isAdmin();'));
+  assert.ok(actBlock.includes('allow delete: if false;'));
+
+  const legBlock = extractMatchBlock(rules, 'match /compensacion_imaginarias_us/{compId}');
+  assert.ok(legBlock.includes("allow read: if isAdmin() || (isActiveUser() && currentUnit() == 'US');"));
+  assert.ok(legBlock.includes('allow delete: if false;'));
+});
+
+test('FR-14 I-05: incidencias_ausencia bloquea campos médicos y solicitudes_cambio restringe affectedKeys por actor', () => {
+  assert.ok(rules.includes('function hasNoMedicalFields(data)'));
+  const incBlock = extractMatchBlock(rules, 'match /incidencias_ausencia/{incidenciaId}');
+  assert.ok(incBlock.includes("request.resource.data.tipoAusencia == 'AUSENCIA_SOBREVENIDA'"));
+  assert.ok(incBlock.includes('hasNoMedicalFields(request.resource.data)'));
+  assert.ok(incBlock.includes('affectedKeys().hasOnly'));
+
+  const solBlock = extractMatchBlock(rules, 'match /solicitudes_cambio/{solicitudId}');
+  assert.ok(solBlock.includes('autorizacionAdmin'));
+  assert.ok(solBlock.includes('affectedKeys().hasOnly'));
+  assert.ok(solBlock.includes('firmaDestinatario'));
+  assert.ok(solBlock.includes('firmaSolicitante'));
+});
+
 console.log('\n====================================================================');
 console.log(` RESULTADO VERIFICACIÓN firestore.rules: ${passed} PASS / ${failed} FAIL`);
 console.log('====================================================================\n');

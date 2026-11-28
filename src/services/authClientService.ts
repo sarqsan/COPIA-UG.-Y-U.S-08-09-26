@@ -696,3 +696,30 @@ export async function rejectAliasProposalViaServer(
     return { success: false, error: 'Error de conexión al rechazar la propuesta.' };
   }
 }
+
+/**
+ * C-02: Obtiene el resumen operativo proyectado de ausencias U.S. a través del servidor
+ * (solicitudes propias completas + proyección mínima de cupos de terceros sin motivos ni datos históricos).
+ */
+export async function fetchOperationalAusenciasUSViaServer(): Promise<{
+  success: boolean;
+  solicitudes?: any[];
+  error?: string;
+}> {
+  if (!getAuthSessionToken()) {
+    return { success: false, error: 'Sesión no autenticada.' };
+  }
+  try {
+    const res = await fetch('/api/ausencias-us/resumen-operativo', {
+      method: 'GET',
+      headers: buildAuthenticatedHeaders(),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success || !Array.isArray(data.solicitudes)) {
+      return { success: false, error: data?.error || 'No se pudo consultar el resumen operativo de ausencias U.S.' };
+    }
+    return { success: true, solicitudes: data.solicitudes };
+  } catch {
+    return { success: false, error: 'Error de conexión al consultar ausencias U.S.' };
+  }
+}

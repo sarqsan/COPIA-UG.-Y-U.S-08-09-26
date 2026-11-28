@@ -89,14 +89,75 @@ async function main() {
         });
       }
 
-      await db.doc('cuadrantes/cuad-ug').set({ id: 'cuad-ug', tipoServicio: 'GUARDIA' });
-      await db.doc('cuadrantes/cuad-us').set({ id: 'cuad-us', tipoServicio: 'US' });
+      await db.doc('cuadrantes/cuad-ug').set({ id: 'cuad-ug', tipoServicio: 'GUARDIA', grupo: 'U.G.' });
+      await db.doc('cuadrantes/cuad-us').set({ id: 'cuad-us', tipoServicio: 'US', grupo: 'US_SEGURIDAD' });
       await db.doc('matriculas_autorizadas/mat-1').set({ id: 'mat-1', matricula: '1234BBB' });
       await db.doc('patrullas/pat-1').set({ id: 'pat-1', personaId: 'pers-ug-1' });
       await db.doc('respaldos_sistema/bkp-1').set({ id: 'bkp-1', tipoServicio: 'GUARDIA' });
       await db.doc('notificaciones/notif-us-all').set({
         id: 'notif-us-all',
         esParaTodos: true,
+        tipoServicio: 'US',
+      });
+      await db.doc('notificaciones/notif-ug-direct').set({
+        id: 'notif-ug-direct',
+        esParaTodos: false,
+        tipoServicio: 'GUARDIA',
+        destinatarioPersonaId: 'pers-ug-1',
+        destinatarioUid: 'ug-1',
+      });
+      await db.doc('notificaciones/notif-ug-all').set({
+        id: 'notif-ug-all',
+        esParaTodos: true,
+        tipoServicio: 'GUARDIA',
+      });
+      await db.doc('solicitudes_cambio/sol-ug-1').set({
+        id: 'sol-ug-1',
+        tipoServicio: 'GUARDIA',
+        solicitanteGrupo: 'U.G.',
+        solicitantePersonaId: 'pers-ug-2',
+        destinatarioPersonaId: 'pers-ug-1',
+        estado: 'PENDIENTE_COMPAÑERO',
+      });
+      await db.doc('solicitudes_cambio/sol-us-1').set({
+        id: 'sol-us-1',
+        tipoServicio: 'US',
+        solicitanteGrupo: 'US_SEGURIDAD',
+        solicitantePersonaId: 'pers-us-1',
+        destinatarioPersonaId: 'pers-us-2',
+        estado: 'PENDIENTE_COMPAÑERO',
+      });
+      await db.doc('documentos_cambios_firmados/doc-ug-1').set({
+        id: 'doc-ug-1',
+        personaA: { id: 'pers-ug-1' },
+        personaB: { id: 'pers-ug-2' },
+      });
+      await db.doc('documentos_cambio_firmados/doc-ug-legacy-1').set({
+        id: 'doc-ug-legacy-1',
+        personaA: { id: 'pers-ug-2' },
+        personaB: { id: 'pers-ug-1' },
+      });
+      await db.doc('ausencias_us/aus-us-own').set({
+        id: 'aus-us-own',
+        personaId: 'pers-us-1',
+        tipoAusencia: 'VACACIONES',
+        estado: 'PENDIENTE_ADMIN',
+      });
+      await db.doc('ausencias_us/aus-us-other').set({
+        id: 'aus-us-other',
+        personaId: 'pers-us-2',
+        tipoAusencia: 'PERMISO',
+        estado: 'APROBADA',
+      });
+      await db.doc('imaginarias_activadas_us/img-act-1').set({
+        id: 'img-act-1',
+        personaId: 'pers-us-1',
+        tipoServicio: 'US',
+        diasCompensacion: 2,
+      });
+      await db.doc('compensacion_imaginarias_us/comp-leg-1').set({
+        id: 'comp-leg-1',
+        personaId: 'pers-us-1',
         tipoServicio: 'US',
       });
       await db.doc('mensajes_chat/msg-ug').set({
@@ -125,7 +186,9 @@ async function main() {
       });
       await db.doc('incidencias_ausencia/inc-1').set({
         id: 'inc-1',
-        personaAusenteId: 'pers-ug-2',
+        titularPersonaId: 'pers-ug-2',
+        tipoAusencia: 'AUSENCIA_SOBREVENIDA',
+        estado: 'COMUNICADA_PENDIENTE_COBERTURA',
         imaginariaNotificadaPersonaId: 'pers-ug-1',
         tipoServicio: 'GUARDIA',
       });
@@ -313,6 +376,158 @@ async function main() {
     );
     await assertFails(
       ugDb.doc('configuracion_politica_alias/default').set({ extraBlockedTerms: [] })
+    );
+
+    // 8. I-01 + C-02: Consultas list() reales por perfil (reglas NO son filtros)
+    // 8.1 Cuadrantes: list() filtrado por unidad PERMITIDO; list() sin filtro o cruzado DENEGADO
+    await assertSucceeds(ugDb.collection('cuadrantes').where('tipoServicio', '==', 'GUARDIA').get());
+    await assertSucceeds(ugDb.collection('cuadrantes').where('grupo', '==', 'U.G.').get());
+    await assertFails(ugDb.collection('cuadrantes').get());
+    await assertFails(ugDb.collection('cuadrantes').where('tipoServicio', '==', 'US').get());
+    await assertSucceeds(usDb.collection('cuadrantes').where('tipoServicio', '==', 'US').get());
+    await assertSucceeds(usDb.collection('cuadrantes').where('grupo', '==', 'US_SEGURIDAD').get());
+    await assertFails(usDb.collection('cuadrantes').get());
+    await assertFails(usDb.collection('cuadrantes').where('tipoServicio', '==', 'GUARDIA').get());
+    await assertSucceeds(adminDb.collection('cuadrantes').get());
+
+    // 8.2 Solicitudes de cambio y documentos firmados (canónico + legacy): list() filtrado PERMITIDO; sin filtro DENEGADO
+    await assertSucceeds(ugDb.collection('solicitudes_cambio').where('tipoServicio', '==', 'GUARDIA').get());
+    await assertSucceeds(ugDb.collection('solicitudes_cambio').where('destinatarioPersonaId', '==', 'pers-ug-1').get());
+    await assertFails(ugDb.collection('solicitudes_cambio').get());
+    await assertFails(ugDb.collection('solicitudes_cambio').where('tipoServicio', '==', 'US').get());
+    await assertSucceeds(usDb.collection('solicitudes_cambio').where('tipoServicio', '==', 'US').get());
+    await assertFails(usDb.collection('solicitudes_cambio').get());
+    await assertSucceeds(adminDb.collection('solicitudes_cambio').get());
+
+    await assertSucceeds(ugDb.collection('documentos_cambios_firmados').where('personaA.id', '==', 'pers-ug-1').get());
+    await assertSucceeds(ugDb.collection('documentos_cambio_firmados').where('personaB.id', '==', 'pers-ug-1').get());
+    await assertFails(ugDb.collection('documentos_cambios_firmados').get());
+    await assertFails(usDb.collection('documentos_cambios_firmados').where('personaA.id', '==', 'pers-ug-1').get());
+    await assertSucceeds(adminDb.collection('documentos_cambios_firmados').get());
+
+    // 8.3 Notificaciones: list() acotado por destinatario/unidad PERMITIDO; list() abierto o cruzado DENEGADO
+    await assertSucceeds(ugDb.collection('notificaciones').where('destinatarioPersonaId', '==', 'pers-ug-1').get());
+    await assertSucceeds(ugDb.collection('notificaciones').where('destinatarioUid', '==', 'ug-1').get());
+    await assertSucceeds(
+      ugDb.collection('notificaciones').where('esParaTodos', '==', true).where('tipoServicio', '==', 'GUARDIA').get()
+    );
+    await assertFails(ugDb.collection('notificaciones').get());
+    await assertFails(
+      ugDb.collection('notificaciones').where('esParaTodos', '==', true).where('tipoServicio', '==', 'US').get()
+    );
+    await assertSucceeds(
+      usDb.collection('notificaciones').where('esParaTodos', '==', true).where('tipoServicio', '==', 'US').get()
+    );
+    await assertSucceeds(adminDb.collection('notificaciones').get());
+
+    // 9. I-01 + C-02 + C-03: ausencias_us (list propio, bloqueo terceros, create PENDIENTE_ADMIN y anti-autoaprobación)
+    await assertSucceeds(usDb.collection('ausencias_us').where('personaId', '==', 'pers-us-1').get());
+    await assertFails(usDb.collection('ausencias_us').get());
+    await assertFails(usDb.doc('ausencias_us/aus-us-other').get());
+    await assertFails(ugDb.collection('ausencias_us').where('personaId', '==', 'pers-us-1').get());
+    await assertSucceeds(adminDb.collection('ausencias_us').get());
+
+    await assertSucceeds(
+      usDb.doc('ausencias_us/aus-us-create-ok').set({
+        id: 'aus-us-create-ok',
+        personaId: 'pers-us-1',
+        tipoAusencia: 'VACACIONES',
+        estado: 'PENDIENTE_ADMIN',
+        fechaInicio: '2026-12-01',
+        fechaFin: '2026-12-02',
+      })
+    );
+    await assertFails(
+      usDb.doc('ausencias_us/aus-us-self-approve').set({
+        id: 'aus-us-self-approve',
+        personaId: 'pers-us-1',
+        tipoAusencia: 'VACACIONES',
+        estado: 'APROBADA',
+      })
+    );
+    await assertFails(
+      usDb.doc('ausencias_us/aus-us-fake-admin').set({
+        id: 'aus-us-fake-admin',
+        personaId: 'pers-us-1',
+        tipoAusencia: 'PERMISO',
+        estado: 'PENDIENTE_ADMIN',
+        adminResolucionNombre: 'Falso Admin',
+      })
+    );
+    await assertFails(usDb.doc('ausencias_us/aus-us-own').update({ estado: 'APROBADA' }));
+    await assertFails(ugDb.doc('ausencias_us/aus-ug-forbidden').set({
+      id: 'aus-ug-forbidden',
+      personaId: 'pers-ug-1',
+      estado: 'PENDIENTE_ADMIN',
+    }));
+    await assertSucceeds(adminDb.doc('ausencias_us/aus-us-own').update({ estado: 'APROBADA' }));
+    await assertFails(adminDb.doc('ausencias_us/aus-us-own').delete());
+
+    // 10. I-01 + C-04: imaginarias_activadas_us y compensacion_imaginarias_us
+    await assertSucceeds(usDb.doc('imaginarias_activadas_us/img-act-1').get());
+    await assertSucceeds(usDb.collection('imaginarias_activadas_us').get());
+    await assertFails(ugDb.doc('imaginarias_activadas_us/img-act-1').get());
+    await assertFails(ugDb.collection('imaginarias_activadas_us').get());
+    await assertFails(
+      usDb.doc('imaginarias_activadas_us/img-act-user-write').set({
+        id: 'img-act-user-write',
+        personaId: 'pers-us-1',
+      })
+    );
+    await assertSucceeds(
+      adminDb.doc('imaginarias_activadas_us/img-act-admin-2').set({
+        id: 'img-act-admin-2',
+        personaId: 'pers-us-1',
+        diasCompensacion: 1,
+      })
+    );
+    await assertFails(adminDb.doc('imaginarias_activadas_us/img-act-1').delete());
+    await assertSucceeds(usDb.doc('compensacion_imaginarias_us/comp-leg-1').get());
+    await assertFails(ugDb.doc('compensacion_imaginarias_us/comp-leg-1').get());
+
+    // 11. I-05: Validación estricta de campos en incidencias_ausencia y solicitudes_cambio
+    await assertSucceeds(
+      ugDb.doc('incidencias_ausencia/inc-ok-sobrevenida').set({
+        id: 'inc-ok-sobrevenida',
+        titularPersonaId: 'pers-ug-1',
+        tipoAusencia: 'AUSENCIA_SOBREVENIDA',
+        estado: 'COMUNICADA_PENDIENTE_COBERTURA',
+        tipoServicio: 'GUARDIA',
+      })
+    );
+    await assertFails(
+      ugDb.doc('incidencias_ausencia/inc-medical-blocked').set({
+        id: 'inc-medical-blocked',
+        titularPersonaId: 'pers-ug-1',
+        tipoAusencia: 'AUSENCIA_SOBREVENIDA',
+        estado: 'COMUNICADA_PENDIENTE_COBERTURA',
+        diagnostico: 'Fiebre',
+      })
+    );
+    await assertSucceeds(
+      ugDb.doc('incidencias_ausencia/inc-1').update({
+        estado: 'COBERTURA_ACEPTADA_PENDIENTE_ADMIN',
+        imaginariaAceptantePersonaId: 'pers-ug-1',
+      })
+    );
+    await assertFails(
+      ugDb.doc('incidencias_ausencia/inc-1').update({
+        estado: 'COBERTURA_ACEPTADA_PENDIENTE_ADMIN',
+        titularPersonaId: 'pers-ug-manipulado',
+      })
+    );
+
+    await assertSucceeds(
+      ugDb.doc('solicitudes_cambio/sol-ug-1').update({
+        estado: 'ACEPTADA_COMPAÑERO',
+        firmaDestinatario: 'firma-valida',
+      })
+    );
+    await assertFails(
+      ugDb.doc('solicitudes_cambio/sol-ug-1').update({
+        estado: 'ACEPTADA_COMPAÑERO',
+        autorizacionAdmin: { aprobada: true },
+      })
     );
 
     console.log('[PASS] Suite oficial Firebase Firestore Rules Emulator completada sin errores.');

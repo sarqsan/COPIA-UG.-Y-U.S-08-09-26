@@ -6,6 +6,7 @@ import {
   setDoc,
   updateDoc,
   query,
+  where,
   orderBy,
   limit,
   writeBatch,
@@ -1933,19 +1934,60 @@ const getStatusRank = (st: string) => {
  */
 export const getSolicitudesCambio = async (
   cuadranteId?: string,
-  tipoServicio?: TipoServicio
+  tipoServicio?: TipoServicio,
+  personaId?: string | null
 ): Promise<SolicitudCambio[]> => {
   loadLocalCache();
 
   try {
     const colRef = collection(db, SOLICITUDES_COLLECTION);
-    const q = query(colRef, orderBy('fechaSolicitud', 'desc'));
-    const snapshot = await getDocs(q);
-    const firestoreItems: SolicitudCambio[] = [];
-    snapshot.forEach((docSnap) => {
-      const d = docSnap.data() as SolicitudCambio;
-      firestoreItems.push(d);
-    });
+    const byId = new Map<string, SolicitudCambio>();
+
+    if (tipoServicio || personaId) {
+      // C-02: Consultas filtradas compatibles con firestore.rules ("Rules are not filters")
+      // sin orderBy en Firestore para evitar requerir índices compuestos; se ordena en memoria.
+      const queries = [];
+      if (tipoServicio) {
+        queries.push(query(colRef, where('tipoServicio', '==', tipoServicio)));
+        queries.push(
+          query(
+            colRef,
+            where('solicitanteGrupo', '==', tipoServicio === 'US' ? 'US_SEGURIDAD' : 'U.G.')
+          )
+        );
+      }
+      if (personaId) {
+        queries.push(query(colRef, where('solicitantePersonaId', '==', personaId)));
+        queries.push(query(colRef, where('destinatarioPersonaId', '==', personaId)));
+      }
+
+      const settled = await Promise.allSettled(queries.map((qItem) => getDocs(qItem)));
+      let anySuccess = false;
+      for (const res of settled) {
+        if (res.status === 'fulfilled') {
+          anySuccess = true;
+          res.value.forEach((docSnap) => {
+            const d = docSnap.data() as SolicitudCambio;
+            const id = d.id || docSnap.id;
+            byId.set(id, { ...d, id });
+          });
+        }
+      }
+      if (!anySuccess) {
+        const firstErr = settled.find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined;
+        throw firstErr?.reason || new Error('Error consultando solicitudes filtradas.');
+      }
+    } else {
+      const q = query(colRef, orderBy('fechaSolicitud', 'desc'));
+      const snapshot = await getDocs(q);
+      snapshot.forEach((docSnap) => {
+        const d = docSnap.data() as SolicitudCambio;
+        const id = d.id || docSnap.id;
+        byId.set(id, { ...d, id });
+      });
+    }
+
+    const firestoreItems: SolicitudCambio[] = Array.from(byId.values());
     
     const mergedMap = new Map<string, SolicitudCambio>();
     memorySolicitudesCache.forEach((s) => {
@@ -1993,7 +2035,8 @@ export const getSolicitudesCambio = async (
 export const subscribeSolicitudesCambio = (
   callback: (solicitudes: SolicitudCambio[]) => void,
   cuadranteId?: string,
-  tipoServicio?: TipoServicio
+  tipoServicio?: TipoServicio,
+  personaId?: string | null
 ): (() => void) => {
   const emitCached = () => {
     loadLocalCache();
@@ -2021,51 +2064,82 @@ export const subscribeSolicitudesCambio = (
 
   try {
     const colRef = collection(db, SOLICITUDES_COLLECTION);
-    const q = query(colRef, orderBy('fechaSolicitud', 'desc'));
 
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const firestoreItems: SolicitudCambio[] = [];
-        snapshot.forEach((docSnap) => {
-          firestoreItems.push(docSnap.data() as SolicitudCambio);
-        });
+    // C-02: Suscripciones filtradas compatibles con firestore.rules (sin orderBy compuesto)
+    const targetQueries =
+      tipoServicio || personaId
+        ? [
+            ...(tipoServicio
+              ? [
+                  query(colRef, where('tipoServicio', '==', tipoServicio)),
+                  query(
+                    colRef,
+                    where(
+                      'solicitanteGrupo',
+                      '==',
+                      tipoServicio === 'US' ? 'US_SEGURIDAD' : 'U.G.'
+                    )
+                  ),
+                ]
+              : []),
+            ...(personaId
+              ? [
+                  query(colRef, where('solicitantePersonaId', '==', personaId)),
+                  query(colRef, where('destinatarioPersonaId', '==', personaId)),
+                ]
+              : []),
+          ]
+        : [query(colRef, orderBy('fechaSolicitud', 'desc'))];
 
-        const mergedMap = new Map<string, SolicitudCambio>();
-        memorySolicitudesCache.forEach((s) => {
-          if (s && s.id) mergedMap.set(s.id, s);
-        });
-        firestoreItems.forEach((f) => {
-          if (f && f.id) {
-            const local = mergedMap.get(f.id);
-            if (!local) {
-              mergedMap.set(f.id, f);
+    const mergeAndEmitSnapshot = (firestoreItems: SolicitudCambio[]) => {
+      const mergedMap = new Map<string, SolicitudCambio>();
+      memorySolicitudesCache.forEach((s) => {
+        if (s && s.id) mergedMap.set(s.id, s);
+      });
+      firestoreItems.forEach((f) => {
+        if (f && f.id) {
+          const local = mergedMap.get(f.id);
+          if (!local) {
+            mergedMap.set(f.id, f);
+          } else {
+            const rankLocal = getStatusRank(local.estado);
+            const rankRemote = getStatusRank(f.estado);
+            if (rankLocal > rankRemote) {
+              mergedMap.set(f.id, local);
             } else {
-              const rankLocal = getStatusRank(local.estado);
-              const rankRemote = getStatusRank(f.estado);
-              if (rankLocal > rankRemote) {
-                mergedMap.set(f.id, local);
-              } else {
-                mergedMap.set(f.id, f);
-              }
+              mergedMap.set(f.id, f);
             }
           }
-        });
+        }
+      });
 
-        memorySolicitudesCache = Array.from(mergedMap.values()).sort(
-          (a, b) => new Date(b.fechaSolicitud || 0).getTime() - new Date(a.fechaSolicitud || 0).getTime()
-        );
-        saveLocalCache(false);
+      memorySolicitudesCache = Array.from(mergedMap.values()).sort(
+        (a, b) => new Date(b.fechaSolicitud || 0).getTime() - new Date(a.fechaSolicitud || 0).getTime()
+      );
+      saveLocalCache(false);
 
-        emitCached();
-      },
-      (err) => {
-        console.warn('Listener de solicitudes en tiempo real diferido:', err.message || err);
-      }
+      emitCached();
+    };
+
+    const unsubscribers = targetQueries.map((qItem) =>
+      onSnapshot(
+        qItem,
+        (snapshot) => {
+          const firestoreItems: SolicitudCambio[] = [];
+          snapshot.forEach((docSnap) => {
+            const d = docSnap.data() as SolicitudCambio;
+            firestoreItems.push({ ...d, id: d.id || docSnap.id });
+          });
+          mergeAndEmitSnapshot(firestoreItems);
+        },
+        (err) => {
+          console.warn('Listener de solicitudes en tiempo real diferido:', err.message || err);
+        }
+      )
     );
 
     return () => {
-      unsubscribe();
+      unsubscribers.forEach((u) => u());
       if (typeof window !== 'undefined') {
         window.removeEventListener('cambios_updated', handleCustomEvent);
       }
@@ -3041,15 +3115,73 @@ export const getDocumentosFirmados = async (): Promise<DocumentoCambioFirmado[]>
 };
 
 /**
- * Obtiene los documentos firmados donde interviene una persona concreta (como solicitante o destinatario)
+ * C-02: Obtiene los documentos firmados donde interviene una persona concreta
+ * utilizando consultas filtradas por personaA.id y personaB.id compatibles con firestore.rules
+ * (isInvolvedInSignedDoc), incluyendo la colección histórica legada v1.
  */
 export const getDocumentosFirmadosByPersonaId = async (
   personaId: string
 ): Promise<DocumentoCambioFirmado[]> => {
-  const todos = await getDocumentosFirmados();
-  return todos.filter(
-    (d) => d.personaA.id === personaId || d.personaB.id === personaId
-  );
+  loadLocalCache();
+  if (!personaId) return [];
+
+  const byId = new Map<string, DocumentoCambioFirmado>();
+  memoryDocumentosFirmadosCache
+    .filter((d) => d.personaA?.id === personaId || d.personaB?.id === personaId)
+    .forEach((d) => byId.set(d.id, d));
+
+  try {
+    const colCanonical = collection(db, DOCUMENTOS_FIRMA_COLLECTION);
+    const colLegacy = collection(db, DOCUMENTOS_FIRMA_LEGACY_COLLECTION);
+
+    const [canA, canB, legA, legB] = await Promise.allSettled([
+      getDocs(query(colCanonical, where('personaA.id', '==', personaId))),
+      getDocs(query(colCanonical, where('personaB.id', '==', personaId))),
+      getDocs(query(colLegacy, where('personaA.id', '==', personaId))),
+      getDocs(query(colLegacy, where('personaB.id', '==', personaId))),
+    ]);
+
+    for (const res of [canA, canB]) {
+      if (res.status === 'fulfilled') {
+        res.value.forEach((d) => {
+          const data = d.data() as DocumentoCambioFirmado;
+          const id = data.id || d.id;
+          byId.set(id, { ...data, id });
+        });
+      }
+    }
+
+    for (const res of [legA, legB]) {
+      if (res.status === 'fulfilled') {
+        res.value.forEach((d) => {
+          const data = d.data() as DocumentoCambioFirmado;
+          const id = data.id || d.id;
+          if (!byId.has(id)) {
+            byId.set(id, {
+              ...data,
+              id,
+              versionDocumento: data.versionDocumento || 1,
+              origenColeccionLegada: DOCUMENTOS_FIRMA_LEGACY_COLLECTION,
+            });
+          }
+        });
+      }
+    }
+
+    if (byId.size > 0) {
+      const mergedCache = new Map<string, DocumentoCambioFirmado>();
+      memoryDocumentosFirmadosCache.forEach((d) => mergedCache.set(d.id, d));
+      byId.forEach((d, id) => mergedCache.set(id, d));
+      memoryDocumentosFirmadosCache = Array.from(mergedCache.values());
+      saveLocalCache();
+    }
+  } catch (err: any) {
+    console.warn('Lectura filtrada de documentos firmados diferida:', err?.message || err);
+  }
+
+  return Array.from(byId.values())
+    .filter((d) => d.personaA?.id === personaId || d.personaB?.id === personaId)
+    .sort((a, b) => new Date(b.fechaEmision).getTime() - new Date(a.fechaEmision).getTime());
 };
 
 export const aprobarSolicitudAdmin = async (params: {

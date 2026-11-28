@@ -163,8 +163,8 @@ async function runSuite() {
 
   const preSnapshot = buildFull22CollectionSnapshot();
 
-  await test('P-01 Inventario oficial cubre exactamente las 22 colecciones críticas sin omisiones', () => {
-    assert.equal(ALL_SYSTEM_COLLECTIONS.length, 22);
+  await test('P-01 Inventario oficial cubre exactamente las 23 colecciones críticas sin omisiones (incl. imaginarias_activadas_us)', () => {
+    assert.equal(ALL_SYSTEM_COLLECTIONS.length, 23);
     for (const reqCol of [
       'cuentas',
       'personas',
@@ -175,6 +175,7 @@ async function runSuite() {
       'auditLogs',
       'configuracion_sistema',
       'respaldos_sistema',
+      'imaginarias_activadas_us',
       'compensacion_imaginarias_us',
       'ausencias_us',
       'patrullas',
@@ -188,7 +189,7 @@ async function runSuite() {
 
   await test('P-02 Inventario pre-migración genera hashes SHA-256 deterministas por colección y global', async () => {
     preInventory = await buildDataIntegrityInventory(preSnapshot, 'pre-remediacion-test');
-    assert.equal(preInventory.summary.totalCollections, 22);
+    assert.equal(preInventory.summary.totalCollections, 23);
     assert.equal(preInventory.summary.totalServiciosSubdocs, 2);
     assert.equal(preInventory.summary.personasUGCount, 1);
     assert.equal(preInventory.summary.personasUSCount, 1);

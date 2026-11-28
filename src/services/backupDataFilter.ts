@@ -124,7 +124,7 @@ import { canonicalizeForHash, sha256Hex } from '../utils/cryptoHelper';
  * no solo IDs; manteniendo compatibilidad de lectura con respaldos históricos CHK-...).
  */
 export const calcularChecksumSnapshot = (datos: SnapshotDatosOperativos): string => {
-  const canonical = canonicalizeForHash({
+  const payload: Record<string, any> = {
     tipoServicio: datos.tipoServicio,
     cuadrantes: [...(datos.cuadrantes || [])].sort((a, b) => a.id.localeCompare(b.id)),
     serviciosPorCuadrante: datos.serviciosPorCuadrante || {},
@@ -132,7 +132,13 @@ export const calcularChecksumSnapshot = (datos: SnapshotDatosOperativos): string
     ausenciasIncidencias: datos.ausenciasIncidencias || [],
     solicitudesCambio: [...(datos.solicitudesCambio || [])].sort((a, b) => a.id.localeCompare(b.id)),
     patrullas: [...(datos.patrullas || [])].sort((a, b) => a.id.localeCompare(b.id)),
-  });
+  };
+  if (Array.isArray(datos.compensacionesImaginarias) && datos.compensacionesImaginarias.length > 0) {
+    payload.compensacionesImaginarias = [...datos.compensacionesImaginarias].sort((a, b) =>
+      String(a?.id || '').localeCompare(String(b?.id || ''))
+    );
+  }
+  const canonical = canonicalizeForHash(payload);
 
   // Doble acumulador FNV-1a 64-bit simulado (dos carriles 32-bit independientes) para uso síncrono
   let h1 = 0x811c9dc5;
@@ -155,7 +161,7 @@ export const calcularChecksumSnapshot = (datos: SnapshotDatosOperativos): string
 export const calcularChecksumSnapshotSha256 = async (
   datos: SnapshotDatosOperativos
 ): Promise<string> => {
-  const canonical = canonicalizeForHash({
+  const payload: Record<string, any> = {
     tipoServicio: datos.tipoServicio,
     cuadrantes: [...(datos.cuadrantes || [])].sort((a, b) => a.id.localeCompare(b.id)),
     serviciosPorCuadrante: datos.serviciosPorCuadrante || {},
@@ -163,7 +169,13 @@ export const calcularChecksumSnapshotSha256 = async (
     ausenciasIncidencias: datos.ausenciasIncidencias || [],
     solicitudesCambio: [...(datos.solicitudesCambio || [])].sort((a, b) => a.id.localeCompare(b.id)),
     patrullas: [...(datos.patrullas || [])].sort((a, b) => a.id.localeCompare(b.id)),
-  });
+  };
+  if (Array.isArray(datos.compensacionesImaginarias)) {
+    payload.compensacionesImaginarias = [...datos.compensacionesImaginarias].sort((a, b) =>
+      String(a?.id || '').localeCompare(String(b?.id || ''))
+    );
+  }
+  const canonical = canonicalizeForHash(payload);
   const digest = await sha256Hex(canonical);
   return `SHA256-${digest}`;
 };
@@ -183,6 +195,7 @@ export const calcularEstadisticasSnapshot = (
   }
   const totalPersonas = datos.personas?.length || 0;
   const totalAusenciasIncidencias = datos.ausenciasIncidencias?.length || 0;
+  const totalCompensacionesImaginarias = datos.compensacionesImaginarias?.length || 0;
   const totalSolicitudesCambio = datos.solicitudesCambio?.length || 0;
   const totalPatrullas = datos.patrullas?.length || 0;
 
@@ -191,6 +204,7 @@ export const calcularEstadisticasSnapshot = (
     totalServicios +
     totalPersonas +
     totalAusenciasIncidencias +
+    totalCompensacionesImaginarias +
     totalSolicitudesCambio +
     totalPatrullas;
 
@@ -199,6 +213,7 @@ export const calcularEstadisticasSnapshot = (
     totalServicios,
     totalPersonas,
     totalAusenciasIncidencias,
+    ...(datos.compensacionesImaginarias ? { totalCompensacionesImaginarias } : {}),
     totalSolicitudesCambio,
     totalPatrullas,
     totalRegistros,

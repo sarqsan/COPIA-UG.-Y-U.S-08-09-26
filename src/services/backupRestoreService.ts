@@ -133,8 +133,9 @@ export const capturarSnapshotOperativo = async (
     pertenecePersonaAUnidad(p, tipoServicio)
   );
 
-  // 3. Ausencias e Incidencias según unidad
+  // 3. Ausencias, Compensaciones de Imaginarias e Incidencias según unidad
   let ausenciasIncidencias: any[] = [];
+  let compensacionesImaginarias: any[] = [];
   try {
     if (tipoServicio === 'US') {
       const colUS = collection(db, 'ausencias_us');
@@ -142,9 +143,9 @@ export const capturarSnapshotOperativo = async (
       snapUS.forEach((d) => {
         ausenciasIncidencias.push(d.data());
       });
-      // Compensaciones / imaginarias activadas US (R-10: colección canónica + respaldo legado sin pérdida)
+      // Compensaciones / imaginarias activadas U.S. (C-04 / I-06: ambas colecciones sin pérdida)
       const compSeenIds = new Set<string>();
-      for (const colName of ['compensacion_imaginarias_us', 'imaginarias_activadas_us']) {
+      for (const colName of ['imaginarias_activadas_us', 'compensacion_imaginarias_us']) {
         try {
           const snapComp = await getDocs(collection(db, colName));
           snapComp.forEach((d) => {
@@ -152,11 +153,11 @@ export const capturarSnapshotOperativo = async (
             const itemId = String(item?.id || d.id);
             if (!compSeenIds.has(itemId)) {
               compSeenIds.add(itemId);
-              ausenciasIncidencias.push({ ...item, id: itemId });
+              compensacionesImaginarias.push({ ...item, id: itemId });
             }
           });
         } catch {
-          // Continuar si la colección legada no existe
+          // Continuar si la colección complementaria está vacía o inaccesible
         }
       }
     } else {
@@ -208,6 +209,7 @@ export const capturarSnapshotOperativo = async (
     serviciosPorCuadrante,
     personas: personasUnidad,
     ausenciasIncidencias,
+    compensacionesImaginarias: tipoServicio === 'US' ? compensacionesImaginarias : undefined,
     solicitudesCambio,
     patrullas: tipoServicio === 'GUARDIA' ? patrullas : undefined,
   };
@@ -752,13 +754,32 @@ export const restaurarRespaldo = async (
       }
     }
 
-    // 6.D Ausencias e Incidencias
-    if (tipoServicio === 'US' && datosARestaurar.ausenciasIncidencias) {
-      for (const aus of datosARestaurar.ausenciasIncidencias) {
-        if (aus.id) {
+    // 6.D Ausencias, Compensaciones de Imaginarias e Incidencias (C-04 / I-06)
+    const esCompensacionImaginaria = (item: any): boolean =>
+      Boolean(
+        item &&
+          (String(item.id || '').startsWith('IMAG-ACT-') ||
+            'fechaImaginariaActivada' in item ||
+            'compensada' in item)
+      );
+
+    if (tipoServicio === 'US') {
+      const compMap = new Map<string, any>();
+      for (const comp of datosARestaurar.compensacionesImaginarias || []) {
+        if (comp?.id) compMap.set(String(comp.id), comp);
+      }
+      for (const aus of datosARestaurar.ausenciasIncidencias || []) {
+        if (!aus?.id) continue;
+        if (esCompensacionImaginaria(aus)) {
+          compMap.set(String(aus.id), aus);
+        } else {
           const ausRef = doc(db, 'ausencias_us', aus.id);
           await setDoc(ausRef, sanitizeForFirestore(aus), { merge: true });
         }
+      }
+      for (const [compId, comp] of compMap.entries()) {
+        const compRef = doc(db, 'imaginarias_activadas_us', compId);
+        await setDoc(compRef, sanitizeForFirestore(comp), { merge: true });
       }
     } else if (tipoServicio === 'GUARDIA' && datosARestaurar.ausenciasIncidencias) {
       for (const inc of datosARestaurar.ausenciasIncidencias) {

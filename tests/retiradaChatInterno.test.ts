@@ -385,18 +385,31 @@ async function run() {
         assert.equal(pushChat2.status, 410, `Push con tipo=MENSAJE_ADMINISTRATIVO debe dar 410 para ${label}`);
         assert.equal(pushChat2.json?.code, 'CHAT_NOTIFICATIONS_REMOVED');
 
-        // Push operativo independiente PERMITIDO (200 no-fcm-tokens con token dev-)
+        // Push operativo independiente PERMITIDO (200) respetando endurecimiento I-03:
+        // ADMIN puede enviar tokens o destino estructurado; usuarios ordinarios deben enviar destino resuelto en servidor.
+        const pushOpBody =
+          label === 'ADMIN'
+            ? {
+                tokens: ['dev-token-1'],
+                payload: {
+                  titulo: 'Cobertura Urgente',
+                  mensaje: 'Activación de imaginaria',
+                  linkTab: 'solicitudes',
+                  tipo: 'SOLICITUD_COBERTURA',
+                },
+              }
+            : {
+                esParaAdmin: true,
+                payload: {
+                  titulo: 'Cobertura Urgente',
+                  mensaje: 'Activación de imaginaria',
+                  linkTab: 'solicitudes',
+                  tipo: 'SOLICITUD_COBERTURA',
+                },
+              };
         const pushOp = await httpJson(baseUrl, 'POST', '/api/push/send', {
           headers,
-          body: {
-            tokens: ['dev-token-1'],
-            payload: {
-              titulo: 'Cobertura Urgente',
-              mensaje: 'Activación de imaginaria',
-              linkTab: 'solicitudes',
-              tipo: 'SOLICITUD_COBERTURA',
-            },
-          },
+          body: pushOpBody,
         });
         assert.equal(
           pushOp.status,
@@ -404,6 +417,27 @@ async function run() {
           `Push operativo independiente debe seguir operativo (200) para ${label}`
         );
         assert.equal(pushOp.json?.success, true);
+
+        if (label !== 'ADMIN') {
+          const pushArbitraryTokens = await httpJson(baseUrl, 'POST', '/api/push/send', {
+            headers,
+            body: {
+              tokens: ['fcm-token-arbitrario-tercero'],
+              payload: {
+                titulo: 'Cobertura Urgente',
+                mensaje: 'Intento con token arbitrario',
+                linkTab: 'solicitudes',
+                tipo: 'SOLICITUD_COBERTURA',
+              },
+            },
+          });
+          assert.equal(
+            pushArbitraryTokens.status,
+            403,
+            `I-03: Usuario ordinario (${label}) NO debe poder inyectar tokens FCM arbitrarios`
+          );
+          assert.equal(pushArbitraryTokens.json?.code, 'ARBITRARY_TOKENS_FORBIDDEN');
+        }
       }
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));

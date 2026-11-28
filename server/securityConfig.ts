@@ -28,19 +28,52 @@ export const LOCKOUT_WINDOW_MS = 15 * 60 * 1000; // 15 minutos
 export const SESSION_TTL_SECONDS = 8 * 60 * 60; // 8 horas
 export const INVITE_DEFAULT_TTL_MS = 24 * 60 * 60 * 1000; // 24 horas
 
-// Secretos cargados desde variables de entorno (con clave efímera aleatoria en dev/test;
-// en producción se exige definir AUTH_SESSION_SECRET y CSV_HMAC_SECRET explícitamente).
+// Secretos cargados desde variables de entorno (con clave efímera aleatoria SOLO en dev/test;
+// en producción se exige definir AUTH_SESSION_SECRET y CSV_HMAC_SECRET explícitamente — I-02).
 const EPHEMERAL_DEV_SESSION_SECRET = crypto.randomBytes(32).toString('hex');
 const EPHEMERAL_DEV_CSV_SECRET = crypto.randomBytes(32).toString('hex');
 
+export class ProductionConfigError extends Error {
+  readonly code = 'PRODUCTION_CONFIG_ERROR' as const;
+  readonly missingVariables: string[];
+
+  constructor(message: string, missingVariables: string[] = []) {
+    super(message);
+    this.name = 'ProductionConfigError';
+    this.missingVariables = missingVariables;
+  }
+}
+
+/**
+ * Determina si el servidor se ejecuta en un entorno de producción estricto
+ * (NODE_ENV=production o VERCEL_ENV=production), donde nunca se permiten
+ * secretos efímeros ni almacenes en memoria silenciosos.
+ */
+export function isStrictProductionEnv(): boolean {
+  return process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production';
+}
+
+function isPlaceholderSecret(val: string): boolean {
+  const upper = val.toUpperCase();
+  return (
+    upper.includes('REEMPLAZAR') ||
+    upper.includes('CHANGEME') ||
+    upper.includes('CHANGE-ME') ||
+    upper.includes('CHANGE_ME') ||
+    upper.includes('PLACEHOLDER') ||
+    upper.includes('EXAMPLE_SECRET')
+  );
+}
+
 export function getAuthSessionSecret(): string {
   const configured = process.env.AUTH_SESSION_SECRET?.trim();
-  if (configured && configured.length >= 32) {
+  if (configured && configured.length >= 32 && !isPlaceholderSecret(configured)) {
     return configured;
   }
-  if (process.env.NODE_ENV === 'production') {
-    console.error(
-      '[ALERTA CRÍTICA] AUTH_SESSION_SECRET no configurado (>=32 chars). Usando secreto efímero; las sesiones se invalidarán al reiniciar.'
+  if (isStrictProductionEnv()) {
+    throw new ProductionConfigError(
+      'Configuración de producción incompleta: AUTH_SESSION_SECRET es obligatorio (>=32 caracteres aleatorios, no placeholder).',
+      ['AUTH_SESSION_SECRET']
     );
   }
   return EPHEMERAL_DEV_SESSION_SECRET;
@@ -48,15 +81,55 @@ export function getAuthSessionSecret(): string {
 
 export function getCsvHmacSecret(): string {
   const configured = process.env.CSV_HMAC_SECRET?.trim();
-  if (configured && configured.length >= 32) {
+  if (configured && configured.length >= 32 && !isPlaceholderSecret(configured)) {
     return configured;
   }
-  if (process.env.NODE_ENV === 'production') {
-    console.error(
-      '[ALERTA CRÍTICA] CSV_HMAC_SECRET no configurado (>=32 chars). Configúralo para verificación persistente entre reinicios.'
+  if (isStrictProductionEnv()) {
+    throw new ProductionConfigError(
+      'Configuración de producción incompleta: CSV_HMAC_SECRET es obligatorio (>=32 caracteres aleatorios, no placeholder).',
+      ['CSV_HMAC_SECRET']
     );
   }
   return EPHEMERAL_DEV_CSV_SECRET;
+}
+
+/**
+ * Valida de forma anticipada (fail-fast) los secretos y credenciales obligatorias
+ * al arrancar en producción. Nunca incluye valores de secretos en mensajes ni logs.
+ */
+export function assertProductionSecurityConfig(options?: {
+  requireFirebaseAdmin?: boolean;
+}): void {
+  if (!isStrictProductionEnv()) {
+    return;
+  }
+
+  const missing: string[] = [];
+
+  const sessionSecret = process.env.AUTH_SESSION_SECRET?.trim() || '';
+  if (sessionSecret.length < 32 || isPlaceholderSecret(sessionSecret)) {
+    missing.push('AUTH_SESSION_SECRET');
+  }
+
+  const csvSecret = process.env.CSV_HMAC_SECRET?.trim() || '';
+  if (csvSecret.length < 32 || isPlaceholderSecret(csvSecret)) {
+    missing.push('CSV_HMAC_SECRET');
+  }
+
+  if (options?.requireFirebaseAdmin !== false) {
+    const hasServiceAccount = Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim());
+    const hasAdc = Boolean(process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim());
+    if (!hasServiceAccount && !hasAdc) {
+      missing.push('FIREBASE_SERVICE_ACCOUNT_JSON|GOOGLE_APPLICATION_CREDENTIALS');
+    }
+  }
+
+  if (missing.length > 0) {
+    throw new ProductionConfigError(
+      `Configuración de producción incompleta. Variables obligatorias ausentes o inválidas: ${missing.join(', ')}.`,
+      missing
+    );
+  }
 }
 
 export function getAllowedCorsOrigins(): string[] {

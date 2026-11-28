@@ -78,18 +78,47 @@ service cloud.firestore {
     }
 
     // Compatibilidad histórica con valor persistido 'US_SEGURIDAD' hasta migración controlada
+    // + predicado positivo isDataUG para compatibilidad con consultas list() filtradas (C-02)
     function isDataUS(data) {
       return (data.tipoServicio == 'US') ||
              (data.grupo == 'US_SEGURIDAD') ||
              (data.grupo == 'U.S.') ||
              (data.grupoId == 'US') ||
              (data.grupoId == 'US_SEGURIDAD') ||
-             (data.grupoId == 'U.S.');
+             (data.grupoId == 'U.S.') ||
+             (data.solicitanteGrupo == 'US_SEGURIDAD') ||
+             (data.solicitanteGrupo == 'U.S.');
+    }
+
+    function isDataUG(data) {
+      return (data.tipoServicio == 'GUARDIA') ||
+             (data.grupo == 'U.G.') ||
+             (data.grupoId == 'GUARDIA') ||
+             (data.grupoId == 'U.G.') ||
+             (data.solicitanteGrupo == 'U.G.');
     }
 
     function docMatchesUserUnit(data) {
       let unit = currentUnit();
-      return unit == 'US' ? isDataUS(data) : !isDataUS(data);
+      return unit == 'US'
+        ? isDataUS(data)
+        : (isDataUG(data) || !isDataUS(data));
+    }
+
+    // I-05: Bloqueo de campos médicos o de salud en incidencias operativas
+    function hasNoMedicalFields(data) {
+      return !data.keys().hasAny([
+        'motivo',
+        'motivoMedico',
+        'diagnostico',
+        'enfermedad',
+        'indisposicion',
+        'sintomas',
+        'parteMedico',
+        'justificanteMedico',
+        'adjuntoMedico',
+        'notasMedicas'
+      ]);
     }
 
     function isInvolvedInSignedDoc(data) {
@@ -240,7 +269,7 @@ service cloud.firestore {
     }
 
     // ------------------------------------------------------------------------
-    // 6. SOLICITUDES DE CAMBIO / PERMUTAS (CONTROL DE ACTORES Y TRANSICIONES)
+    // 6. SOLICITUDES DE CAMBIO / PERMUTAS (CONTROL DE ACTORES, TRANSICIONES Y CAMPOS — I-05)
     // ------------------------------------------------------------------------
     match /solicitudes_cambio/{solicitudId} {
       allow read: if isAdmin() || (
@@ -255,7 +284,13 @@ service cloud.firestore {
         isActiveUser() &&
         request.resource.data.solicitantePersonaId == currentPersonaId() &&
         request.resource.data.solicitantePersonaId != request.resource.data.destinatarioPersonaId &&
-        request.resource.data.estado == 'PENDIENTE_COMPAÑERO'
+        request.resource.data.estado == 'PENDIENTE_COMPAÑERO' &&
+        !request.resource.data.keys().hasAny([
+          'autorizacionAdmin',
+          'aprobadoPorAdminUid',
+          'fechaResolucionAdmin',
+          'documentoFirmadoId'
+        ])
       );
 
       allow update: if isAdmin() || (
@@ -263,11 +298,30 @@ service cloud.firestore {
           (
             resource.data.destinatarioPersonaId == currentPersonaId() &&
             resource.data.estado == 'PENDIENTE_COMPAÑERO' &&
-            request.resource.data.estado in ['ACEPTADA_COMPAÑERO', 'CONTRAOFERTA_COMPAÑERO', 'RECHAZADA_COMPAÑERO', 'PENDIENTE_ADMIN']
+            request.resource.data.estado in ['ACEPTADA_COMPAÑERO', 'CONTRAOFERTA_COMPAÑERO', 'RECHAZADA_COMPAÑERO', 'PENDIENTE_ADMIN'] &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'estado',
+              'fechaRespuestaCompanero',
+              'firmaDestinatario',
+              'fechaFirmaDestinatario',
+              'esContraoferta',
+              'servicioDevolucionId',
+              'servicioDevolucionFecha',
+              'servicioDevolucionSlot',
+              'historialContraofertas',
+              'motivoRechazoCompanero'
+            ])
           ) || (
             resource.data.solicitantePersonaId == currentPersonaId() &&
             resource.data.estado in ['PENDIENTE_COMPAÑERO', 'CONTRAOFERTA_COMPAÑERO'] &&
-            request.resource.data.estado in ['CANCELADA', 'PENDIENTE_ADMIN', 'ACEPTADA_COMPAÑERO']
+            request.resource.data.estado in ['CANCELADA', 'PENDIENTE_ADMIN', 'ACEPTADA_COMPAÑERO'] &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'estado',
+              'firmaSolicitante',
+              'fechaFirmaSolicitante',
+              'motivoCancelacion',
+              'fechaRespuestaCompanero'
+            ])
           )
         )
       );
@@ -295,7 +349,7 @@ service cloud.firestore {
 
     // ------------------------------------------------------------------------
     // 8. INCIDENCIAS DE AUSENCIA (U.G.) Y AUSENCIAS / COMPENSACIONES (U.S.)
-    //    NC-04: Alineado con imaginariaNotificadaPersonaId y confirmacionImaginaria.personaId
+    //    NC-04 + C-02 + C-03 + C-04 + I-05
     // ------------------------------------------------------------------------
     match /incidencias_ausencia/{incidenciaId} {
       allow read: if isAdmin() || (isActiveUser() && currentUnit() == 'GUARDIA');
@@ -303,12 +357,30 @@ service cloud.firestore {
       allow create: if isAdmin() || (
         isActiveUser() &&
         currentUnit() == 'GUARDIA' &&
-        request.resource.data.titularPersonaId == currentPersonaId()
+        request.resource.data.titularPersonaId == currentPersonaId() &&
+        request.resource.data.tipoAusencia == 'AUSENCIA_SOBREVENIDA' &&
+        request.resource.data.estado == 'COMUNICADA_PENDIENTE_COBERTURA' &&
+        hasNoMedicalFields(request.resource.data)
       );
 
       allow update: if isAdmin() || (
         isActiveUser() &&
         currentUnit() == 'GUARDIA' &&
+        request.resource.data.tipoAusencia == 'AUSENCIA_SOBREVENIDA' &&
+        hasNoMedicalFields(request.resource.data) &&
+        request.resource.data.estado in [
+          'IMAGINARIA_ACTIVADA_COBERTURA',
+          'COBERTURA_ACEPTADA_PENDIENTE_ADMIN',
+          'CANCELADA'
+        ] &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'confirmacionImaginaria',
+          'imaginariaAceptantePersonaId',
+          'imaginariaAceptanteNombre',
+          'imaginariaAceptanteEmpleo',
+          'fechaAceptacionImaginaria',
+          'estado'
+        ]) &&
         (
           resource.data.titularPersonaId == currentPersonaId() ||
           resource.data.imaginariaNotificadaPersonaId == currentPersonaId() ||
@@ -322,22 +394,34 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // C-02 + C-03: En cliente el usuario ordinario U.S. solo lee sus propias solicitudes
+    // (el cupo compartido se consulta proyectado vía GET /api/ausencias-us/resumen-operativo).
+    // Creación alineada con 'PENDIENTE_ADMIN' (y compatible con 'PENDIENTE'), impidiendo auto-aprobación.
     match /ausencias_us/{ausenciaId} {
       allow read: if isAdmin() || (
         isActiveUser() && currentUnit() == 'US' &&
-        (resource.data.personaId == currentPersonaId() || docMatchesUserUnit(resource.data))
+        resource.data.personaId == currentPersonaId()
       );
 
       allow create: if isAdmin() || (
         isActiveUser() && currentUnit() == 'US' &&
         request.resource.data.personaId == currentPersonaId() &&
-        request.resource.data.estado == 'PENDIENTE'
+        request.resource.data.estado in ['PENDIENTE_ADMIN', 'PENDIENTE'] &&
+        !request.resource.data.keys().hasAny(['adminResolucionNombre', 'fechaResolucion'])
       );
 
       allow update: if isAdmin();
       allow delete: if false;
     }
 
+    // C-04: Colección activa utilizada por compensacionImaginariasUSService.ts
+    match /imaginarias_activadas_us/{compId} {
+      allow read: if isAdmin() || (isActiveUser() && currentUnit() == 'US');
+      allow create, update: if isAdmin();
+      allow delete: if false;
+    }
+
+    // Compatibilidad preservada con colección histórica/complementaria
     match /compensacion_imaginarias_us/{compId} {
       allow read: if isAdmin() || (isActiveUser() && currentUnit() == 'US');
       allow create, update: if isAdmin();

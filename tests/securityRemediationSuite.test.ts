@@ -966,8 +966,9 @@ async function runSuite() {
       assert.equal(await verifyPassword('Otra!Clave#2026', salt, pbk), false);
     });
 
-    await test('Extra: Inventario de integridad cubre exactamente las 22 colecciones críticas de Firestore', () => {
-      assert.equal(ALL_SYSTEM_COLLECTIONS.length, 22);
+    await test('Extra: Inventario de integridad cubre exactamente las 23 colecciones críticas de Firestore (incl. imaginarias_activadas_us)', () => {
+      assert.equal(ALL_SYSTEM_COLLECTIONS.length, 23);
+      assert.ok(ALL_SYSTEM_COLLECTIONS.includes('imaginarias_activadas_us'));
       assert.ok(ALL_SYSTEM_COLLECTIONS.includes('compensacion_imaginarias_us'));
       assert.ok(ALL_SYSTEM_COLLECTIONS.includes('documentos_cambios_firmados'));
       assert.ok(ALL_SYSTEM_COLLECTIONS.includes('documentos_cambio_firmados'));

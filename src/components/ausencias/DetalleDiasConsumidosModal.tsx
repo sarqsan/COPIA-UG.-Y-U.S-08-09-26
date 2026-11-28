@@ -55,11 +55,11 @@ export const DetalleDiasConsumidosModal: React.FC<DetalleDiasConsumidosModalProp
 
   useEffect(() => {
     if (isOpen && !solicitudesProp) {
-      getSolicitudesAusenciaUS().then((list) => {
+      getSolicitudesAusenciaUS({ personaId: persona.id, isAdmin }).then((list) => {
         setInternalSolicitudes(list.filter((s) => s.personaId === persona.id));
       });
     }
-  }, [isOpen, solicitudesProp, persona.id]);
+  }, [isOpen, solicitudesProp, persona.id, isAdmin]);
 
   if (!isOpen) return null;
 

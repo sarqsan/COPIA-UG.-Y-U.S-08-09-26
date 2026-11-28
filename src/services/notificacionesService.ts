@@ -4,6 +4,7 @@ import {
   getDocs,
   setDoc,
   query,
+  where,
   orderBy,
   arrayUnion,
   writeBatch,
@@ -167,36 +168,76 @@ export const crearNotificacion = async (params: {
 };
 
 /**
- * Obtiene las notificaciones que corresponden a un usuario o administrador
+ * Obtiene las notificaciones que corresponden a un usuario o administrador.
+ * C-02: Para usuarios ordinarios ejecuta exclusivamente consultas filtradas compatibles
+ * con firestore.rules (destinatarioPersonaId, destinatarioUid y globales de su unidad).
  */
 export const getNotificaciones = async (
   personaId?: string | null,
   uid?: string | null,
-  isAdmin: boolean = false
+  isAdmin: boolean = false,
+  tipoServicio?: TipoServicio
 ): Promise<Notificacion[]> => {
   loadNotifStorage();
   try {
     const colRef = collection(db, NOTIFICACIONES_COLLECTION);
-    const q = query(colRef, orderBy('fechaCreacion', 'desc'));
-    const snapshot = await getDocs(q);
+    const firestoreNotifs: Notificacion[] = [];
 
-    if (snapshot.empty) {
-      if (memoryNotificacionesCache.length === 0 && !isImpersonating()) {
-        for (const initNotif of INITIAL_NOTIFICATIONS) {
-          try {
-            await setDoc(doc(db, NOTIFICACIONES_COLLECTION, initNotif.id), initNotif);
-          } catch (e) {
-            // Ignore
+    if (isAdmin) {
+      const q = query(colRef, orderBy('fechaCreacion', 'desc'));
+      const snapshot = await getDocs(q);
+
+      if (snapshot.empty) {
+        if (memoryNotificacionesCache.length === 0 && !isImpersonating()) {
+          for (const initNotif of INITIAL_NOTIFICATIONS) {
+            try {
+              await setDoc(doc(db, NOTIFICACIONES_COLLECTION, initNotif.id), initNotif);
+            } catch {
+              // Ignore
+            }
           }
         }
+      } else {
+        snapshot.forEach((docSnap) => {
+          const item = docSnap.data() as Notificacion;
+          firestoreNotifs.push({ ...item, id: item.id || docSnap.id });
+        });
       }
     } else {
-      const firestoreNotifs: Notificacion[] = [];
-      snapshot.forEach((docSnap) => {
-        const item = docSnap.data() as Notificacion;
-        firestoreNotifs.push(item);
-      });
+      const userQueries = [];
+      if (personaId) {
+        userQueries.push(query(colRef, where('destinatarioPersonaId', '==', personaId)));
+      }
+      if (uid) {
+        userQueries.push(query(colRef, where('destinatarioUid', '==', uid)));
+      }
+      if (tipoServicio) {
+        userQueries.push(
+          query(
+            colRef,
+            where('esParaTodos', '==', true),
+            where('tipoServicio', '==', tipoServicio)
+          )
+        );
+      }
 
+      if (userQueries.length > 0) {
+        const settled = await Promise.allSettled(userQueries.map((uq) => getDocs(uq)));
+        const byId = new Map<string, Notificacion>();
+        for (const res of settled) {
+          if (res.status === 'fulfilled') {
+            res.value.forEach((docSnap) => {
+              const item = docSnap.data() as Notificacion;
+              const id = item.id || docSnap.id;
+              byId.set(id, { ...item, id });
+            });
+          }
+        }
+        firestoreNotifs.push(...byId.values());
+      }
+    }
+
+    if (firestoreNotifs.length > 0) {
       // Merge seguro: Firestore + Local Cache para no perder nunca notificaciones recién emitidas
       const mergedMap = new Map<string, Notificacion>();
       memoryNotificacionesCache.forEach((n) => {
@@ -285,108 +326,133 @@ export const getNotificaciones = async (
 };
 
 /**
- * Suscripción en tiempo real a las notificaciones para sincronización instantánea entre dispositivos
+ * Suscripción en tiempo real a las notificaciones para sincronización instantánea entre dispositivos.
+ * C-02: Para usuarios ordinarios utiliza únicamente suscripciones filtradas compatibles con firestore.rules.
  */
 export const subscribeNotificaciones = (
   callback: (notificaciones: Notificacion[]) => void,
   personaId?: string | null,
   uid?: string | null,
-  isAdmin: boolean = false
+  isAdmin: boolean = false,
+  tipoServicio?: TipoServicio
 ): (() => void) => {
   try {
     const colRef = collection(db, NOTIFICACIONES_COLLECTION);
-    const q = query(colRef, orderBy('fechaCreacion', 'desc'));
+    const targetQueries = isAdmin
+      ? [query(colRef, orderBy('fechaCreacion', 'desc'))]
+      : [
+          ...(personaId ? [query(colRef, where('destinatarioPersonaId', '==', personaId))] : []),
+          ...(uid ? [query(colRef, where('destinatarioUid', '==', uid))] : []),
+          ...(tipoServicio
+            ? [
+                query(
+                  colRef,
+                  where('esParaTodos', '==', true),
+                  where('tipoServicio', '==', tipoServicio)
+                ),
+              ]
+            : []),
+        ];
 
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const firestoreNotifs: Notificacion[] = [];
-        snapshot.forEach((docSnap) => {
-          firestoreNotifs.push(docSnap.data() as Notificacion);
-        });
+    if (targetQueries.length === 0) {
+      return () => {};
+    }
 
-        const mergedMap = new Map<string, Notificacion>();
-        memoryNotificacionesCache.forEach((n) => {
-          if (n && n.id) mergedMap.set(n.id, n);
-        });
-        firestoreNotifs.forEach((n) => {
-          if (n && n.id) {
-            const localItem = mergedMap.get(n.id);
-            const combinedLeidoPor = Array.from(
-              new Set([...(localItem?.leidoPor || []), ...(n.leidoPor || [])])
-            );
-            const estaLeidaLocal = !!localItem?.leida;
-            const estaLeidaRemoto = !!n.leida;
-            mergedMap.set(n.id, {
-              ...n,
-              leida: estaLeidaLocal || estaLeidaRemoto,
-              leidoPor: combinedLeidoPor,
-              fechaLeida: localItem?.fechaLeida || n.fechaLeida,
-            });
-          }
-        });
-
-        memoryNotificacionesCache = Array.from(mergedMap.values()).sort(
-          (a, b) => new Date(b.fechaCreacion || 0).getTime() - new Date(a.fechaCreacion || 0).getTime()
-        );
-        saveNotifStorage(false);
-
-        const userKeys: string[] = [];
-        if (uid) userKeys.push(uid);
-        if (personaId) {
-          userKeys.push(personaId);
-          userKeys.push(`user-${personaId}`);
+    const emitFiltered = (firestoreNotifs: Notificacion[]) => {
+      const mergedMap = new Map<string, Notificacion>();
+      memoryNotificacionesCache.forEach((n) => {
+        if (n && n.id) mergedMap.set(n.id, n);
+      });
+      firestoreNotifs.forEach((n) => {
+        if (n && n.id) {
+          const localItem = mergedMap.get(n.id);
+          const combinedLeidoPor = Array.from(
+            new Set([...(localItem?.leidoPor || []), ...(n.leidoPor || [])])
+          );
+          const estaLeidaLocal = !!localItem?.leida;
+          const estaLeidaRemoto = !!n.leida;
+          mergedMap.set(n.id, {
+            ...n,
+            leida: estaLeidaLocal || estaLeidaRemoto,
+            leidoPor: combinedLeidoPor,
+            fechaLeida: localItem?.fechaLeida || n.fechaLeida,
+          });
         }
-        if (isAdmin) {
-          userKeys.push('ADMIN_GLOBAL');
-          if (uid) userKeys.push(`admin-${uid}`);
-        }
+      });
 
-        const resultado = memoryNotificacionesCache
-          .filter((item) => {
-            // 1. Notificaciones expresamente dirigidas a este usuario por su personaId o UID
-            if (personaId && item.destinatarioPersonaId === personaId) return true;
-            if (uid && item.destinatarioUid === uid) return true;
+      memoryNotificacionesCache = Array.from(mergedMap.values()).sort(
+        (a, b) => new Date(b.fechaCreacion || 0).getTime() - new Date(a.fechaCreacion || 0).getTime()
+      );
+      saveNotifStorage(false);
 
-            // 2. Notificaciones globales para toda la plantilla
-            if (item.esParaTodos) return true;
-
-            // 3. Si el usuario actual es Administrador:
-            if (isAdmin) {
-              // Recibe notificaciones dirigidas al rol de administración o que requieran gestión administrativa
-              if (item.esParaAdmin) return true;
-              // Si no tiene destinatario específico de persona ni UID, es un aviso global/sistema para el Administrador
-              if (!item.destinatarioPersonaId && !item.destinatarioUid) return true;
-              // NUNCA recibir notificaciones personales privadas dirigidas a otros usuarios
-              return false;
-            }
-
-            return false;
-          })
-          .map((item) => {
-            const leidoPorArr = Array.isArray(item.leidoPor) ? item.leidoPor : [];
-            const leidaPorEsteUsuario = userKeys.some((k) => leidoPorArr.includes(k));
-            const esDirigidaAUsuario =
-              (personaId && item.destinatarioPersonaId === personaId) ||
-              (uid && item.destinatarioUid === uid);
-            const estaLeida = leidaPorEsteUsuario || (esDirigidaAUsuario && item.leida && leidoPorArr.length > 0);
-
-            return {
-              ...item,
-              linkTab: item.linkTab?.toLowerCase() === 'chat' ? undefined : item.linkTab,
-              leida: !!estaLeida,
-            };
-          })
-          .sort((a, b) => new Date(b.fechaCreacion).getTime() - new Date(a.fechaCreacion).getTime());
-
-        callback(resultado);
-      },
-      (err) => {
-        console.warn('Listener de notificaciones en tiempo real diferido:', err.message || err);
+      const userKeys: string[] = [];
+      if (uid) userKeys.push(uid);
+      if (personaId) {
+        userKeys.push(personaId);
+        userKeys.push(`user-${personaId}`);
       }
+      if (isAdmin) {
+        userKeys.push('ADMIN_GLOBAL');
+        if (uid) userKeys.push(`admin-${uid}`);
+      }
+
+      const resultado = memoryNotificacionesCache
+        .filter((item) => {
+          if (personaId && item.destinatarioPersonaId === personaId) return true;
+          if (uid && item.destinatarioUid === uid) return true;
+
+          if (item.esParaTodos) {
+            if (isAdmin || !tipoServicio || !item.tipoServicio) return true;
+            return item.tipoServicio === tipoServicio;
+          }
+
+          if (isAdmin) {
+            if (item.esParaAdmin) return true;
+            if (!item.destinatarioPersonaId && !item.destinatarioUid) return true;
+            return false;
+          }
+
+          return false;
+        })
+        .map((item) => {
+          const leidoPorArr = Array.isArray(item.leidoPor) ? item.leidoPor : [];
+          const leidaPorEsteUsuario = userKeys.some((k) => leidoPorArr.includes(k));
+          const esDirigidaAUsuario =
+            (personaId && item.destinatarioPersonaId === personaId) ||
+            (uid && item.destinatarioUid === uid);
+          const estaLeida = leidaPorEsteUsuario || (esDirigidaAUsuario && item.leida && leidoPorArr.length > 0);
+
+          return {
+            ...item,
+            linkTab: item.linkTab?.toLowerCase() === 'chat' ? undefined : item.linkTab,
+            leida: !!estaLeida,
+          };
+        })
+        .sort((a, b) => new Date(b.fechaCreacion).getTime() - new Date(a.fechaCreacion).getTime());
+
+      callback(resultado);
+    };
+
+    const unsubscribers = targetQueries.map((qItem) =>
+      onSnapshot(
+        qItem,
+        (snapshot) => {
+          const firestoreNotifs: Notificacion[] = [];
+          snapshot.forEach((docSnap) => {
+            const d = docSnap.data() as Notificacion;
+            firestoreNotifs.push({ ...d, id: d.id || docSnap.id });
+          });
+          emitFiltered(firestoreNotifs);
+        },
+        (err) => {
+          console.warn('Listener de notificaciones en tiempo real diferido:', err.message || err);
+        }
+      )
     );
 
-    return unsubscribe;
+    return () => {
+      unsubscribers.forEach((u) => u());
+    };
   } catch (err: any) {
     console.warn('Error configurando listener de notificaciones:', err.message || err);
     return () => {};

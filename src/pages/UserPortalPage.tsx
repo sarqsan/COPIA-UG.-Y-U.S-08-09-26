@@ -236,12 +236,15 @@ export const UserPortalPage: React.FC = () => {
       setServicios(todosServicios);
       setIncidencias(todasIncidencias);
 
-      // Solicitudes de cambio del grupo activo del usuario
-      const sols = await getSolicitudesCambio(undefined, userTipoServicio);
+      // Solicitudes de cambio del grupo activo del usuario (C-02: consultas filtradas por unidad y personaId)
+      const sols = await getSolicitudesCambio(undefined, userTipoServicio, currentPersona?.id);
       setSolicitudes(sols);
 
       if (userTipoServicio === 'US') {
-        const ausUS = await getSolicitudesAusenciaUS();
+        const ausUS = await getSolicitudesAusenciaUS({
+          personaId: currentPersona?.id,
+          isAdmin: false,
+        });
         setSolicitudesAusenciaUS(ausUS);
       }
 
@@ -259,7 +262,12 @@ export const UserPortalPage: React.FC = () => {
         setMisPatrullas(pats);
       }
 
-      const notifs = await getNotificaciones(currentPersona?.id, currentCuenta?.uid, false);
+      const notifs = await getNotificaciones(
+        currentPersona?.id,
+        currentCuenta?.uid,
+        false,
+        userTipoServicio
+      );
       setNotificaciones(notifs);
       // Los respaldos automáticos están restringidos exclusivamente a sesiones ADMIN autenticadas (R-10).
     } catch (err) {
@@ -275,7 +283,8 @@ export const UserPortalPage: React.FC = () => {
         setSolicitudes(sols);
       },
       undefined,
-      userTipoServicio
+      userTipoServicio,
+      currentPersona?.id
     );
 
     const unsubscribeNotificaciones = subscribeNotificaciones(
@@ -284,16 +293,28 @@ export const UserPortalPage: React.FC = () => {
       },
       currentPersona?.id,
       currentCuenta?.uid,
-      false
+      false,
+      userTipoServicio
     );
 
-    const unsubscribeAusenciasUS = subscribeAusenciasUS((aus) => {
-      setSolicitudesAusenciaUS(aus);
-    });
+    const unsubscribeAusenciasUS =
+      userTipoServicio === 'US'
+        ? subscribeAusenciasUS(
+            (aus) => {
+              setSolicitudesAusenciaUS(aus);
+            },
+            { personaId: currentPersona?.id, isAdmin: false }
+          )
+        : () => {};
 
     const handleUpdate = async () => {
       if (currentPersona?.id || currentCuenta?.uid) {
-        const notifs = await getNotificaciones(currentPersona?.id, currentCuenta?.uid, false);
+        const notifs = await getNotificaciones(
+          currentPersona?.id,
+          currentCuenta?.uid,
+          false,
+          userTipoServicio
+        );
         setNotificaciones(notifs);
       }
     };
@@ -2486,6 +2507,7 @@ export const UserPortalPage: React.FC = () => {
           personaId={currentPersona?.id}
           uid={currentCuenta?.uid}
           isAdmin={false}
+          tipoServicio={userTipoServicio}
           onNavigateTab={(tab) => {
             if (tab === 'cambios' || tab === 'solicitudes') setActiveTab('solicitudes');
             else if (tab === 'imaginarias') setActiveTab('imaginarias');
