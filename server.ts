@@ -44,6 +44,7 @@ import {
 } from './server/authMiddleware';
 import {
   createDefaultServerStore,
+  PartialRestoreError,
   sanitizeAccountForClient,
   type ServerDataStore,
   type StoredAccountRecord,
@@ -312,20 +313,40 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         },
       });
 
-  // I-04: Limitador dedicado contra enumeración abusiva en verificación pública de comprobantes CSV
+  // I-04 + 3.G: Limitador distribuido contra enumeración abusiva en verificación de comprobantes CSV.
+  // Respaldado por transacciones atómicas en Firestore (/rate_limits_servidor) en producción/serverless
+  // para compartir el contador entre instancias sin servicios de pago externos, y por el store local en dev/test.
+  const DOCUMENTO_VERIFY_WINDOW_MS = 15 * 60 * 1000;
+  const documentoVerifyMax = options.documentoVerifyMaxRequests ?? 30;
   const documentoVerifyLimiter = options.disableRateLimit
     ? noopLimiter
-    : rateLimit({
-        windowMs: 15 * 60 * 1000,
-        max: options.documentoVerifyMaxRequests ?? 30,
-        standardHeaders: true,
-        legacyHeaders: false,
-        message: {
-          valido: false,
-          code: 'RATE_LIMITED',
-          error: 'Demasiadas consultas de verificación desde esta dirección. Espera unos minutos.',
-        },
-      });
+    : async (req: Request, res: Response, next: NextFunction) => {
+        try {
+          const clientKey = getClientIp(req) || 'unknown-client';
+          const rl = await store.consumeDistributedRateLimit(
+            'documentos_verificar',
+            clientKey,
+            DOCUMENTO_VERIFY_WINDOW_MS,
+            documentoVerifyMax
+          );
+          const resetSeconds = Math.max(1, Math.ceil((rl.resetAtMs - Date.now()) / 1000));
+          res.setHeader('RateLimit-Limit', String(documentoVerifyMax));
+          res.setHeader('RateLimit-Remaining', String(rl.remaining));
+          res.setHeader('RateLimit-Reset', String(resetSeconds));
+          if (!rl.allowed) {
+            res.setHeader('Retry-After', String(resetSeconds));
+            return res.status(429).json({
+              valido: false,
+              code: 'RATE_LIMITED',
+              error: 'Demasiadas consultas de verificación desde esta dirección. Espera unos minutos.',
+            });
+          }
+          return next();
+        } catch (err: any) {
+          console.warn('[DocumentoVerifyLimiter] Error inesperado evaluando límite:', err?.message || err);
+          return next();
+        }
+      };
 
   const emailPushLimiter = options.disableRateLimit
     ? noopLimiter
@@ -791,7 +812,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
     return res.status(200).json({
       success: true,
       cuenta: sanitizeAccountForClient(account),
-      persona,
+      persona: projectOwnPersonaSummary(persona, tipoServicio),
       proteccionDatos,
       perfilAlias: {
         aliasActual,
@@ -2529,7 +2550,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         aliasMessage: ALIAS_PENDING_REVIEW_MESSAGE,
         propuestaPendiente: initialProposal,
         cuenta: sanitizeAccountForClient(newAccount),
-        persona,
+        persona: projectOwnPersonaSummary(persona, invite.tipoServicio),
       });
     } catch (err: any) {
       console.error('[Auth Invitaciones Completar] Error:', err?.message || err);
@@ -2711,10 +2732,37 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
 
         return res.status(200).json(result);
       } catch (err: any) {
+        if (err instanceof PartialRestoreError || err?.code === 'RESTORE_PARTIAL_FAILURE') {
+          recordSecurityAudit(
+            req,
+            {
+              event: 'RESTAURAR_RESPALDO_FALLO_PARCIAL',
+              outcome: 'DENIED',
+              detail: `Fallo parcial restaurando respaldo (${err.faseFallo} lote ${err.loteFallido}/${err.totalLotesFase}). Resguardo previo intacto: ${err.backupEmergenciaId}.`,
+            },
+            persistAudit
+          );
+          return res.status(500).json({
+            success: false,
+            code: 'RESTORE_PARTIAL_FAILURE',
+            backupId: err.backupId,
+            backupEmergenciaId: err.backupEmergenciaId,
+            tipoServicio: err.tipoServicio,
+            faseFallo: err.faseFallo,
+            lotesCompletados: err.lotesCompletados,
+            loteFallido: err.loteFallido,
+            totalLotesFase: err.totalLotesFase,
+            recuperableConBackupEmergencia: true,
+            procedimientoRecuperacion: err.procedimientoRecuperacion,
+            error: 'La restauración sufrió un fallo parcial entre lotes. Se ha preservado el respaldo de emergencia previo para recuperación.',
+          });
+        }
         const notFound = String(err?.message || '').includes('no encontrado');
         return res.status(notFound ? 404 : 500).json({
           success: false,
-          error: err?.message || 'No se pudo completar la restauración del respaldo.',
+          error: notFound
+            ? 'Respaldo no encontrado.'
+            : 'No se pudo completar la restauración del respaldo.',
         });
       }
     }
@@ -2993,6 +3041,15 @@ Reglas:
           });
 
           if (!esParaAdmin) {
+            // 3.I: Respuesta homogénea (403) para destinatario inexistente/inactivo o de otra unidad,
+            // evitando enumeración de identificadores de la unidad contraria;
+            // la causa concreta se registra únicamente en la auditoría interna del servidor.
+            const unifiedUnavailableResponse = {
+              success: false,
+              code: 'PUSH_TARGET_UNAVAILABLE_OR_FORBIDDEN',
+              error: 'No está permitido o no es posible enviar la notificación al destinatario indicado.',
+            };
+
             if (!resolution.found || !resolution.targetAccount || !resolution.targetAccount.activo) {
               recordSecurityAudit(
                 req,
@@ -3005,11 +3062,7 @@ Reglas:
                 },
                 persistAudit
               );
-              return res.status(404).json({
-                success: false,
-                code: 'PUSH_TARGET_INVALID',
-                error: 'Destinatario de notificación no localizado o inactivo.',
-              });
+              return res.status(403).json(unifiedUnavailableResponse);
             }
 
             // Aislamiento estricto por unidad (se permite notificar a ADMIN o a compañeros de la misma unidad)
@@ -3026,11 +3079,7 @@ Reglas:
                 },
                 persistAudit
               );
-              return res.status(403).json({
-                success: false,
-                code: 'CROSS_UNIT_PUSH_FORBIDDEN',
-                error: 'No puedes enviar notificaciones push a destinatarios de otra unidad.',
-              });
+              return res.status(403).json(unifiedUnavailableResponse);
             }
           }
 

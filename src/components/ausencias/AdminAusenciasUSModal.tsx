@@ -284,7 +284,7 @@ export const AdminAusenciasUSModal: FC<AdminAusenciasUSModalProps> = ({
   const handleRecuperarDesdeCuadrantes = async () => {
     setRecuperando(true);
     try {
-      const recuperadas = await reconstruirAusenciasUSDesdeCuadrantes();
+      const recuperadas = await reconstruirAusenciasUSDesdeCuadrantes({ isAdmin: true });
       alert(
         `Recuperación completada:\n\nSe han localizado y reconstruido ${recuperadas.length} solicitudes de permiso, vacaciones y asuntos propios (incluyendo Diciembre y meses venideros) a partir de los cuadrantes, registros históricos de auditoría y catálogo del sistema.`
       );

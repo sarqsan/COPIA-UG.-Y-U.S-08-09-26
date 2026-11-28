@@ -3,6 +3,7 @@ import {
   doc,
   getDocs,
   setDoc,
+  updateDoc,
   query,
   where,
   orderBy,
@@ -460,7 +461,35 @@ export const subscribeNotificaciones = (
 };
 
 /**
- * Marca una notificación como leída para un usuario o en general
+ * Construye el payload mínimo autorizado para marcar una notificación como leída
+ * en Firestore (sin tocar nunca titulo ni mensaje y usando el campo canónico fechaLeida).
+ */
+export const buildMarkNotificationReadPayload = (
+  item: Pick<Notificacion, 'destinatarioPersonaId' | 'destinatarioUid' | 'esParaAdmin' | 'esParaTodos'> | undefined,
+  readerKeys: string | string[],
+  nowIso: string,
+  isAdmin: boolean = false
+): Record<string, any> => {
+  const keys = Array.isArray(readerKeys) ? readerKeys : [readerKeys];
+  const updatePayload: Record<string, any> = {
+    leidoPor: arrayUnion(...keys),
+  };
+  const esPrivadaOAdmin = Boolean(
+    item?.destinatarioPersonaId ||
+      item?.destinatarioUid ||
+      (isAdmin && item?.esParaAdmin)
+  );
+  if (esPrivadaOAdmin) {
+    updatePayload.leida = true;
+    updatePayload.fechaLeida = nowIso;
+  }
+  return updatePayload;
+};
+
+/**
+ * Marca una notificación como leída para un usuario o en general.
+ * Utiliza updateDoc únicamente con los campos permitidos por firestore.rules
+ * (leidoPor y, en notificaciones individuales, leida + fechaLeida), sin alterar titulo ni mensaje.
  */
 export const marcarNotificacionLeida = async (
   notificacionId: string,
@@ -486,31 +515,25 @@ export const marcarNotificacionLeida = async (
 
   try {
     const docRef = doc(db, NOTIFICACIONES_COLLECTION, notificacionId);
-    const updatePayload: any = {
-      titulo: item?.titulo || 'Notificación',
-      mensaje: item?.mensaje || '',
-      leidoPor: arrayUnion(readerKey),
-    };
-    if (item?.destinatarioPersonaId || item?.destinatarioUid) {
-      updatePayload.leida = true;
-      updatePayload.fechaLeida = now;
-    }
-    await setDoc(docRef, updatePayload, { merge: true });
+    const updatePayload = buildMarkNotificationReadPayload(item, readerKey, now, false);
+    await updateDoc(docRef, updatePayload);
   } catch (err: any) {
     console.warn('Actualización de notificación en Firestore diferida:', err.message || err);
   }
 };
 
 /**
- * Marca todas las notificaciones relevantes como leídas para este usuario
+ * Marca todas las notificaciones relevantes como leídas para este usuario,
+ * incluyendo las notificaciones globales de su unidad operativa (tipoServicio).
  */
 export const marcarTodasNotificacionesLeidas = async (
   personaId?: string | null,
   uid?: string | null,
-  isAdmin: boolean = false
+  isAdmin: boolean = false,
+  tipoServicio?: TipoServicio
 ): Promise<void> => {
   assertNotImpersonating('marcarTodasNotificacionesLeidas');
-  const items = await getNotificaciones(personaId, uid, isAdmin);
+  const items = await getNotificaciones(personaId, uid, isAdmin, tipoServicio);
   const now = new Date().toISOString();
   const readerKey = uid || (personaId ? `user-${personaId}` : isAdmin ? 'ADMIN_GLOBAL' : 'user');
   const userKeys: string[] = [readerKey];
@@ -551,20 +574,8 @@ export const marcarTodasNotificacionesLeidas = async (
       const batch = writeBatch(db);
       chunk.forEach((n) => {
         const ref = doc(db, NOTIFICACIONES_COLLECTION, n.id);
-        const updateData: any = {
-          titulo: n.titulo || 'Notificación',
-          mensaje: n.mensaje || '',
-          leidoPor: arrayUnion(...userKeys),
-        };
-        if (
-          n.destinatarioPersonaId ||
-          n.destinatarioUid ||
-          (isAdmin && n.esParaAdmin)
-        ) {
-          updateData.leida = true;
-          updateData.fechaLeida = now;
-        }
-        batch.set(ref, updateData, { merge: true });
+        const updateData = buildMarkNotificationReadPayload(n, userKeys, now, isAdmin);
+        batch.update(ref, updateData);
       });
       await batch.commit();
     }

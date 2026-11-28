@@ -61,6 +61,64 @@ export interface StoredAccountRecord extends Cuenta {
   proteccionDatosFechaAceptacion?: string;
 }
 
+export interface AdminBackupRestoreOptions {
+  /** Gancho opcional exclusivo para pruebas aisladas de fallo simulado entre lotes */
+  onBeforeBatchCommit?: (ctx: {
+    phase: 'DELETE' | 'WRITE';
+    batchIndex: number;
+    totalBatches: number;
+    opsCount: number;
+    backupEmergenciaId: string;
+  }) => void | Promise<void>;
+}
+
+export class PartialRestoreError extends Error {
+  readonly code = 'RESTORE_PARTIAL_FAILURE' as const;
+  readonly backupId: string;
+  readonly backupEmergenciaId: string;
+  readonly tipoServicio: 'GUARDIA' | 'US';
+  readonly faseFallo: 'DELETE' | 'WRITE';
+  readonly lotesCompletados: number;
+  readonly loteFallido: number;
+  readonly totalLotesFase: number;
+  readonly recuperableConBackupEmergencia = true as const;
+  readonly procedimientoRecuperacion: string;
+
+  constructor(params: {
+    backupId: string;
+    backupEmergenciaId: string;
+    tipoServicio: 'GUARDIA' | 'US';
+    faseFallo: 'DELETE' | 'WRITE';
+    lotesCompletados: number;
+    loteFallido: number;
+    totalLotesFase: number;
+    causeMessage: string;
+  }) {
+    super(
+      `Fallo parcial durante restauración de "${params.backupId}" en fase ${params.faseFallo} ` +
+        `(lote ${params.loteFallido}/${params.totalLotesFase}, ${params.lotesCompletados} lote(s) previo(s) aplicado(s)): ` +
+        `${params.causeMessage}. Resguardo de emergencia intacto disponible: "${params.backupEmergenciaId}".`
+    );
+    this.name = 'PartialRestoreError';
+    this.backupId = params.backupId;
+    this.backupEmergenciaId = params.backupEmergenciaId;
+    this.tipoServicio = params.tipoServicio;
+    this.faseFallo = params.faseFallo;
+    this.lotesCompletados = params.lotesCompletados;
+    this.loteFallido = params.loteFallido;
+    this.totalLotesFase = params.totalLotesFase;
+    this.procedimientoRecuperacion = `Ejecutar restauración administrativa desde el respaldo de emergencia "${params.backupEmergenciaId}" (POST /api/admin/respaldos/restaurar con backupId="${params.backupEmergenciaId}") para revertir todas las colecciones modificables de la unidad ${params.tipoServicio}.`;
+  }
+}
+
+export interface DistributedRateLimitResult {
+  allowed: boolean;
+  count: number;
+  remaining: number;
+  resetAtMs: number;
+  storeMode: 'firestore-distributed' | 'memory-local';
+}
+
 export interface AdminBackupRestoreResult {
   success: boolean;
   backupId: string;
@@ -69,9 +127,14 @@ export interface AdminBackupRestoreResult {
   cuadrantesRestaurados: number;
   serviciosRestaurados: number;
   personasRestauradas: number;
+  ausenciasIncidenciasRestauradas?: number;
+  patrullasRestauradas?: number;
+  solicitudesCambioRestauradas?: number;
   compensacionesRestauradas: number;
   batchesEjecutados?: number;
   maxOpsPorBatch?: number;
+  coleccionesResguardadasEmergencia?: string[];
+  conteoResguardoEmergencia?: Record<string, number>;
   mensaje: string;
 }
 
@@ -155,11 +218,19 @@ export interface ServerDataStore extends PersistentLockoutStore {
     alias: string,
     updatedAtIso: string
   ): Promise<{ cuenta: StoredAccountRecord | null; persona: Persona | null }>;
-  // NC-10 + I-06: Restauración administrativa de respaldos vía servidor Admin SDK
+  // NC-10 + I-06 + 3.E: Restauración administrativa de respaldos vía servidor Admin SDK
   restoreBackupByUnitAdmin(
     backupId: string,
-    actor: { uid: string; nombre: string }
+    actor: { uid: string; nombre: string },
+    options?: AdminBackupRestoreOptions
   ): Promise<AdminBackupRestoreResult>;
+  // 3.G: Limitador de tasa distribuido respaldado por Firestore en producción (y memoria en dev/test)
+  consumeDistributedRateLimit(
+    bucket: string,
+    key: string,
+    windowMs: number,
+    maxRequests: number
+  ): Promise<DistributedRateLimitResult>;
   // C-02: Lectura proyectada de ausencias U.S. para validación de cupo sin exponer datos de terceros
   listAusenciasUSOperativas(): Promise<Record<string, any>[]>;
   // I-03: Resolución autoritativa de tokens FCM en servidor (impide tokens arbitrarios desde cliente)
@@ -258,6 +329,22 @@ function perteneceCuadranteAUnidadServer(data: Record<string, any>, unidad: 'GUA
   return unidad === 'US' ? esUS : !esUS;
 }
 
+function pertenecePersonaAUnidadServer(data: Record<string, any>, unidad: 'GUARDIA' | 'US'): boolean {
+  const esUS =
+    data?.tipoServicio === 'US' ||
+    data?.grupo === 'US_SEGURIDAD' ||
+    data?.grupo === 'U.S.';
+  return unidad === 'US' ? esUS : !esUS;
+}
+
+function perteneceSolicitudAUnidadServer(data: Record<string, any>, unidad: 'GUARDIA' | 'US'): boolean {
+  const esUS =
+    data?.tipoServicio === 'US' ||
+    data?.solicitanteGrupo === 'US_SEGURIDAD' ||
+    data?.solicitanteGrupo === 'U.S.';
+  return unidad === 'US' ? esUS : !esUS;
+}
+
 /**
  * Crea un store respaldado en memoria (exclusivamente para pruebas y modo desarrollo local).
  */
@@ -270,6 +357,9 @@ export function createInMemoryServerStore(initial?: {
   backups?: Record<string, any>[];
   matriculas?: Array<{ matriculaNormalizada: string; activo: boolean; [key: string]: any }>;
   ausenciasUS?: Record<string, any>[];
+  incidenciasAusencia?: Record<string, any>[];
+  patrullas?: Record<string, any>[];
+  solicitudesCambio?: Record<string, any>[];
   cuadrantes?: Record<string, any>[];
   serviciosPorCuadrante?: Record<string, any[]>;
   compensacionesImaginarias?: Record<string, any>[];
@@ -281,8 +371,12 @@ export function createInMemoryServerStore(initial?: {
     serviciosPorCuadrante: Map<string, Map<string, Record<string, any>>>;
     compensacionesImaginarias: Map<string, Record<string, any>>;
     ausenciasUS: Map<string, Record<string, any>>;
+    incidenciasAusencia: Map<string, Record<string, any>>;
+    patrullas: Map<string, Record<string, any>>;
+    solicitudesCambio: Map<string, Record<string, any>>;
     backups: Map<string, Record<string, any>>;
     personas: Map<string, Persona>;
+    auditLogs: SecurityAuditEntry[];
   };
 } {
   const accounts = new Map<string, StoredAccountRecord>();
@@ -291,6 +385,7 @@ export function createInMemoryServerStore(initial?: {
   const documentos = new Map<string, Record<string, any>>();
   const revokedJtis = new Map<string, number>();
   const lockouts = new Map<string, AttemptTracker>();
+  const rateLimits = new Map<string, { count: number; resetAtMs: number }>();
   const acceptances = new Map<string, DataProtectionAcceptanceRecord>();
   const acceptanceHistory = new Map<string, DataProtectionAcceptanceRecord[]>();
   const aliasProposals = new Map<string, AliasProposalRecord>();
@@ -301,6 +396,9 @@ export function createInMemoryServerStore(initial?: {
   const backups = new Map<string, Record<string, any>>();
   const matriculas = new Map<string, Record<string, any>>();
   const ausenciasUS = new Map<string, Record<string, any>>();
+  const incidenciasAusencia = new Map<string, Record<string, any>>();
+  const patrullas = new Map<string, Record<string, any>>();
+  const solicitudesCambio = new Map<string, Record<string, any>>();
   const cuadrantes = new Map<string, Record<string, any>>();
   const serviciosPorCuadrante = new Map<string, Map<string, Record<string, any>>>();
   const compensacionesImaginarias = new Map<string, Record<string, any>>();
@@ -327,6 +425,15 @@ export function createInMemoryServerStore(initial?: {
   });
   (initial?.ausenciasUS || []).forEach((a) => {
     if (a?.id) ausenciasUS.set(String(a.id), { ...a });
+  });
+  (initial?.incidenciasAusencia || []).forEach((inc) => {
+    if (inc?.id) incidenciasAusencia.set(String(inc.id), { ...inc });
+  });
+  (initial?.patrullas || []).forEach((pat) => {
+    if (pat?.id) patrullas.set(String(pat.id), { ...pat });
+  });
+  (initial?.solicitudesCambio || []).forEach((sol) => {
+    if (sol?.id) solicitudesCambio.set(String(sol.id), { ...sol });
   });
   (initial?.cuadrantes || []).forEach((c) => {
     if (c?.id) cuadrantes.set(String(c.id), { ...c });
@@ -659,7 +766,7 @@ export function createInMemoryServerStore(initial?: {
       };
     },
 
-    async restoreBackupByUnitAdmin(backupId, actor) {
+    async restoreBackupByUnitAdmin(backupId, actor, options) {
       const respaldo = backups.get(backupId);
       if (!respaldo) {
         throw new Error(`Respaldo no encontrado: ${backupId}`);
@@ -667,29 +774,120 @@ export function createInMemoryServerStore(initial?: {
       const tipoServicio: 'GUARDIA' | 'US' = respaldo.tipoServicio === 'US' ? 'US' : 'GUARDIA';
       const datos = respaldo.datos || {};
 
-      // 1. Resguardo automático previo de la unidad (incluyendo compensaciones en U.S.)
-      const cuadrantesPrevios = Array.from(cuadrantes.values()).filter((c) =>
-        perteneceCuadranteAUnidadServer(c, tipoServicio)
-      );
+      // 1. 3.E: Resguardo automático previo COMPLETO de TODAS las colecciones modificables de la unidad
+      //    antes de comenzar cualquier borrado o sobrescritura.
+      const cuadrantesPrevios = Array.from(cuadrantes.values())
+        .filter((c) => perteneceCuadranteAUnidadServer(c, tipoServicio))
+        .map((c) => ({ ...c }));
       const serviciosPrevios: Record<string, any[]> = {};
+      let totalServiciosPrevios = 0;
+      const serviciosPreviosIds: string[] = [];
       for (const c of cuadrantesPrevios) {
-        serviciosPrevios[c.id] = Array.from(serviciosPorCuadrante.get(c.id)?.values() || []);
+        const srvs = Array.from(serviciosPorCuadrante.get(c.id)?.values() || []).map((s) => ({ ...s }));
+        serviciosPrevios[c.id] = srvs;
+        totalServiciosPrevios += srvs.length;
+        srvs.forEach((s) => serviciosPreviosIds.push(`${c.id}/${s.id}`));
       }
-      const backupEmergenciaId = `backup-emerg-${tipoServicio.toLowerCase()}-${Date.now()}`;
+      const personasPrevias = Array.from(personas.values())
+        .filter((p) => pertenecePersonaAUnidadServer(p as Record<string, any>, tipoServicio))
+        .map((p) => ({ ...p }));
+      const solicitudesPrevias = Array.from(solicitudesCambio.values())
+        .filter((s) => perteneceSolicitudAUnidadServer(s, tipoServicio))
+        .map((s) => ({ ...s }));
+
+      const ausenciasIncidenciasPrevias =
+        tipoServicio === 'US'
+          ? Array.from(ausenciasUS.values()).map((a) => ({ ...a }))
+          : Array.from(incidenciasAusencia.values()).map((inc) => ({ ...inc }));
+      const patrullasPrevias =
+        tipoServicio === 'GUARDIA'
+          ? Array.from(patrullas.values()).map((pat) => ({ ...pat }))
+          : [];
+      const compensacionesPrevias =
+        tipoServicio === 'US'
+          ? Array.from(compensacionesImaginarias.values()).map((comp) => ({ ...comp }))
+          : [];
+
+      const coleccionesIncluidas =
+        tipoServicio === 'US'
+          ? [
+              'cuadrantes',
+              'servicios',
+              'personas',
+              'ausencias_us',
+              'imaginarias_activadas_us',
+              'solicitudes_cambio',
+            ]
+          : [
+              'cuadrantes',
+              'servicios',
+              'personas',
+              'incidencias_ausencia',
+              'patrullas',
+              'solicitudes_cambio',
+            ];
+
+      const conteoPorColeccion: Record<string, number> =
+        tipoServicio === 'US'
+          ? {
+              cuadrantes: cuadrantesPrevios.length,
+              servicios: totalServiciosPrevios,
+              personas: personasPrevias.length,
+              ausencias_us: ausenciasIncidenciasPrevias.length,
+              imaginarias_activadas_us: compensacionesPrevias.length,
+              solicitudes_cambio: solicitudesPrevias.length,
+            }
+          : {
+              cuadrantes: cuadrantesPrevios.length,
+              servicios: totalServiciosPrevios,
+              personas: personasPrevias.length,
+              incidencias_ausencia: ausenciasIncidenciasPrevias.length,
+              patrullas: patrullasPrevias.length,
+              solicitudes_cambio: solicitudesPrevias.length,
+            };
+
+      const documentosIdsPorColeccion: Record<string, string[]> =
+        tipoServicio === 'US'
+          ? {
+              cuadrantes: cuadrantesPrevios.map((c) => String(c.id)),
+              servicios: serviciosPreviosIds,
+              personas: personasPrevias.map((p) => String(p.id)),
+              ausencias_us: ausenciasIncidenciasPrevias.map((a) => String(a.id)),
+              imaginarias_activadas_us: compensacionesPrevias.map((c) => String(c.id)),
+              solicitudes_cambio: solicitudesPrevias.map((s) => String(s.id)),
+            }
+          : {
+              cuadrantes: cuadrantesPrevios.map((c) => String(c.id)),
+              servicios: serviciosPreviosIds,
+              personas: personasPrevias.map((p) => String(p.id)),
+              incidencias_ausencia: ausenciasIncidenciasPrevias.map((i) => String(i.id)),
+              patrullas: patrullasPrevias.map((p) => String(p.id)),
+              solicitudes_cambio: solicitudesPrevias.map((s) => String(s.id)),
+            };
+
+      const backupEmergenciaId = `backup-emerg-${tipoServicio.toLowerCase()}-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`;
       backups.set(backupEmergenciaId, {
         id: backupEmergenciaId,
         tipoServicio,
         tipo: 'EMERGENCIA_PRE_RESTAURACION',
+        estado: 'COMPLETADO_PRE_RESTAURACION',
         creadoPorUid: actor.uid,
         creadoPorNombre: actor.nombre,
         fechaCreacion: new Date().toISOString(),
         origenBackupDestino: backupId,
+        coleccionesIncluidas,
+        conteoPorColeccion,
+        documentosIdsPorColeccion,
         datos: {
+          tipoServicio,
           cuadrantes: cuadrantesPrevios,
           serviciosPorCuadrante: serviciosPrevios,
+          personas: personasPrevias,
+          ausenciasIncidencias: ausenciasIncidenciasPrevias,
+          solicitudesCambio: solicitudesPrevias,
           ...(tipoServicio === 'US'
-            ? { compensacionesImaginarias: Array.from(compensacionesImaginarias.values()) }
-            : {}),
+            ? { compensacionesImaginarias: compensacionesPrevias }
+            : { patrullas: patrullasPrevias }),
         },
       });
 
@@ -715,15 +913,54 @@ export function createInMemoryServerStore(initial?: {
           cuadrantes.delete(c.id);
         });
       }
-      for (const chunk of chunkOperations(deleteOps, FIRESTORE_SAFE_BATCH_LIMIT)) {
-        chunk.forEach((op) => op());
-        trackBatch(chunk.length);
+      const deleteChunks = chunkOperations(deleteOps, FIRESTORE_SAFE_BATCH_LIMIT);
+      for (let idx = 0; idx < deleteChunks.length; idx++) {
+        const chunk = deleteChunks[idx];
+        try {
+          if (options?.onBeforeBatchCommit) {
+            await options.onBeforeBatchCommit({
+              phase: 'DELETE',
+              batchIndex: idx + 1,
+              totalBatches: deleteChunks.length,
+              opsCount: chunk.length,
+              backupEmergenciaId,
+            });
+          }
+          chunk.forEach((op) => op());
+          trackBatch(chunk.length);
+        } catch (err: any) {
+          auditLogs.push({
+            id: `audit-restore-fail-del-${Date.now()}`,
+            event: 'RESTAURACION_FALLO_PARCIAL',
+            actorUid: actor.uid,
+            actorRol: 'ADMIN',
+            outcome: 'ERROR',
+            ip: 'server-internal',
+            path: '/api/admin/respaldos/restaurar',
+            method: 'POST',
+            detail: `Fallo parcial DELETE lote ${idx + 1}/${deleteChunks.length} para ${backupId}. Resguardo íntegro: ${backupEmergenciaId}.`,
+            timestamp: new Date().toISOString(),
+          });
+          throw new PartialRestoreError({
+            backupId,
+            backupEmergenciaId,
+            tipoServicio,
+            faseFallo: 'DELETE',
+            lotesCompletados: batchesEjecutados,
+            loteFallido: idx + 1,
+            totalLotesFase: deleteChunks.length,
+            causeMessage: err?.message || String(err),
+          });
+        }
       }
 
-      // 3. Restaurar cuadrantes y servicios en lotes seguros <= 400
+      // 3. Restaurar cuadrantes, servicios, personas, ausencias/incidencias, patrullas, solicitudes y compensaciones <= 400
       let cuadrantesRestaurados = 0;
       let serviciosRestaurados = 0;
       let personasRestauradas = 0;
+      let ausenciasIncidenciasRestauradas = 0;
+      let patrullasRestauradas = 0;
+      let solicitudesCambioRestauradas = 0;
       let compensacionesRestauradas = 0;
 
       const writeOps: Array<() => void> = [];
@@ -761,6 +998,18 @@ export function createInMemoryServerStore(initial?: {
         personasRestauradas++;
       }
 
+      if (tipoServicio === 'GUARDIA' && Array.isArray(datos.patrullas)) {
+        for (const pat of datos.patrullas) {
+          if (!pat?.id) continue;
+          const pid = String(pat.id);
+          writeOps.push(() => {
+            const prev = patrullas.get(pid);
+            patrullas.set(pid, { ...(prev || {}), ...pat });
+          });
+          patrullasRestauradas++;
+        }
+      }
+
       if (tipoServicio === 'US') {
         const compMap = new Map<string, Record<string, any>>();
         for (const comp of datos.compensacionesImaginarias || []) {
@@ -776,6 +1025,7 @@ export function createInMemoryServerStore(initial?: {
               const prev = ausenciasUS.get(aid);
               ausenciasUS.set(aid, { ...(prev || {}), ...aus });
             });
+            ausenciasIncidenciasRestauradas++;
           }
         }
         for (const [compId, comp] of compMap.entries()) {
@@ -785,11 +1035,67 @@ export function createInMemoryServerStore(initial?: {
           });
           compensacionesRestauradas++;
         }
+      } else if (tipoServicio === 'GUARDIA' && Array.isArray(datos.ausenciasIncidencias)) {
+        for (const inc of datos.ausenciasIncidencias) {
+          if (!inc?.id) continue;
+          const iid = String(inc.id);
+          writeOps.push(() => {
+            const prev = incidenciasAusencia.get(iid);
+            incidenciasAusencia.set(iid, { ...(prev || {}), ...inc });
+          });
+          ausenciasIncidenciasRestauradas++;
+        }
       }
 
-      for (const chunk of chunkOperations(writeOps, FIRESTORE_SAFE_BATCH_LIMIT)) {
-        chunk.forEach((op) => op());
-        trackBatch(chunk.length);
+      for (const sol of datos.solicitudesCambio || []) {
+        if (!sol?.id) continue;
+        const sid = String(sol.id);
+        writeOps.push(() => {
+          const prev = solicitudesCambio.get(sid);
+          solicitudesCambio.set(sid, { ...(prev || {}), ...sol });
+        });
+        solicitudesCambioRestauradas++;
+      }
+
+      const writeChunks = chunkOperations(writeOps, FIRESTORE_SAFE_BATCH_LIMIT);
+      for (let idx = 0; idx < writeChunks.length; idx++) {
+        const chunk = writeChunks[idx];
+        try {
+          if (options?.onBeforeBatchCommit) {
+            await options.onBeforeBatchCommit({
+              phase: 'WRITE',
+              batchIndex: idx + 1,
+              totalBatches: writeChunks.length,
+              opsCount: chunk.length,
+              backupEmergenciaId,
+            });
+          }
+          chunk.forEach((op) => op());
+          trackBatch(chunk.length);
+        } catch (err: any) {
+          auditLogs.push({
+            id: `audit-restore-fail-write-${Date.now()}`,
+            event: 'RESTAURACION_FALLO_PARCIAL',
+            actorUid: actor.uid,
+            actorRol: 'ADMIN',
+            outcome: 'ERROR',
+            ip: 'server-internal',
+            path: '/api/admin/respaldos/restaurar',
+            method: 'POST',
+            detail: `Fallo parcial WRITE lote ${idx + 1}/${writeChunks.length} para ${backupId}. Resguardo íntegro: ${backupEmergenciaId}.`,
+            timestamp: new Date().toISOString(),
+          });
+          throw new PartialRestoreError({
+            backupId,
+            backupEmergenciaId,
+            tipoServicio,
+            faseFallo: 'WRITE',
+            lotesCompletados: batchesEjecutados,
+            loteFallido: idx + 1,
+            totalLotesFase: writeChunks.length,
+            causeMessage: err?.message || String(err),
+          });
+        }
       }
 
       return {
@@ -800,10 +1106,41 @@ export function createInMemoryServerStore(initial?: {
         cuadrantesRestaurados,
         serviciosRestaurados,
         personasRestauradas,
+        ausenciasIncidenciasRestauradas,
+        patrullasRestauradas,
+        solicitudesCambioRestauradas,
         compensacionesRestauradas,
         batchesEjecutados,
         maxOpsPorBatch,
-        mensaje: `Restauración administrativa completada para ${tipoServicio === 'US' ? 'U.S.' : 'U.G.'} (${cuadrantesRestaurados} cuadrantes, ${serviciosRestaurados} servicios, ${compensacionesRestauradas} compensaciones).`,
+        coleccionesResguardadasEmergencia: coleccionesIncluidas,
+        conteoResguardoEmergencia: conteoPorColeccion,
+        mensaje: `Restauración administrativa completada para ${tipoServicio === 'US' ? 'U.S.' : 'U.G.'} (${cuadrantesRestaurados} cuadrantes, ${serviciosRestaurados} servicios, ${personasRestauradas} personas, ${ausenciasIncidenciasRestauradas} ausencias/incidencias, ${compensacionesRestauradas} compensaciones). Resguardo previo completo: ${backupEmergenciaId}.`,
+      };
+    },
+
+    async consumeDistributedRateLimit(bucket, key, windowMs, maxRequests) {
+      const now = Date.now();
+      const cacheKey = `${bucket}:${hashLockKey(key)}`;
+      const current = rateLimits.get(cacheKey);
+      if (!current || now >= current.resetAtMs) {
+        const next = { count: 1, resetAtMs: now + windowMs };
+        rateLimits.set(cacheKey, next);
+        return {
+          allowed: next.count <= maxRequests,
+          count: next.count,
+          remaining: Math.max(0, maxRequests - next.count),
+          resetAtMs: next.resetAtMs,
+          storeMode: 'memory-local',
+        };
+      }
+      current.count += 1;
+      rateLimits.set(cacheKey, current);
+      return {
+        allowed: current.count <= maxRequests,
+        count: current.count,
+        remaining: Math.max(0, maxRequests - current.count),
+        resetAtMs: current.resetAtMs,
+        storeMode: 'memory-local',
       };
     },
 
@@ -897,8 +1234,12 @@ export function createInMemoryServerStore(initial?: {
         serviciosPorCuadrante,
         compensacionesImaginarias,
         ausenciasUS,
+        incidenciasAusencia,
+        patrullas,
+        solicitudesCambio,
         backups,
         personas,
+        auditLogs,
       };
     },
   };
@@ -953,6 +1294,7 @@ export async function createDefaultServerStore(): Promise<ServerDataStore> {
         : firestoreMod.getFirestore(adminApp);
     const adminAuth = authMod.getAuth(adminApp);
     const adminMessaging = messagingMod.getMessaging(adminApp);
+    const adminLocalRateLimitFallback = new Map<string, { count: number; resetAtMs: number }>();
 
     const normalize = (v?: string) => (v || '').trim().toLowerCase();
 
@@ -1406,9 +1748,10 @@ export async function createDefaultServerStore(): Promise<ServerDataStore> {
         return { cuenta: updatedCuenta, persona: updatedPersona };
       },
 
-      // NC-10 + I-06: Restauración privilegiada por unidad vía Firebase Admin SDK
-      // con lotes seguros <= 400 ops, recuperación de compensaciones de imaginarias y preservación de otros datos
-      async restoreBackupByUnitAdmin(backupId, actor) {
+      // NC-10 + I-06 + 3.E: Restauración privilegiada por unidad vía Firebase Admin SDK
+      // con resguardo previo completo de todas las colecciones modificables, lotes seguros <= 400 ops,
+      // detección/documentación de fallos parciales y recuperación coherente desde backupEmergenciaId
+      async restoreBackupByUnitAdmin(backupId, actor, options) {
         const respaldoSnap = await adminDb.collection('respaldos_sistema').doc(backupId).get();
         if (!respaldoSnap.exists) {
           throw new Error(`Respaldo no encontrado: ${backupId}`);
@@ -1420,54 +1763,47 @@ export async function createDefaultServerStore(): Promise<ServerDataStore> {
         let batchesEjecutados = 0;
         let maxOpsPorBatch = 0;
 
-        const commitDeleteRefs = async (refs: FirebaseFirestore.DocumentReference[]) => {
-          for (const chunk of chunkOperations(refs, FIRESTORE_SAFE_BATCH_LIMIT)) {
-            const batch = adminDb.batch();
-            chunk.forEach((ref) => batch.delete(ref));
-            await batch.commit();
-            batchesEjecutados++;
-            if (chunk.length > maxOpsPorBatch) maxOpsPorBatch = chunk.length;
-          }
-        };
-
-        const commitSetOps = async (
-          ops: Array<{
-            ref: FirebaseFirestore.DocumentReference;
-            data: Record<string, any>;
-            merge?: boolean;
-          }>
-        ) => {
-          for (const chunk of chunkOperations(ops, FIRESTORE_SAFE_BATCH_LIMIT)) {
-            const batch = adminDb.batch();
-            for (const op of chunk) {
-              if (op.merge) {
-                batch.set(op.ref, op.data, { merge: true });
-              } else {
-                batch.set(op.ref, op.data);
-              }
-            }
-            await batch.commit();
-            batchesEjecutados++;
-            if (chunk.length > maxOpsPorBatch) maxOpsPorBatch = chunk.length;
-          }
-        };
-
-        // 1. Crear respaldo previo de emergencia antes de restaurar
+        // 1. Crear respaldo previo de emergencia COMPLETO antes de cualquier borrado o sobrescritura
         const cuadrantesActualesSnap = await adminDb.collection('cuadrantes').get();
         const cuadrantesUnidadActuales = cuadrantesActualesSnap.docs.filter((d) =>
           perteneceCuadranteAUnidadServer({ ...d.data(), id: d.id }, tipoServicio)
         );
         const serviciosPrevios: Record<string, any[]> = {};
+        const serviciosPreviosIds: string[] = [];
+        let totalServiciosPrevios = 0;
+        const deleteRefs: FirebaseFirestore.DocumentReference[] = [];
         for (const cDoc of cuadrantesUnidadActuales) {
           const sSnap = await adminDb
             .collection('cuadrantes')
             .doc(cDoc.id)
             .collection('servicios')
             .get();
-          serviciosPrevios[cDoc.id] = sSnap.docs.map((sd) => ({ id: sd.id, ...sd.data() }));
+          const srvs = sSnap.docs.map((sd) => ({ id: sd.id, ...sd.data() }));
+          serviciosPrevios[cDoc.id] = srvs;
+          totalServiciosPrevios += srvs.length;
+          srvs.forEach((s) => serviciosPreviosIds.push(`${cDoc.id}/${s.id}`));
+          sSnap.docs.forEach((s) => deleteRefs.push(s.ref));
+          deleteRefs.push(cDoc.ref);
         }
+
+        const personasSnap = await adminDb.collection('personas').get();
+        const personasPrevias = personasSnap.docs
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .filter((p) => pertenecePersonaAUnidadServer(p, tipoServicio));
+
+        const solicitudesSnap = await adminDb.collection('solicitudes_cambio').get();
+        const solicitudesPrevias = solicitudesSnap.docs
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .filter((s) => perteneceSolicitudAUnidadServer(s, tipoServicio));
+
+        let ausenciasIncidenciasPrevias: any[] = [];
+        let patrullasPrevias: any[] = [];
         let compensacionesPrevias: any[] = [];
+
         if (tipoServicio === 'US') {
+          const ausSnap = await adminDb.collection('ausencias_us').get();
+          ausenciasIncidenciasPrevias = ausSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
           const compSeen = new Set<string>();
           for (const colName of ['imaginarias_activadas_us', 'compensacion_imaginarias_us']) {
             const compSnap = await adminDb.collection(colName).get();
@@ -1479,41 +1815,158 @@ export async function createDefaultServerStore(): Promise<ServerDataStore> {
               }
             }
           }
+        } else {
+          const incSnap = await adminDb.collection('incidencias_ausencia').get();
+          ausenciasIncidenciasPrevias = incSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+          const patSnap = await adminDb.collection('patrullas').get();
+          patrullasPrevias = patSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
         }
 
-        const backupEmergenciaId = `backup-emerg-${tipoServicio.toLowerCase()}-${Date.now()}`;
+        const coleccionesIncluidas =
+          tipoServicio === 'US'
+            ? [
+                'cuadrantes',
+                'servicios',
+                'personas',
+                'ausencias_us',
+                'imaginarias_activadas_us',
+                'solicitudes_cambio',
+              ]
+            : [
+                'cuadrantes',
+                'servicios',
+                'personas',
+                'incidencias_ausencia',
+                'patrullas',
+                'solicitudes_cambio',
+              ];
+
+        const conteoPorColeccion: Record<string, number> =
+          tipoServicio === 'US'
+            ? {
+                cuadrantes: cuadrantesUnidadActuales.length,
+                servicios: totalServiciosPrevios,
+                personas: personasPrevias.length,
+                ausencias_us: ausenciasIncidenciasPrevias.length,
+                imaginarias_activadas_us: compensacionesPrevias.length,
+                solicitudes_cambio: solicitudesPrevias.length,
+              }
+            : {
+                cuadrantes: cuadrantesUnidadActuales.length,
+                servicios: totalServiciosPrevios,
+                personas: personasPrevias.length,
+                incidencias_ausencia: ausenciasIncidenciasPrevias.length,
+                patrullas: patrullasPrevias.length,
+                solicitudes_cambio: solicitudesPrevias.length,
+              };
+
+        const documentosIdsPorColeccion: Record<string, string[]> =
+          tipoServicio === 'US'
+            ? {
+                cuadrantes: cuadrantesUnidadActuales.map((d) => d.id),
+                servicios: serviciosPreviosIds,
+                personas: personasPrevias.map((p) => String(p.id)),
+                ausencias_us: ausenciasIncidenciasPrevias.map((a) => String(a.id)),
+                imaginarias_activadas_us: compensacionesPrevias.map((c) => String(c.id)),
+                solicitudes_cambio: solicitudesPrevias.map((s) => String(s.id)),
+              }
+            : {
+                cuadrantes: cuadrantesUnidadActuales.map((d) => d.id),
+                servicios: serviciosPreviosIds,
+                personas: personasPrevias.map((p) => String(p.id)),
+                incidencias_ausencia: ausenciasIncidenciasPrevias.map((i) => String(i.id)),
+                patrullas: patrullasPrevias.map((p) => String(p.id)),
+                solicitudes_cambio: solicitudesPrevias.map((s) => String(s.id)),
+              };
+
+        const backupEmergenciaId = `backup-emerg-${tipoServicio.toLowerCase()}-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`;
         await adminDb.collection('respaldos_sistema').doc(backupEmergenciaId).create({
           id: backupEmergenciaId,
           tipoServicio,
           tipo: 'EMERGENCIA_PRE_RESTAURACION',
+          estado: 'COMPLETADO_PRE_RESTAURACION',
+          origenBackupDestino: backupId,
           creadoPorUid: actor.uid,
           creadoPorNombre: actor.nombre,
           fechaCreacion: new Date().toISOString(),
-          motivo: `Resguardo automático previo a restauración administrativa de "${backupId}" (${tipoServicio === 'US' ? 'U.S.' : 'U.G.'}).`,
+          motivo: `Resguardo automático previo completo antes de restauración administrativa de "${backupId}" (${tipoServicio === 'US' ? 'U.S.' : 'U.G.'}).`,
+          coleccionesIncluidas,
+          conteoPorColeccion,
+          documentosIdsPorColeccion,
           datos: {
+            tipoServicio,
             cuadrantes: cuadrantesUnidadActuales.map((d) => ({ id: d.id, ...d.data() })),
             serviciosPorCuadrante: serviciosPrevios,
-            ...(tipoServicio === 'US' ? { compensacionesImaginarias: compensacionesPrevias } : {}),
+            personas: personasPrevias,
+            ausenciasIncidencias: ausenciasIncidenciasPrevias,
+            solicitudesCambio: solicitudesPrevias,
+            ...(tipoServicio === 'US'
+              ? { compensacionesImaginarias: compensacionesPrevias }
+              : { patrullas: patrullasPrevias }),
           },
         });
 
-        // 2. Limpiar únicamente cuadrantes/servicios de la unidad destino en lotes seguros <= 400
-        const deleteRefs: FirebaseFirestore.DocumentReference[] = [];
-        for (const cDoc of cuadrantesUnidadActuales) {
-          const sSnap = await adminDb
-            .collection('cuadrantes')
-            .doc(cDoc.id)
-            .collection('servicios')
-            .get();
-          sSnap.docs.forEach((s) => deleteRefs.push(s.ref));
-          deleteRefs.push(cDoc.ref);
-        }
-        await commitDeleteRefs(deleteRefs);
+        const recordPartialFailureAudit = async (
+          fase: 'DELETE' | 'WRITE',
+          loteFallido: number,
+          totalLotes: number
+        ) => {
+          try {
+            await adminDb.collection('auditLogs').add({
+              adminUid: actor.uid,
+              adminNombre: actor.nombre,
+              accion: 'RESTAURACION_FALLO_PARCIAL',
+              detalles: `Fallo parcial durante restauración de "${backupId}" en fase ${fase} (lote ${loteFallido}/${totalLotes}). Resguardo de emergencia intacto: ${backupEmergenciaId}.`,
+              timestamp: new Date().toISOString(),
+              serverTimestamp: firestoreMod.FieldValue.serverTimestamp(),
+            });
+          } catch {
+            // No ocultar el error original si falla la auditoría
+          }
+        };
 
-        // 3. Restaurar cuadrantes, servicios, personas, compensaciones y registros en lotes seguros <= 400
+        // 2. Limpiar únicamente cuadrantes/servicios de la unidad destino en lotes seguros <= 400
+        const deleteChunks = chunkOperations(deleteRefs, FIRESTORE_SAFE_BATCH_LIMIT);
+        for (let idx = 0; idx < deleteChunks.length; idx++) {
+          const chunk = deleteChunks[idx];
+          try {
+            if (options?.onBeforeBatchCommit) {
+              await options.onBeforeBatchCommit({
+                phase: 'DELETE',
+                batchIndex: idx + 1,
+                totalBatches: deleteChunks.length,
+                opsCount: chunk.length,
+                backupEmergenciaId,
+              });
+            }
+            const batch = adminDb.batch();
+            chunk.forEach((ref) => batch.delete(ref));
+            await batch.commit();
+            batchesEjecutados++;
+            if (chunk.length > maxOpsPorBatch) maxOpsPorBatch = chunk.length;
+          } catch (err: any) {
+            await recordPartialFailureAudit('DELETE', idx + 1, deleteChunks.length);
+            throw new PartialRestoreError({
+              backupId,
+              backupEmergenciaId,
+              tipoServicio,
+              faseFallo: 'DELETE',
+              lotesCompletados: batchesEjecutados,
+              loteFallido: idx + 1,
+              totalLotesFase: deleteChunks.length,
+              causeMessage: err?.message || String(err),
+            });
+          }
+        }
+
+        // 3. Restaurar cuadrantes, servicios, personas, ausencias/incidencias, patrullas, solicitudes y compensaciones <= 400
         let cuadrantesRestaurados = 0;
         let serviciosRestaurados = 0;
         let personasRestauradas = 0;
+        let ausenciasIncidenciasRestauradas = 0;
+        let patrullasRestauradas = 0;
+        let solicitudesCambioRestauradas = 0;
         let compensacionesRestauradas = 0;
 
         const writeOps: Array<{
@@ -1562,6 +2015,7 @@ export async function createDefaultServerStore(): Promise<ServerDataStore> {
               data: pat,
               merge: true,
             });
+            patrullasRestauradas++;
           }
         }
 
@@ -1580,6 +2034,7 @@ export async function createDefaultServerStore(): Promise<ServerDataStore> {
                 data: aus,
                 merge: true,
               });
+              ausenciasIncidenciasRestauradas++;
             }
           }
           for (const [compId, comp] of compMap.entries()) {
@@ -1598,6 +2053,7 @@ export async function createDefaultServerStore(): Promise<ServerDataStore> {
               data: inc,
               merge: true,
             });
+            ausenciasIncidenciasRestauradas++;
           }
         }
 
@@ -1608,9 +2064,47 @@ export async function createDefaultServerStore(): Promise<ServerDataStore> {
             data: sol,
             merge: true,
           });
+          solicitudesCambioRestauradas++;
         }
 
-        await commitSetOps(writeOps);
+        const writeChunks = chunkOperations(writeOps, FIRESTORE_SAFE_BATCH_LIMIT);
+        for (let idx = 0; idx < writeChunks.length; idx++) {
+          const chunk = writeChunks[idx];
+          try {
+            if (options?.onBeforeBatchCommit) {
+              await options.onBeforeBatchCommit({
+                phase: 'WRITE',
+                batchIndex: idx + 1,
+                totalBatches: writeChunks.length,
+                opsCount: chunk.length,
+                backupEmergenciaId,
+              });
+            }
+            const batch = adminDb.batch();
+            for (const op of chunk) {
+              if (op.merge) {
+                batch.set(op.ref, op.data, { merge: true });
+              } else {
+                batch.set(op.ref, op.data);
+              }
+            }
+            await batch.commit();
+            batchesEjecutados++;
+            if (chunk.length > maxOpsPorBatch) maxOpsPorBatch = chunk.length;
+          } catch (err: any) {
+            await recordPartialFailureAudit('WRITE', idx + 1, writeChunks.length);
+            throw new PartialRestoreError({
+              backupId,
+              backupEmergenciaId,
+              tipoServicio,
+              faseFallo: 'WRITE',
+              lotesCompletados: batchesEjecutados,
+              loteFallido: idx + 1,
+              totalLotesFase: writeChunks.length,
+              causeMessage: err?.message || String(err),
+            });
+          }
+        }
 
         return {
           success: true,
@@ -1620,11 +2114,91 @@ export async function createDefaultServerStore(): Promise<ServerDataStore> {
           cuadrantesRestaurados,
           serviciosRestaurados,
           personasRestauradas,
+          ausenciasIncidenciasRestauradas,
+          patrullasRestauradas,
+          solicitudesCambioRestauradas,
           compensacionesRestauradas,
           batchesEjecutados,
           maxOpsPorBatch,
-          mensaje: `Restauración administrativa completada para ${tipoServicio === 'US' ? 'U.S.' : 'U.G.'} (${cuadrantesRestaurados} cuadrantes, ${serviciosRestaurados} servicios, ${compensacionesRestauradas} compensaciones). Resguardo previo: ${backupEmergenciaId}.`,
+          coleccionesResguardadasEmergencia: coleccionesIncluidas,
+          conteoResguardoEmergencia: conteoPorColeccion,
+          mensaje: `Restauración administrativa completada para ${tipoServicio === 'US' ? 'U.S.' : 'U.G.'} (${cuadrantesRestaurados} cuadrantes, ${serviciosRestaurados} servicios, ${personasRestauradas} personas, ${ausenciasIncidenciasRestauradas} ausencias/incidencias, ${compensacionesRestauradas} compensaciones). Resguardo previo completo: ${backupEmergenciaId}.`,
         };
+      },
+
+      // 3.G: Limitador de tasa distribuido respaldado por transacción atómica en Firestore
+      //      (colección interna /rate_limits_servidor bloqueada desde cliente en firestore.rules)
+      async consumeDistributedRateLimit(bucket, key, windowMs, maxRequests) {
+        const docId = `${bucket.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 32)}_${hashLockKey(key)}`;
+        const ref = adminDb.collection('rate_limits_servidor').doc(docId);
+        const now = Date.now();
+        try {
+          const result = await adminDb.runTransaction(async (tx) => {
+            const snap = await tx.get(ref);
+            const data = snap.exists ? (snap.data() as any) : null;
+            const existingReset = Number(data?.resetAtMs || 0);
+            const existingCount = Number(data?.count || 0);
+
+            if (!data || now >= existingReset) {
+              const resetAtMs = now + windowMs;
+              tx.set(ref, {
+                bucket,
+                count: 1,
+                resetAtMs,
+                updatedAt: new Date(now).toISOString(),
+              });
+              return { count: 1, resetAtMs };
+            }
+
+            const nextCount = existingCount + 1;
+            tx.set(
+              ref,
+              {
+                bucket,
+                count: nextCount,
+                resetAtMs: existingReset,
+                updatedAt: new Date(now).toISOString(),
+              },
+              { merge: true }
+            );
+            return { count: nextCount, resetAtMs: existingReset };
+          });
+
+          return {
+            allowed: result.count <= maxRequests,
+            count: result.count,
+            remaining: Math.max(0, maxRequests - result.count),
+            resetAtMs: result.resetAtMs,
+            storeMode: 'firestore-distributed',
+          };
+        } catch (err: any) {
+          console.warn(
+            '[RateLimit] Error transitorio en almacén distribuido Firestore; aplicando respaldo local defensivo:',
+            err?.message || err
+          );
+          const fallbackKey = `${bucket}:${hashLockKey(key)}`;
+          const prev = adminLocalRateLimitFallback.get(fallbackKey);
+          if (!prev || now >= prev.resetAtMs) {
+            const next = { count: 1, resetAtMs: now + windowMs };
+            adminLocalRateLimitFallback.set(fallbackKey, next);
+            return {
+              allowed: next.count <= maxRequests,
+              count: next.count,
+              remaining: Math.max(0, maxRequests - next.count),
+              resetAtMs: next.resetAtMs,
+              storeMode: 'memory-local',
+            };
+          }
+          prev.count += 1;
+          adminLocalRateLimitFallback.set(fallbackKey, prev);
+          return {
+            allowed: prev.count <= maxRequests,
+            count: prev.count,
+            remaining: Math.max(0, maxRequests - prev.count),
+            resetAtMs: prev.resetAtMs,
+            storeMode: 'memory-local',
+          };
+        }
       },
 
       async listAusenciasUSOperativas() {

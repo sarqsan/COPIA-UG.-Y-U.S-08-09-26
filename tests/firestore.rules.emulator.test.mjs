@@ -40,7 +40,7 @@ async function main() {
   const { initializeTestEnvironment, assertFails, assertSucceeds } = testing;
 
   const testEnv = await initializeTestEnvironment({
-    projectId: 'startup-sanctuary-sln7n',
+    projectId: process.env.GCLOUD_PROJECT || 'demo-ug-us-rules-test',
     firestore: {
       rules: fs.readFileSync(RULES_PATH, 'utf8'),
       host: process.env.FIRESTORE_EMULATOR_HOST?.split(':')[0] || '127.0.0.1',
@@ -89,15 +89,36 @@ async function main() {
         });
       }
 
+      await db.doc('personas/pers-ug-1').set({
+        id: 'pers-ug-1',
+        alias: 'AlfaUG',
+        grupo: 'U.G.',
+        tipoServicio: 'GUARDIA',
+        activo: true,
+      });
+      await db.doc('personas/pers-us-1').set({
+        id: 'pers-us-1',
+        alias: 'AlfaUS',
+        grupo: 'US_SEGURIDAD',
+        tipoServicio: 'US',
+        activo: true,
+      });
+
       await db.doc('cuadrantes/cuad-ug').set({ id: 'cuad-ug', tipoServicio: 'GUARDIA', grupo: 'U.G.' });
       await db.doc('cuadrantes/cuad-us').set({ id: 'cuad-us', tipoServicio: 'US', grupo: 'US_SEGURIDAD' });
+      // 3.A.1 & 3.A.2: Documentos históricos sin tipoServicio / solo con grupo
+      await db.doc('cuadrantes/cuad-legacy-ug-bare').set({ id: 'cuad-legacy-ug-bare', nombre: 'Histórico UG sin tipoServicio' });
+      await db.doc('cuadrantes/cuad-legacy-ug-grupo').set({ id: 'cuad-legacy-ug-grupo', grupo: 'U.G.' });
+      await db.doc('cuadrantes/cuad-legacy-us-grupo').set({ id: 'cuad-legacy-us-grupo', grupo: 'US_SEGURIDAD' });
       await db.doc('matriculas_autorizadas/mat-1').set({ id: 'mat-1', matricula: '1234BBB' });
       await db.doc('patrullas/pat-1').set({ id: 'pat-1', personaId: 'pers-ug-1' });
-      await db.doc('respaldos_sistema/bkp-1').set({ id: 'bkp-1', tipoServicio: 'GUARDIA' });
+      await db.doc('respaldos_sistema/bkp-1').set({ id: 'bkp-1', tipoServicio: 'GUARDIA', tipo: 'MANUAL' });
       await db.doc('notificaciones/notif-us-all').set({
         id: 'notif-us-all',
         esParaTodos: true,
         tipoServicio: 'US',
+        titulo: 'Aviso Global US',
+        mensaje: 'Contenido original US',
       });
       await db.doc('notificaciones/notif-ug-direct').set({
         id: 'notif-ug-direct',
@@ -105,11 +126,33 @@ async function main() {
         tipoServicio: 'GUARDIA',
         destinatarioPersonaId: 'pers-ug-1',
         destinatarioUid: 'ug-1',
+        titulo: 'Aviso Directo UG',
+        mensaje: 'Contenido original directo',
+        leida: false,
       });
+      // 3.A.4 & 3.A.5: Notificaciones globales sin destinatarios e individuales con solo UID o solo personaId
       await db.doc('notificaciones/notif-ug-all').set({
         id: 'notif-ug-all',
         esParaTodos: true,
         tipoServicio: 'GUARDIA',
+        titulo: 'Aviso Global UG',
+        mensaje: 'Contenido original UG',
+      });
+      await db.doc('notificaciones/notif-ug-uid-only').set({
+        id: 'notif-ug-uid-only',
+        destinatarioUid: 'ug-1',
+        tipoServicio: 'GUARDIA',
+        titulo: 'Aviso Solo UID',
+        mensaje: 'Contenido original UID',
+        leida: false,
+      });
+      await db.doc('notificaciones/notif-ug-persona-only').set({
+        id: 'notif-ug-persona-only',
+        destinatarioPersonaId: 'pers-ug-1',
+        tipoServicio: 'GUARDIA',
+        titulo: 'Aviso Solo Persona',
+        mensaje: 'Contenido original Persona',
+        leida: false,
       });
       await db.doc('solicitudes_cambio/sol-ug-1').set({
         id: 'sol-ug-1',
@@ -127,6 +170,17 @@ async function main() {
         destinatarioPersonaId: 'pers-us-2',
         estado: 'PENDIENTE_COMPAÑERO',
       });
+      // 3.A.3: Solicitudes históricas con solicitanteGrupo y sin tipoServicio ni otros campos opcionales
+      await db.doc('solicitudes_cambio/sol-legacy-ug-grupo').set({
+        id: 'sol-legacy-ug-grupo',
+        solicitanteGrupo: 'U.G.',
+        estado: 'PENDIENTE_COMPAÑERO',
+      });
+      await db.doc('solicitudes_cambio/sol-legacy-us-grupo').set({
+        id: 'sol-legacy-us-grupo',
+        solicitanteGrupo: 'US_SEGURIDAD',
+        estado: 'PENDIENTE_COMPAÑERO',
+      });
       await db.doc('documentos_cambios_firmados/doc-ug-1').set({
         id: 'doc-ug-1',
         personaA: { id: 'pers-ug-1' },
@@ -135,6 +189,15 @@ async function main() {
       await db.doc('documentos_cambio_firmados/doc-ug-legacy-1').set({
         id: 'doc-ug-legacy-1',
         personaA: { id: 'pers-ug-2' },
+        personaB: { id: 'pers-ug-1' },
+      });
+      // 3.A.7: Documentos firmados con solo personaA o solo personaB
+      await db.doc('documentos_cambios_firmados/doc-only-a').set({
+        id: 'doc-only-a',
+        personaA: { id: 'pers-ug-1' },
+      });
+      await db.doc('documentos_cambio_firmados/doc-only-b').set({
+        id: 'doc-only-b',
         personaB: { id: 'pers-ug-1' },
       });
       await db.doc('ausencias_us/aus-us-own').set({
@@ -192,6 +255,20 @@ async function main() {
         imaginariaNotificadaPersonaId: 'pers-ug-1',
         tipoServicio: 'GUARDIA',
       });
+      // 3.A.6: Incidencia con solo imaginariaRol2PersonaId (sin imaginariaRol1PersonaId ni imaginariaNotificadaPersonaId)
+      await db.doc('incidencias_ausencia/inc-rol2-only').set({
+        id: 'inc-rol2-only',
+        titularPersonaId: 'pers-ug-2',
+        tipoAusencia: 'AUSENCIA_SOBREVENIDA',
+        estado: 'COMUNICADA_PENDIENTE_COBERTURA',
+        imaginariaRol2PersonaId: 'pers-ug-1',
+        tipoServicio: 'GUARDIA',
+      });
+      await db.doc('rate_limits_servidor/rl-test-1').set({
+        bucket: 'documentos_verificar',
+        count: 1,
+        resetAtMs: Date.now() + 60000,
+      });
     });
 
     const anonDb = testEnv.unauthenticatedContext().firestore();
@@ -232,9 +309,28 @@ async function main() {
     await assertFails(usDb.doc('patrullas/pat-1').get());
     await assertSucceeds(ugDb.doc('patrullas/pat-1').get());
 
-    // 5. NC-02 respaldos_sistema (admin read/create, no delete/update; usuario denegado)
+    // 5. NC-02 + 3.C: respaldos_sistema (admin read/create con tipo válido, bloqueo si falta tipo o delete; usuario denegado)
     await assertSucceeds(adminDb.doc('respaldos_sistema/bkp-1').get());
-    await assertSucceeds(adminDb.doc('respaldos_sistema/bkp-2').set({ id: 'bkp-2', tipoServicio: 'GUARDIA' }));
+    await assertSucceeds(
+      adminDb.doc('respaldos_sistema/bkp-2').set({
+        id: 'bkp-2',
+        tipoServicio: 'GUARDIA',
+        tipo: 'MANUAL',
+      })
+    );
+    await assertFails(
+      adminDb.doc('respaldos_sistema/bkp-missing-tipo').set({
+        id: 'bkp-missing-tipo',
+        tipoServicio: 'GUARDIA',
+      })
+    );
+    await assertFails(
+      adminDb.doc('respaldos_sistema/bkp-invalid-tipo').set({
+        id: 'bkp-invalid-tipo',
+        tipoServicio: 'GUARDIA',
+        tipo: 'TIPO_NO_AUTORIZADO',
+      })
+    );
     await assertFails(adminDb.doc('respaldos_sistema/bkp-1').delete());
     await assertFails(ugDb.doc('respaldos_sistema/bkp-1').get());
 
@@ -332,8 +428,15 @@ async function main() {
     }
 
     await assertSucceeds(ugDb.doc('incidencias_ausencia/inc-1').get());
+    // 3.C: cuentas/{uid}/fcmTokens/{tokenId} exige uid == request.auth.uid
     await assertSucceeds(
-      ugDb.doc('cuentas/ug-1/fcmTokens/tok-1').set({ token: 'abc', activo: true })
+      ugDb.doc('cuentas/ug-1/fcmTokens/tok-1').set({ uid: 'ug-1', token: 'abc', activo: true })
+    );
+    await assertFails(
+      ugDb.doc('cuentas/ug-1/fcmTokens/tok-sin-uid').set({ token: 'abc', activo: true })
+    );
+    await assertFails(
+      ugDb.doc('cuentas/ug-1/fcmTokens/tok-otro-uid').set({ uid: 'us-1', token: 'abc', activo: true })
     );
     await assertFails(
       usDb.doc('cuentas/ug-1/fcmTokens/tok-1').get()
@@ -529,6 +632,103 @@ async function main() {
         autorizacionAdmin: { aprobada: true },
       })
     );
+
+    // 12. 3.A: Propiedades inexistentes / documentos históricos sin campos opcionales
+    // 12.1 Documentos antiguos sin tipoServicio y con solo grupo
+    await assertSucceeds(ugDb.doc('cuadrantes/cuad-legacy-ug-bare').get());
+    await assertFails(usDb.doc('cuadrantes/cuad-legacy-ug-bare').get());
+    await assertSucceeds(ugDb.doc('cuadrantes/cuad-legacy-ug-grupo').get());
+    await assertFails(usDb.doc('cuadrantes/cuad-legacy-ug-grupo').get());
+    await assertSucceeds(usDb.doc('cuadrantes/cuad-legacy-us-grupo').get());
+    await assertFails(ugDb.doc('cuadrantes/cuad-legacy-us-grupo').get());
+
+    // 12.2 Solicitudes con solicitanteGrupo y sin tipoServicio
+    await assertSucceeds(ugDb.doc('solicitudes_cambio/sol-legacy-ug-grupo').get());
+    await assertSucceeds(
+      ugDb.collection('solicitudes_cambio').where('solicitanteGrupo', '==', 'U.G.').get()
+    );
+    await assertFails(usDb.doc('solicitudes_cambio/sol-legacy-ug-grupo').get());
+    await assertFails(
+      usDb.collection('solicitudes_cambio').where('solicitanteGrupo', '==', 'U.G.').get()
+    );
+    await assertSucceeds(usDb.doc('solicitudes_cambio/sol-legacy-us-grupo').get());
+    await assertSucceeds(
+      usDb.collection('solicitudes_cambio').where('solicitanteGrupo', '==', 'US_SEGURIDAD').get()
+    );
+    await assertFails(ugDb.doc('solicitudes_cambio/sol-legacy-us-grupo').get());
+
+    // 12.3 Notificaciones globales sin destinatarios e individuales con solo UID o solo personaId + 3.B marcado leídas
+    await assertSucceeds(ugDb.doc('notificaciones/notif-ug-all').get());
+    await assertSucceeds(ugDb.doc('notificaciones/notif-ug-all').update({ leidoPor: ['ug-1'] }));
+    await assertFails(
+      ugDb.doc('notificaciones/notif-ug-all').update({ leidoPor: ['ug-1'], titulo: 'Alterado' })
+    );
+    await assertFails(
+      ugDb.doc('notificaciones/notif-ug-all').update({ leidoPor: ['ug-1'], mensaje: 'Alterado' })
+    );
+    await assertFails(
+      ugDb.doc('notificaciones/notif-ug-all').update({ leidoPor: ['ug-1'], leida: true })
+    );
+    await assertFails(usDb.doc('notificaciones/notif-ug-all').update({ leidoPor: ['us-1'] }));
+
+    await assertSucceeds(ugDb.doc('notificaciones/notif-ug-uid-only').get());
+    await assertSucceeds(
+      ugDb.doc('notificaciones/notif-ug-uid-only').update({
+        leida: true,
+        leidoPor: ['ug-1'],
+        fechaLeida: '2026-11-28T12:00:00.000Z',
+      })
+    );
+    await assertFails(
+      ugDb.doc('notificaciones/notif-ug-uid-only').update({
+        leida: true,
+        fechaLectura: '2026-11-28T12:00:00.000Z',
+      })
+    );
+    await assertFails(
+      ugDb.doc('notificaciones/notif-ug-uid-only').update({
+        leida: true,
+        titulo: 'Contenido alterado por usuario',
+      })
+    );
+    await assertFails(usDb.doc('notificaciones/notif-ug-uid-only').get());
+
+    await assertSucceeds(ugDb.doc('notificaciones/notif-ug-persona-only').get());
+    await assertSucceeds(
+      ugDb.doc('notificaciones/notif-ug-persona-only').update({
+        leida: true,
+        leidoPor: ['pers-ug-1'],
+        fechaLeida: '2026-11-28T12:00:00.000Z',
+      })
+    );
+    await assertFails(usDb.doc('notificaciones/notif-ug-persona-only').get());
+
+    // 12.4 Incidencia con solo imaginariaRol2PersonaId (sin otros campos de imaginaria) + bloqueo médico en update
+    await assertSucceeds(
+      ugDb.doc('incidencias_ausencia/inc-rol2-only').update({
+        estado: 'IMAGINARIA_ACTIVADA_COBERTURA',
+        imaginariaAceptantePersonaId: 'pers-ug-1',
+      })
+    );
+    await assertFails(
+      ugDb.doc('incidencias_ausencia/inc-rol2-only').update({
+        estado: 'IMAGINARIA_ACTIVADA_COBERTURA',
+        diagnostico: 'Fiebre',
+      })
+    );
+    await assertFails(usDb.doc('incidencias_ausencia/inc-rol2-only').get());
+
+    // 12.5 Documentos firmados que carecen de personaB o de personaA
+    await assertSucceeds(ugDb.doc('documentos_cambios_firmados/doc-only-a').get());
+    await assertFails(usDb.doc('documentos_cambios_firmados/doc-only-a').get());
+    await assertSucceeds(ugDb.doc('documentos_cambio_firmados/doc-only-b').get());
+    await assertFails(usDb.doc('documentos_cambio_firmados/doc-only-b').get());
+
+    // 12.6 Colección interna rate_limits_servidor bloqueada desde cliente para todos los perfiles (3.G)
+    await assertFails(anonDb.doc('rate_limits_servidor/rl-test-1').get());
+    await assertFails(ugDb.doc('rate_limits_servidor/rl-test-1').get());
+    await assertFails(adminDb.doc('rate_limits_servidor/rl-test-1').get());
+    await assertFails(adminDb.doc('rate_limits_servidor/rl-new').set({ count: 0 }));
 
     console.log('[PASS] Suite oficial Firebase Firestore Rules Emulator completada sin errores.');
   } finally {

@@ -28,17 +28,16 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const app = await getApp();
     return app(req as any, res as any);
   } catch (err: any) {
+    // El diagnóstico técnico (nombres de variables faltantes, nunca valores) se registra solo en el log del servidor
     console.error('[Vercel API Bootstrap Error]', err?.message || 'Error de inicialización del servidor.');
     res.statusCode = 503;
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    // 3.H: Nunca exponer al cliente nombres de variables de entorno ni detalles internos de configuración
     res.end(
       JSON.stringify({
         success: false,
         code: 'SERVER_CONFIG_INCOMPLETE',
-        error:
-          err?.code === 'PRODUCTION_CONFIG_ERROR'
-            ? err.message
-            : 'Servicio temporalmente no disponible por configuración incompleta del servidor.',
+        error: 'Servicio temporalmente no disponible por configuración incompleta del servidor.',
       })
     );
   }

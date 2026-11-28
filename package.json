@@ -30,7 +30,7 @@
     "test:lector-matriculas": "tsx tests/lectorMatriculasYAvisoV4.test.ts",
     "test:correcciones-us": "tsx tests/correccionesFinalesUS.test.ts",
     "test:pr1-remediacion": "tsx tests/pr1AuditRemediation.test.ts",
-    "test:rules:emulator": "firebase emulators:exec --only firestore \"node tests/firestore.rules.emulator.test.mjs\"",
+    "test:rules:emulator": "firebase emulators:exec --config firebase.emulator.json --project demo-ug-us-rules-test --only firestore \"node tests/firestore.rules.emulator.test.mjs\"",
     "test": "tsx tests/backupRestoreModule.test.ts && tsx tests/matriculasModule.test.ts && tsx tests/imaginariasYRobustezOcr.test.ts && tsx tests/patrullasExcepcionImaginarias.test.ts && tsx tests/permutasUSAdmin.test.ts && tsx tests/permutasRol1UG.test.ts && tsx tests/permutasUSMismoDia.test.ts && tsx tests/festivosAlicanteYRestriccionNavidad.test.ts && tsx tests/reglaUS09DescansoNocturno.test.ts && tsx tests/transparenciaCandidatosUS.test.ts && tsx tests/recuperacionAusenciasUS.test.ts && tsx tests/securityRemediationSuite.test.ts && tsx tests/dataPreservationAndContinuity.test.ts && tsx tests/proteccionDatosYRemediacionIntegral.test.ts && tsx tests/terminologiaYPrivacidadRegresion.test.ts && tsx tests/firestoreRulesVerification.test.ts && tsx tests/aliasLibreYPerfilProtegido.test.ts && tsx tests/matriculasVisibilidadUI.test.ts && tsx tests/avisoPrivacidadV4YAliasVoluntario.test.ts && tsx tests/retiradaChatInterno.test.ts && tsx tests/correccionesFinalesUS.test.ts && tsx tests/lectorMatriculasYAvisoV4.test.ts && tsx tests/pr1AuditRemediation.test.ts"
   },
   "overrides": {
@@ -55,10 +55,10 @@
     "pdfkit": "^0.21.0",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
-    "tesseract.js": "^7.0.0",
-    "vite": "^6.2.3"
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
     "@types/cors": "^2.8.19",
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",

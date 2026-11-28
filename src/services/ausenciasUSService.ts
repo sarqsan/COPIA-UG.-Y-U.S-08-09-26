@@ -299,9 +299,9 @@ export const reconstruirAusenciasUSDesdeCuadrantes = async (options?: {
     console.warn('Aviso recuperando ausencias desde cuadrantes:', errCuadrantes);
   }
 
-  // 3. M-05: Escanear registros de auditoría inmutables (auditLogs) solo en sesiones ADMIN
+  // 3. M-05 / 3.F: Escanear registros de auditoría inmutables (auditLogs) solo en sesiones ADMIN explícitas
   //    (auditLogs es estrictamente solo-ADMIN en firestore.rules; evita lecturas denegadas a usuarios ordinarios).
-  if (options?.isAdmin !== false) {
+  if (options?.isAdmin === true) {
     try {
       const auditSnap = await getDocs(collection(db, 'auditLogs'));
       const logs = auditSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
@@ -427,8 +427,9 @@ export const reconstruirAusenciasUSDesdeCuadrantes = async (options?: {
     saveAusenciasCache();
     notifyAusenciasUSListeners();
 
-    // Intentar persistir cada documento en Firestore (nunca durante simulación de solo lectura)
-    if (!isImpersonating()) {
+    // 3.F: Solo las sesiones ADMIN autorizadas (nunca usuarios ordinarios ni simulación de solo lectura)
+    // pueden persistir reconstrucciones masivas directamente en /ausencias_us.
+    if (options?.isAdmin === true && !isImpersonating()) {
       for (const sol of resultadoFinal) {
         try {
           const docRef = doc(db, AUSENCIAS_US_COLLECTION, sol.id);

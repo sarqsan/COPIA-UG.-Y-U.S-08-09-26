@@ -72,7 +72,7 @@ export const NotificacionesModal: React.FC<NotificacionesModalProps> = ({
         window.removeEventListener('notificaciones_updated', handleUpdate);
       };
     }
-  }, [isOpen, personaId, uid, isAdmin]);
+  }, [isOpen, personaId, uid, isAdmin, tipoServicio]);
 
   if (!isOpen) return null;
 
@@ -91,7 +91,7 @@ export const NotificacionesModal: React.FC<NotificacionesModalProps> = ({
   };
 
   const handleMarcarTodas = async () => {
-    await marcarTodasNotificacionesLeidas(personaId, uid, isAdmin);
+    await marcarTodasNotificacionesLeidas(personaId, uid, isAdmin, tipoServicio);
     setNotificaciones((prev) =>
       prev.map((n) => ({ ...n, leida: true, fechaLeida: new Date().toISOString() }))
     );

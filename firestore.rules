@@ -37,16 +37,16 @@ service cloud.firestore {
     }
 
     function tieneCuentaActivaEnDb() {
-      return exists(cuentaActualPath()) && get(cuentaActualPath()).data.activo == true;
+      return exists(cuentaActualPath()) && get(cuentaActualPath()).data.get('activo', false) == true;
     }
 
     function hasAcceptedCurrentDataProtection() {
       return isSignedIn() && (
-        request.auth.token.pdVersion == currentDataProtectionVersion() ||
+        request.auth.token.get('pdVersion', null) == currentDataProtectionVersion() ||
         (
           exists(aceptacionPdPath()) &&
-          get(aceptacionPdPath()).data.version == currentDataProtectionVersion() &&
-          get(aceptacionPdPath()).data.estado == 'ACEPTADO'
+          get(aceptacionPdPath()).data.get('version', null) == currentDataProtectionVersion() &&
+          get(aceptacionPdPath()).data.get('estado', null) == 'ACEPTADO'
         )
       );
     }
@@ -55,47 +55,42 @@ service cloud.firestore {
     function isActiveUser() {
       return isSignedIn() &&
         hasAcceptedCurrentDataProtection() &&
-        (request.auth.token.activo == true || tieneCuentaActivaEnDb());
+        (request.auth.token.get('activo', false) == true || tieneCuentaActivaEnDb());
     }
 
     function isAdmin() {
       return isActiveUser() && (
-        request.auth.token.rol == 'ADMIN' ||
-        (exists(cuentaActualPath()) && get(cuentaActualPath()).data.rol == 'ADMIN')
+        request.auth.token.get('rol', '') == 'ADMIN' ||
+        (exists(cuentaActualPath()) && get(cuentaActualPath()).data.get('rol', '') == 'ADMIN')
       );
     }
 
     function currentPersonaId() {
-      return request.auth.token.personaId != null
-        ? request.auth.token.personaId
-        : (exists(cuentaActualPath()) ? get(cuentaActualPath()).data.personaId : null);
+      return request.auth.token.get('personaId', null) != null
+        ? request.auth.token.get('personaId', null)
+        : (exists(cuentaActualPath()) ? get(cuentaActualPath()).data.get('personaId', null) : null);
     }
 
     function currentUnit() {
-      return request.auth.token.tipoServicio != null
-        ? request.auth.token.tipoServicio
-        : (exists(cuentaActualPath()) ? get(cuentaActualPath()).data.tipoServicio : 'GUARDIA');
+      return request.auth.token.get('tipoServicio', null) != null
+        ? request.auth.token.get('tipoServicio', null)
+        : (exists(cuentaActualPath()) ? get(cuentaActualPath()).data.get('tipoServicio', 'GUARDIA') : 'GUARDIA');
     }
 
     // Compatibilidad histórica con valor persistido 'US_SEGURIDAD' hasta migración controlada
-    // + predicado positivo isDataUG para compatibilidad con consultas list() filtradas (C-02)
+    // + predicado positivo isDataUG con guardas de existencia para evitar errores CEL por propiedades ausentes
     function isDataUS(data) {
-      return (data.tipoServicio == 'US') ||
-             (data.grupo == 'US_SEGURIDAD') ||
-             (data.grupo == 'U.S.') ||
-             (data.grupoId == 'US') ||
-             (data.grupoId == 'US_SEGURIDAD') ||
-             (data.grupoId == 'U.S.') ||
-             (data.solicitanteGrupo == 'US_SEGURIDAD') ||
-             (data.solicitanteGrupo == 'U.S.');
+      return ('tipoServicio' in data && data.tipoServicio == 'US') ||
+             ('grupo' in data && (data.grupo == 'US_SEGURIDAD' || data.grupo == 'U.S.')) ||
+             ('grupoId' in data && (data.grupoId == 'US' || data.grupoId == 'US_SEGURIDAD' || data.grupoId == 'U.S.')) ||
+             ('solicitanteGrupo' in data && (data.solicitanteGrupo == 'US_SEGURIDAD' || data.solicitanteGrupo == 'U.S.'));
     }
 
     function isDataUG(data) {
-      return (data.tipoServicio == 'GUARDIA') ||
-             (data.grupo == 'U.G.') ||
-             (data.grupoId == 'GUARDIA') ||
-             (data.grupoId == 'U.G.') ||
-             (data.solicitanteGrupo == 'U.G.');
+      return ('tipoServicio' in data && data.tipoServicio == 'GUARDIA') ||
+             ('grupo' in data && data.grupo == 'U.G.') ||
+             ('grupoId' in data && (data.grupoId == 'GUARDIA' || data.grupoId == 'U.G.')) ||
+             ('solicitanteGrupo' in data && data.solicitanteGrupo == 'U.G.');
     }
 
     function docMatchesUserUnit(data) {
@@ -124,8 +119,8 @@ service cloud.firestore {
     function isInvolvedInSignedDoc(data) {
       let pid = currentPersonaId();
       return pid != null && (
-        (data.personaA != null && data.personaA.id == pid) ||
-        (data.personaB != null && data.personaB.id == pid)
+        ('personaA' in data && data.personaA != null && 'id' in data.personaA && data.personaA.id == pid) ||
+        ('personaB' in data && data.personaB != null && 'id' in data.personaB && data.personaB.id == pid)
       );
     }
 
@@ -174,7 +169,7 @@ service cloud.firestore {
     //       impidiendo auto-aprobación, manipulación del estado o falsificación del revisor.
     // ------------------------------------------------------------------------
     match /propuestas_alias/{propuestaId} {
-      allow read: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow read: if isAdmin() || (isSignedIn() && 'uid' in resource.data && resource.data.uid == request.auth.uid);
       allow write: if false;
     }
 
@@ -183,12 +178,16 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // Colecciones internas de estado de servidor (revocación y bloqueo de intentos)
+    // Colecciones internas de estado de servidor (revocación, bloqueo de intentos y rate-limit distribuido)
     match /sesiones_revocadas/{jti} {
       allow read, write: if false;
     }
 
     match /bloqueos_acceso/{lockKey} {
+      allow read, write: if false;
+    }
+
+    match /rate_limits_servidor/{limitKey} {
       allow read, write: if false;
     }
 
@@ -215,6 +214,7 @@ service cloud.firestore {
         allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
         allow create, update: if isSignedIn() &&
           request.auth.uid == uid &&
+          'uid' in request.resource.data &&
           request.resource.data.uid == request.auth.uid;
         allow delete: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
       }
@@ -274,14 +274,17 @@ service cloud.firestore {
     match /solicitudes_cambio/{solicitudId} {
       allow read: if isAdmin() || (
         isActiveUser() && (
-          resource.data.solicitantePersonaId == currentPersonaId() ||
-          resource.data.destinatarioPersonaId == currentPersonaId() ||
+          (currentPersonaId() != null && 'solicitantePersonaId' in resource.data && resource.data.solicitantePersonaId == currentPersonaId()) ||
+          (currentPersonaId() != null && 'destinatarioPersonaId' in resource.data && resource.data.destinatarioPersonaId == currentPersonaId()) ||
           docMatchesUserUnit(resource.data)
         )
       );
 
       allow create: if isAdmin() || (
         isActiveUser() &&
+        'solicitantePersonaId' in request.resource.data &&
+        'destinatarioPersonaId' in request.resource.data &&
+        'estado' in request.resource.data &&
         request.resource.data.solicitantePersonaId == currentPersonaId() &&
         request.resource.data.solicitantePersonaId != request.resource.data.destinatarioPersonaId &&
         request.resource.data.estado == 'PENDIENTE_COMPAÑERO' &&
@@ -294,8 +297,11 @@ service cloud.firestore {
       );
 
       allow update: if isAdmin() || (
-        isActiveUser() && (
+        isActiveUser() &&
+        'estado' in resource.data &&
+        'estado' in request.resource.data && (
           (
+            'destinatarioPersonaId' in resource.data &&
             resource.data.destinatarioPersonaId == currentPersonaId() &&
             resource.data.estado == 'PENDIENTE_COMPAÑERO' &&
             request.resource.data.estado in ['ACEPTADA_COMPAÑERO', 'CONTRAOFERTA_COMPAÑERO', 'RECHAZADA_COMPAÑERO', 'PENDIENTE_ADMIN'] &&
@@ -312,6 +318,7 @@ service cloud.firestore {
               'motivoRechazoCompanero'
             ])
           ) || (
+            'solicitantePersonaId' in resource.data &&
             resource.data.solicitantePersonaId == currentPersonaId() &&
             resource.data.estado in ['PENDIENTE_COMPAÑERO', 'CONTRAOFERTA_COMPAÑERO'] &&
             request.resource.data.estado in ['CANCELADA', 'PENDIENTE_ADMIN', 'ACEPTADA_COMPAÑERO'] &&
@@ -335,8 +342,10 @@ service cloud.firestore {
     match /documentos_cambios_firmados/{docId} {
       allow read: if isAdmin() || (isActiveUser() && isInvolvedInSignedDoc(resource.data));
       allow create: if isAdmin() &&
+        'codigoVerificacion' in request.resource.data &&
         request.resource.data.codigoVerificacion is string &&
         request.resource.data.codigoVerificacion.size() >= 8 &&
+        'solicitudId' in request.resource.data &&
         request.resource.data.solicitudId is string;
       allow update, delete: if false;
     }
@@ -357,6 +366,9 @@ service cloud.firestore {
       allow create: if isAdmin() || (
         isActiveUser() &&
         currentUnit() == 'GUARDIA' &&
+        'titularPersonaId' in request.resource.data &&
+        'tipoAusencia' in request.resource.data &&
+        'estado' in request.resource.data &&
         request.resource.data.titularPersonaId == currentPersonaId() &&
         request.resource.data.tipoAusencia == 'AUSENCIA_SOBREVENIDA' &&
         request.resource.data.estado == 'COMUNICADA_PENDIENTE_COBERTURA' &&
@@ -366,6 +378,8 @@ service cloud.firestore {
       allow update: if isAdmin() || (
         isActiveUser() &&
         currentUnit() == 'GUARDIA' &&
+        'tipoAusencia' in request.resource.data &&
+        'estado' in request.resource.data &&
         request.resource.data.tipoAusencia == 'AUSENCIA_SOBREVENIDA' &&
         hasNoMedicalFields(request.resource.data) &&
         request.resource.data.estado in [
@@ -382,11 +396,13 @@ service cloud.firestore {
           'estado'
         ]) &&
         (
-          resource.data.titularPersonaId == currentPersonaId() ||
-          resource.data.imaginariaNotificadaPersonaId == currentPersonaId() ||
-          resource.data.imaginariaRol1PersonaId == currentPersonaId() ||
-          resource.data.imaginariaRol2PersonaId == currentPersonaId() ||
-          (resource.data.confirmacionImaginaria != null &&
+          ('titularPersonaId' in resource.data && resource.data.titularPersonaId == currentPersonaId()) ||
+          ('imaginariaNotificadaPersonaId' in resource.data && resource.data.imaginariaNotificadaPersonaId == currentPersonaId()) ||
+          ('imaginariaRol1PersonaId' in resource.data && resource.data.imaginariaRol1PersonaId == currentPersonaId()) ||
+          ('imaginariaRol2PersonaId' in resource.data && resource.data.imaginariaRol2PersonaId == currentPersonaId()) ||
+          ('confirmacionImaginaria' in resource.data &&
+           resource.data.confirmacionImaginaria != null &&
+           'personaId' in resource.data.confirmacionImaginaria &&
            resource.data.confirmacionImaginaria.personaId == currentPersonaId())
         )
       );
@@ -400,11 +416,14 @@ service cloud.firestore {
     match /ausencias_us/{ausenciaId} {
       allow read: if isAdmin() || (
         isActiveUser() && currentUnit() == 'US' &&
+        'personaId' in resource.data &&
         resource.data.personaId == currentPersonaId()
       );
 
       allow create: if isAdmin() || (
         isActiveUser() && currentUnit() == 'US' &&
+        'personaId' in request.resource.data &&
+        'estado' in request.resource.data &&
         request.resource.data.personaId == currentPersonaId() &&
         request.resource.data.estado in ['PENDIENTE_ADMIN', 'PENDIENTE'] &&
         !request.resource.data.keys().hasAny(['adminResolucionNombre', 'fechaResolucion'])
@@ -447,9 +466,9 @@ service cloud.firestore {
     match /notificaciones/{notifId} {
       allow read: if isAdmin() || (
         isActiveUser() && (
-          (currentPersonaId() != null && resource.data.destinatarioPersonaId == currentPersonaId()) ||
-          resource.data.destinatarioUid == request.auth.uid ||
-          (resource.data.esParaTodos == true &&
+          (currentPersonaId() != null && 'destinatarioPersonaId' in resource.data && resource.data.destinatarioPersonaId == currentPersonaId()) ||
+          ('destinatarioUid' in resource.data && resource.data.destinatarioUid == request.auth.uid) ||
+          ('esParaTodos' in resource.data && resource.data.esParaTodos == true &&
             (!('tipoServicio' in resource.data) || docMatchesUserUnit(resource.data)))
         )
       );
@@ -460,23 +479,25 @@ service cloud.firestore {
       allow create: if (
         isAdmin() || (
           isActiveUser() &&
-          request.resource.data.esParaTodos != true &&
+          (!('esParaTodos' in request.resource.data) || request.resource.data.esParaTodos != true) &&
           (!('tipoServicio' in request.resource.data) || docMatchesUserUnit(request.resource.data))
         )
       ) &&
       (!('tipo' in request.resource.data) || !(request.resource.data.tipo in ['MENSAJE_ADMINISTRATIVO', 'MENSAJE_CHAT'])) &&
       (!('linkTab' in request.resource.data) || request.resource.data.linkTab != 'chat');
 
-      // Un usuario solo puede marcar lectura en sus propias notificaciones o añadirse a leidoPor en globales de su unidad
+      // Un usuario solo puede marcar lectura en sus propias notificaciones (campo canónico fechaLeida)
+      // o añadirse a leidoPor en globales de su unidad; nunca alterar titulo ni mensaje.
       allow update: if isAdmin() || (
         isActiveUser() && (
           (
             (
-              (currentPersonaId() != null && resource.data.destinatarioPersonaId == currentPersonaId()) ||
-              resource.data.destinatarioUid == request.auth.uid
+              (currentPersonaId() != null && 'destinatarioPersonaId' in resource.data && resource.data.destinatarioPersonaId == currentPersonaId()) ||
+              ('destinatarioUid' in resource.data && resource.data.destinatarioUid == request.auth.uid)
             ) &&
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['leida', 'leidoPor', 'fechaLectura'])
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['leida', 'leidoPor', 'fechaLeida'])
           ) || (
+            'esParaTodos' in resource.data &&
             resource.data.esParaTodos == true &&
             (!('tipoServicio' in resource.data) || docMatchesUserUnit(resource.data)) &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['leidoPor'])
@@ -491,9 +512,9 @@ service cloud.firestore {
     // 10. TOKENS FCM EN RAÍZ (COMPATIBILIDAD COMPLEMENTARIA A cuentas/{uid}/fcmTokens)
     // ------------------------------------------------------------------------
     match /fcmTokens/{tokenId} {
-      allow read: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
-      allow create, update: if isSignedIn() && request.resource.data.uid == request.auth.uid;
-      allow delete: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow read: if isAdmin() || (isSignedIn() && 'uid' in resource.data && resource.data.uid == request.auth.uid);
+      allow create, update: if isSignedIn() && 'uid' in request.resource.data && request.resource.data.uid == request.auth.uid;
+      allow delete: if isAdmin() || (isSignedIn() && 'uid' in resource.data && resource.data.uid == request.auth.uid);
     }
 
     // ------------------------------------------------------------------------
@@ -535,8 +556,11 @@ service cloud.firestore {
     match /respaldos_sistema/{backupId} {
       allow read: if isAdmin();
       allow create: if isAdmin() &&
+        'id' in request.resource.data &&
         request.resource.data.id is string &&
+        'tipoServicio' in request.resource.data &&
         request.resource.data.tipoServicio in ['GUARDIA', 'US'] &&
+        'tipo' in request.resource.data &&
         request.resource.data.tipo in ['AUTOMATICO', 'MANUAL', 'EMERGENCIA_PRE_RESTAURACION'];
       allow update, delete: if false;
     }
@@ -547,8 +571,11 @@ service cloud.firestore {
     match /auditLogs/{logId} {
       allow read: if isAdmin();
       allow create: if isActiveUser() &&
+        'adminUid' in request.resource.data &&
         request.resource.data.adminUid == request.auth.uid &&
+        'accion' in request.resource.data &&
         request.resource.data.accion is string &&
+        'detalles' in request.resource.data &&
         request.resource.data.detalles is string;
       allow update, delete: if false;
     }
@@ -557,8 +584,8 @@ service cloud.firestore {
     match /patrullas_audit/{logId} {
       allow read: if isAdmin();
       allow create: if isActiveUser() && (
-        request.resource.data.usuarioUid == request.auth.uid ||
-        request.resource.data.adminUid == request.auth.uid
+        ('usuarioUid' in request.resource.data && request.resource.data.usuarioUid == request.auth.uid) ||
+        ('adminUid' in request.resource.data && request.resource.data.adminUid == request.auth.uid)
       );
       allow update, delete: if false;
     }

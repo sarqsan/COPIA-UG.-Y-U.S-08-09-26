@@ -170,7 +170,7 @@ export const calcularChecksumSnapshotSha256 = async (
     solicitudesCambio: [...(datos.solicitudesCambio || [])].sort((a, b) => a.id.localeCompare(b.id)),
     patrullas: [...(datos.patrullas || [])].sort((a, b) => a.id.localeCompare(b.id)),
   };
-  if (Array.isArray(datos.compensacionesImaginarias)) {
+  if (Array.isArray(datos.compensacionesImaginarias) && datos.compensacionesImaginarias.length > 0) {
     payload.compensacionesImaginarias = [...datos.compensacionesImaginarias].sort((a, b) =>
       String(a?.id || '').localeCompare(String(b?.id || ''))
     );

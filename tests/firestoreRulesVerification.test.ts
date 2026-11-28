@@ -307,6 +307,30 @@ test('FR-14 I-05: incidencias_ausencia bloquea campos médicos y solicitudes_cam
   assert.ok(solBlock.includes('firmaSolicitante'));
 });
 
+test('FR-15 3.A + 3.B + 3.G: guardas de existencia CEL, campo canónico fechaLeida y bloqueo rate_limits_servidor', () => {
+  const isUsBlock = extractMatchBlock(rules, 'function isDataUS(data)');
+  assert.ok(isUsBlock.includes("'tipoServicio' in data"), 'isDataUS debe comprobar existencia de tipoServicio');
+  assert.ok(isUsBlock.includes("'grupo' in data"), 'isDataUS debe comprobar existencia de grupo');
+  assert.ok(isUsBlock.includes("'solicitanteGrupo' in data"), 'isDataUS debe comprobar existencia de solicitanteGrupo');
+
+  const isUgBlock = extractMatchBlock(rules, 'function isDataUG(data)');
+  assert.ok(isUgBlock.includes("'tipoServicio' in data"), 'isDataUG debe comprobar existencia de tipoServicio');
+  assert.ok(isUgBlock.includes("'grupo' in data"), 'isDataUG debe comprobar existencia de grupo');
+
+  const signedBlock = extractMatchBlock(rules, 'function isInvolvedInSignedDoc(data)');
+  assert.ok(signedBlock.includes("'personaA' in data"), 'isInvolvedInSignedDoc debe comprobar existencia de personaA');
+  assert.ok(signedBlock.includes("'personaB' in data"), 'isInvolvedInSignedDoc debe comprobar existencia de personaB');
+
+  const notifBlock = extractMatchBlock(rules, 'match /notificaciones/{notifId}');
+  assert.ok(notifBlock.includes("'destinatarioPersonaId' in resource.data"), 'notificaciones debe comprobar existencia de destinatarioPersonaId');
+  assert.ok(notifBlock.includes("'esParaTodos' in resource.data"), 'notificaciones debe comprobar existencia de esParaTodos');
+  assert.ok(notifBlock.includes("'fechaLeida'"), 'notificaciones debe usar el campo canónico fechaLeida');
+  assert.ok(!notifBlock.includes("'fechaLectura'"), 'notificaciones no debe mantener el campo divergente fechaLectura');
+
+  const rlBlock = extractMatchBlock(rules, 'match /rate_limits_servidor/{limitKey}');
+  assert.ok(rlBlock.includes('allow read, write: if false;'), 'rate_limits_servidor debe estar bloqueada desde cliente');
+});
+
 console.log('\n====================================================================');
 console.log(` RESULTADO VERIFICACIÓN firestore.rules: ${passed} PASS / ${failed} FAIL`);
 console.log('====================================================================\n');

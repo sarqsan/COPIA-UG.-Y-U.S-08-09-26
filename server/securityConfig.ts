@@ -45,12 +45,39 @@ export class ProductionConfigError extends Error {
 }
 
 /**
- * Determina si el servidor se ejecuta en un entorno de producción estricto
- * (NODE_ENV=production o VERCEL_ENV=production), donde nunca se permiten
- * secretos efímeros ni almacenes en memoria silenciosos.
+ * Identifica el entorno efectivo de ejecución distinguiendo explícitamente:
+ * - 'production': VERCEL_ENV=production o ejecución fuera de Vercel con NODE_ENV=production.
+ * - 'preview': VERCEL_ENV=preview (incluso cuando Vercel inyecta NODE_ENV=production).
+ * - 'test' / 'development': entornos locales/pruebas.
+ */
+export function getDeploymentEnvironment(): 'production' | 'preview' | 'development' | 'test' {
+  const vercelEnv = (process.env.VERCEL_ENV || '').trim().toLowerCase();
+  if (vercelEnv === 'production') return 'production';
+  if (vercelEnv === 'preview') return 'preview';
+  if (vercelEnv === 'development') return 'development';
+
+  const nodeEnv = (process.env.NODE_ENV || '').trim().toLowerCase();
+  if (nodeEnv === 'production') return 'production';
+  if (nodeEnv === 'test') return 'test';
+  return 'development';
+}
+
+/**
+ * Determina si el servidor opera bajo política estricta de producción (fail-fast):
+ * - En 'production' es SIEMPRE obligatorio e incondicional (nunca secretos efímeros ni memoria silenciosa).
+ * - En 'preview' (Vercel Preview) también exige configuración completa por defecto para evitar que
+ *   una configuración incompleta active silenciosamente el almacén en memoria, salvo opt-in explícito
+ *   ALLOW_PREVIEW_ISOLATED_MODE=true (que JAMÁS tiene efecto en producción).
  */
 export function isStrictProductionEnv(): boolean {
-  return process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production';
+  const env = getDeploymentEnvironment();
+  if (env === 'production') {
+    return true;
+  }
+  if (env === 'preview') {
+    return process.env.ALLOW_PREVIEW_ISOLATED_MODE !== 'true';
+  }
+  return false;
 }
 
 function isPlaceholderSecret(val: string): boolean {

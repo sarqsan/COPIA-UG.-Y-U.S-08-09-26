@@ -32,17 +32,26 @@ import {
   createDefaultServerStore,
   chunkOperations,
   FIRESTORE_SAFE_BATCH_LIMIT,
+  PartialRestoreError,
 } from '../server/firebaseAdminStore';
 import {
   ProductionConfigError,
   assertProductionSecurityConfig,
   getAuthSessionSecret,
   getCsvHmacSecret,
+  getDeploymentEnvironment,
+  hashInvitationToken,
   hashPasswordScrypt,
   isStrictProductionEnv,
 } from '../server/securityConfig';
 import { ALL_SYSTEM_COLLECTIONS } from '../src/services/dataIntegrityInventoryService';
-import { calcularChecksumSnapshot, calcularEstadisticasSnapshot } from '../src/services/backupDataFilter';
+import {
+  calcularChecksumSnapshot,
+  calcularChecksumSnapshotSha256,
+  calcularEstadisticasSnapshot,
+} from '../src/services/backupDataFilter';
+import { buildMarkNotificationReadPayload } from '../src/services/notificacionesService';
+import apiHandler from '../api/[...route]';
 import {
   PROTECCION_DATOS_TEXTO_ID,
   PROTECCION_DATOS_AVISO_VERSION,
@@ -541,7 +550,7 @@ async function runSuite() {
       assert.equal(rBroadcast.json.code, 'BROADCAST_PUSH_FORBIDDEN');
     });
 
-    await test('I-03.2: Usuario U.G. bloqueado al enviar push a usuario U.S. (403 cross-unit) o destinatario inexistente (404)', async () => {
+    await test('I-03.2 + 3.I: Usuario U.G. bloqueado con respuesta 403 homogénea ante destinatario U.S. o inexistente (anti-enumeración)', async () => {
       const rCross = await httpJson(baseUrl, 'POST', '/api/push/send', {
         headers: { Authorization: `Bearer ${ug1Token}` },
         body: {
@@ -550,7 +559,7 @@ async function runSuite() {
         },
       });
       assert.equal(rCross.status, 403);
-      assert.equal(rCross.json.code, 'CROSS_UNIT_PUSH_FORBIDDEN');
+      assert.equal(rCross.json.code, 'PUSH_TARGET_UNAVAILABLE_OR_FORBIDDEN');
 
       const rInvalid = await httpJson(baseUrl, 'POST', '/api/push/send', {
         headers: { Authorization: `Bearer ${ug1Token}` },
@@ -559,8 +568,13 @@ async function runSuite() {
           payload: { titulo: 'Inexistente', mensaje: 'Test', linkTab: 'solicitudes', tipo: 'NUEVA_SOLICITUD_CAMBIO' },
         },
       });
-      assert.equal(rInvalid.status, 404);
-      assert.equal(rInvalid.json.code, 'PUSH_TARGET_INVALID');
+      assert.equal(rInvalid.status, 403);
+      assert.equal(rInvalid.json.code, 'PUSH_TARGET_UNAVAILABLE_OR_FORBIDDEN');
+      assert.equal(
+        rCross.json.error,
+        rInvalid.json.error,
+        'Cross-unit e inexistente deben responder idéntico status, code y mensaje para evitar enumeración'
+      );
     });
 
     await test('I-03.3: Usuario U.G. envía push a compañero de su misma unidad o a ADMIN -> servidor resuelve tokens legítimos', async () => {
@@ -866,22 +880,420 @@ async function runSuite() {
     });
 
     // -----------------------------------------------------------------------
-    // M-03 y M-05: Constatación de Aviso v4 intacto y guard de auditLogs
+    // 3.E: Backup de emergencia completo + fallo parcial simulado entre lotes + recuperación total
     // -----------------------------------------------------------------------
-    await test('M-03 + M-05: Aviso de Privacidad v4 (versión/ID/hash) intacto y auditLogs en ausenciasUSService acotado a ADMIN', () => {
+    await test('3.E: Fallo parcial simulado entre lotes se detecta, documenta y revierte completamente con backupEmergenciaId (U.G. y U.S.)', async () => {
+      const serviciosUGViejos = Array.from({ length: 10 }, (_, i) => ({
+        id: `srv-ug-prev-${i + 1}`,
+        fecha: `2026-11-${String(i + 1).padStart(2, '0')}`,
+      }));
+      const serviciosUGRestaurar = Array.from({ length: 450 }, (_, i) => ({
+        id: `srv-ug-new-${i + 1}`,
+        fecha: `2026-10-${String((i % 28) + 1).padStart(2, '0')}`,
+      }));
+
+      const recoveryStore = createInMemoryServerStore({
+        accounts: [
+          {
+            id: 'admin-1',
+            uid: 'admin-1',
+            personaId: null,
+            username: 'admin1',
+            email: 'admin1@example.invalid',
+            nombre: 'Admin',
+            rol: 'ADMIN',
+            activo: true,
+            tipoServicio: 'GUARDIA',
+            fechaCreacion: '2026-01-01T00:00:00.000Z',
+            ultimoAcceso: '2026-01-01T00:00:00.000Z',
+          } as any,
+        ],
+        personas: [
+          { id: 'pers-ug-1', nombre: 'ORIGINAL UG', alias: 'OrigUG', grupo: 'U.G.', tipoServicio: 'GUARDIA', activo: true } as any,
+          { id: 'pers-us-keep', nombre: 'INTACTO US', alias: 'KeepUS', grupo: 'US_SEGURIDAD', tipoServicio: 'US', activo: true } as any,
+        ],
+        cuadrantes: [
+          { id: 'cuad-ug-prev', tipoServicio: 'GUARDIA', grupo: 'U.G.', nombre: 'UG Previo Original' },
+          { id: 'cuad-us-keep', tipoServicio: 'US', grupo: 'US_SEGURIDAD', nombre: 'US Intacto' },
+        ],
+        serviciosPorCuadrante: {
+          'cuad-ug-prev': serviciosUGViejos,
+          'cuad-us-keep': [{ id: 'srv-us-keep-1', fecha: '2026-11-01' }],
+        },
+        incidenciasAusencia: [
+          { id: 'inc-ug-prev-1', titularPersonaId: 'pers-ug-1', estado: 'COMUNICADA_PENDIENTE_COBERTURA', tipoServicio: 'GUARDIA' },
+        ],
+        patrullas: [
+          { id: 'pat-ug-prev-1', numero: 12, descripcion: 'Patrulla original' },
+        ],
+        solicitudesCambio: [
+          { id: 'sol-ug-prev-1', tipoServicio: 'GUARDIA', solicitanteGrupo: 'U.G.', estado: 'PENDIENTE_COMPAÑERO' },
+          { id: 'sol-us-keep-1', tipoServicio: 'US', solicitanteGrupo: 'US_SEGURIDAD', estado: 'PENDIENTE_ADMIN' },
+        ],
+        backups: [
+          {
+            id: 'BKP-UG-MULTI-BATCH',
+            tipoServicio: 'GUARDIA',
+            tipo: 'MANUAL',
+            fechaCreacion: '2026-10-15T08:00:00.000Z',
+            datos: {
+              tipoServicio: 'GUARDIA',
+              cuadrantes: [{ id: 'cuad-ug-new', tipoServicio: 'GUARDIA', grupo: 'U.G.', nombre: 'UG Nuevo' }],
+              serviciosPorCuadrante: { 'cuad-ug-new': serviciosUGRestaurar },
+              personas: [{ id: 'pers-ug-1', nombre: 'ALTERADO POR BKP', alias: 'AltUG', grupo: 'U.G.', tipoServicio: 'GUARDIA', activo: true }],
+              ausenciasIncidencias: [{ id: 'inc-ug-prev-1', titularPersonaId: 'pers-ug-1', estado: 'RESUELTA_APROBADA', tipoServicio: 'GUARDIA' }],
+              patrullas: [{ id: 'pat-ug-prev-1', numero: 12, descripcion: 'Patrulla alterada' }],
+              solicitudesCambio: [{ id: 'sol-ug-prev-1', tipoServicio: 'GUARDIA', solicitanteGrupo: 'U.G.', estado: 'APROBADA_ADMIN' }],
+            },
+          },
+        ],
+      });
+
+      // 1. Simular fallo transitorio justo antes del 2º lote de escritura (después de haber borrado y escrito lote 1)
+      let capturedError: any = null;
+      try {
+        await recoveryStore.restoreBackupByUnitAdmin(
+          'BKP-UG-MULTI-BATCH',
+          { uid: 'admin-1', nombre: 'Admin' },
+          {
+            onBeforeBatchCommit: ({ phase, batchIndex }) => {
+              if (phase === 'WRITE' && batchIndex === 2) {
+                throw new Error('Error simulado de red entre lotes de escritura');
+              }
+            },
+          }
+        );
+      } catch (err) {
+        capturedError = err;
+      }
+
+      assert.ok(capturedError instanceof PartialRestoreError, 'Debe lanzar PartialRestoreError tipado');
+      assert.equal(capturedError.code, 'RESTORE_PARTIAL_FAILURE');
+      assert.equal(capturedError.faseFallo, 'WRITE');
+      assert.equal(capturedError.loteFallido, 2);
+      assert.ok(capturedError.lotesCompletados >= 2, 'Debe registrar lotes completados previos (DELETE + WRITE lote 1)');
+      assert.equal(capturedError.recuperableConBackupEmergencia, true);
+      assert.ok(capturedError.backupEmergenciaId.startsWith('backup-emerg-guardia-'));
+
+      const midState = recoveryStore.__inspectMemoryState!();
+      // Verificar que el backup de emergencia se completó ANTES de borrar e incluye TODAS las colecciones modificables
+      const emergDoc = midState.backups.get(capturedError.backupEmergenciaId);
+      assert.ok(emergDoc, 'El respaldo de emergencia debe existir tras el fallo parcial');
+      assert.deepEqual(
+        emergDoc.coleccionesIncluidas,
+        ['cuadrantes', 'servicios', 'personas', 'incidencias_ausencia', 'patrullas', 'solicitudes_cambio']
+      );
+      assert.equal(emergDoc.conteoPorColeccion.cuadrantes, 1);
+      assert.equal(emergDoc.conteoPorColeccion.servicios, 10);
+      assert.equal(emergDoc.conteoPorColeccion.personas, 1);
+      assert.equal(emergDoc.conteoPorColeccion.incidencias_ausencia, 1);
+      assert.equal(emergDoc.conteoPorColeccion.patrullas, 1);
+      assert.equal(emergDoc.conteoPorColeccion.solicitudes_cambio, 1);
+      assert.ok(
+        midState.auditLogs.some((l) => l.event === 'RESTAURACION_FALLO_PARCIAL'),
+        'El fallo parcial debe quedar auditado explícitamente'
+      );
+
+      // 2. Procedimiento de recuperación coherente usando el backup de emergencia
+      const rollbackRes = await recoveryStore.restoreBackupByUnitAdmin(
+        capturedError.backupEmergenciaId,
+        { uid: 'admin-1', nombre: 'Admin' }
+      );
+      assert.equal(rollbackRes.success, true);
+
+      const finalState = recoveryStore.__inspectMemoryState!();
+      assert.ok(finalState.cuadrantes.has('cuad-ug-prev'), 'Cuadrante previo U.G. recuperado íntegramente');
+      assert.ok(!finalState.cuadrantes.has('cuad-ug-new'), 'Cuadrante parcial fallido limpiado en la recuperación');
+      assert.equal(finalState.serviciosPorCuadrante.get('cuad-ug-prev')?.size, 10, 'Los 10 servicios previos recuperados');
+      assert.equal(finalState.personas.get('pers-ug-1')?.alias, 'OrigUG', 'Persona U.G. revertida a estado previo');
+      assert.equal(
+        finalState.incidenciasAusencia.get('inc-ug-prev-1')?.estado,
+        'COMUNICADA_PENDIENTE_COBERTURA',
+        'Incidencia U.G. revertida a estado previo'
+      );
+      assert.equal(
+        finalState.patrullas.get('pat-ug-prev-1')?.descripcion,
+        'Patrulla original',
+        'Patrulla U.G. revertida a estado previo'
+      );
+      assert.equal(
+        finalState.solicitudesCambio.get('sol-ug-prev-1')?.estado,
+        'PENDIENTE_COMPAÑERO',
+        'Solicitud U.G. revertida a estado previo'
+      );
+
+      // Unidad contraria U.S. 100% intacta durante todo el incidente y la recuperación
+      assert.ok(finalState.cuadrantes.has('cuad-us-keep'));
+      assert.equal(finalState.personas.get('pers-us-keep')?.alias, 'KeepUS');
+      assert.equal(finalState.solicitudesCambio.get('sol-us-keep-1')?.estado, 'PENDIENTE_ADMIN');
+    });
+
+    // -----------------------------------------------------------------------
+    // 3.G: Limitador de verificación documental distribuido entre instancias
+    // -----------------------------------------------------------------------
+    await test('3.G: documentoVerifyLimiter comparte el contador entre dos instancias Express independientes sobre el mismo store', async () => {
+      const sharedStore = createInMemoryServerStore();
+      const { app: appA } = await createServerApp({
+        store: sharedStore,
+        enableFrontendMiddleware: false,
+        documentoVerifyMaxRequests: 4,
+      });
+      const { app: appB } = await createServerApp({
+        store: sharedStore,
+        enableFrontendMiddleware: false,
+        documentoVerifyMaxRequests: 4,
+      });
+
+      const srvA = await new Promise<http.Server>((resolve) => {
+        const s = appA.listen(0, '127.0.0.1', () => resolve(s));
+      });
+      const srvB = await new Promise<http.Server>((resolve) => {
+        const s = appB.listen(0, '127.0.0.1', () => resolve(s));
+      });
+      try {
+        const urlA = `http://127.0.0.1:${(srvA.address() as any).port}`;
+        const urlB = `http://127.0.0.1:${(srvB.address() as any).port}`;
+
+        // 2 peticiones a instancia A + 2 peticiones a instancia B = 4 permitidas
+        assert.equal((await httpJson(urlA, 'GET', '/api/documentos/verificar/CSV-AAAAAAAAAAAA-BBBBBBBBBBBB')).status, 404);
+        assert.equal((await httpJson(urlA, 'GET', '/api/documentos/verificar/CSV-AAAAAAAAAAAA-BBBBBBBBBBBB')).status, 404);
+        assert.equal((await httpJson(urlB, 'GET', '/api/documentos/verificar/CSV-AAAAAAAAAAAA-BBBBBBBBBBBB')).status, 404);
+        assert.equal((await httpJson(urlB, 'GET', '/api/documentos/verificar/CSV-AAAAAAAAAAAA-BBBBBBBBBBBB')).status, 404);
+
+        // 5ª petición a instancia A debe recibir 429 porque el contador es compartido
+        const r5 = await httpJson(urlA, 'GET', '/api/documentos/verificar/CSV-AAAAAAAAAAAA-BBBBBBBBBBBB');
+        assert.equal(r5.status, 429, 'La 5ª petición cross-instancia debe quedar limitada con 429');
+        assert.equal(r5.json.code, 'RATE_LIMITED');
+      } finally {
+        await new Promise<void>((resolve) => srvA.close(() => resolve()));
+        await new Promise<void>((resolve) => srvB.close(() => resolve()));
+      }
+    });
+
+    // -----------------------------------------------------------------------
+    // 3.H: Vercel Preview vs Production y respuesta 503 sin fuga de nombres de variables
+    // -----------------------------------------------------------------------
+    await test('3.H: Distinción production/preview (fail-fast por defecto, sin memoria silenciosa) y 503 sin nombres de env vars', async () => {
+      await withEnv(
+        {
+          NODE_ENV: 'production',
+          VERCEL_ENV: 'preview',
+          ALLOW_PREVIEW_ISOLATED_MODE: undefined,
+          AUTH_SESSION_SECRET: undefined,
+          CSV_HMAC_SECRET: undefined,
+          FIREBASE_SERVICE_ACCOUNT_JSON: undefined,
+          GOOGLE_APPLICATION_CREDENTIALS: undefined,
+        },
+        async () => {
+          assert.equal(getDeploymentEnvironment(), 'preview');
+          assert.equal(isStrictProductionEnv(), true, 'Preview sin opt-in no debe caer silenciosamente a memoria');
+
+          // Probar directamente el handler HTTP de api/[...route].ts
+          const srv = await new Promise<http.Server>((resolve) => {
+            const s = http.createServer((req, res) => {
+              void apiHandler(req, res);
+            });
+            s.listen(0, '127.0.0.1', () => resolve(s));
+          });
+          try {
+            const port = (srv.address() as any).port;
+            const resp = await httpJson(`http://127.0.0.1:${port}`, 'GET', '/api/proteccion-datos/aviso');
+            assert.equal(resp.status, 503);
+            assert.equal(resp.json.code, 'SERVER_CONFIG_INCOMPLETE');
+            assert.ok(!resp.text.includes('AUTH_SESSION_SECRET'), '503 público no debe filtrar AUTH_SESSION_SECRET');
+            assert.ok(!resp.text.includes('CSV_HMAC_SECRET'), '503 público no debe filtrar CSV_HMAC_SECRET');
+            assert.ok(!resp.text.includes('FIREBASE_SERVICE_ACCOUNT_JSON'), '503 público no debe filtrar FIREBASE_SERVICE_ACCOUNT_JSON');
+            assert.ok(!resp.text.includes('GOOGLE_APPLICATION_CREDENTIALS'), '503 público no debe filtrar GOOGLE_APPLICATION_CREDENTIALS');
+          } finally {
+            await new Promise<void>((resolve) => srv.close(() => resolve()));
+          }
+        }
+      );
+
+      // En production, ALLOW_PREVIEW_ISOLATED_MODE jamás puede desactivar el fail-fast
+      await withEnv(
+        {
+          NODE_ENV: 'production',
+          VERCEL_ENV: 'production',
+          ALLOW_PREVIEW_ISOLATED_MODE: 'true',
+        },
+        () => {
+          assert.equal(getDeploymentEnvironment(), 'production');
+          assert.equal(isStrictProductionEnv(), true, 'En producción ningún flag puede desactivar el fail-fast');
+        }
+      );
+
+      // En preview, solo el opt-in explícito permite modo aislado sin credenciales
+      await withEnv(
+        {
+          NODE_ENV: 'production',
+          VERCEL_ENV: 'preview',
+          ALLOW_PREVIEW_ISOLATED_MODE: 'true',
+        },
+        () => {
+          assert.equal(getDeploymentEnvironment(), 'preview');
+          assert.equal(isStrictProductionEnv(), false);
+        }
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // 3.B + 3.I: Payload mínimo de marcado de notificaciones, checksum simétrico, /api/auth/me minimizado y package.json
+    // -----------------------------------------------------------------------
+    await test('3.B + 3.I: Payload notificaciones sin titulo/mensaje con fechaLeida, checksum simétrico, /api/auth/me minimizado y sin vite duplicado', async () => {
+      // 1. Notificación individual -> solo leidoPor, leida, fechaLeida (sin titulo ni mensaje)
+      const privPayload = buildMarkNotificationReadPayload(
+        { destinatarioPersonaId: 'pers-ug-1' },
+        'ug-1',
+        '2026-11-28T12:00:00.000Z',
+        false
+      );
+      assert.deepEqual(Object.keys(privPayload).sort(), ['fechaLeida', 'leida', 'leidoPor']);
+      assert.equal(privPayload.leida, true);
+      assert.equal(privPayload.fechaLeida, '2026-11-28T12:00:00.000Z');
+      assert.equal('titulo' in privPayload, false);
+      assert.equal('mensaje' in privPayload, false);
+
+      // 2. Notificación global -> únicamente leidoPor (sin leida, fechaLeida, titulo ni mensaje)
+      const globalPayload = buildMarkNotificationReadPayload(
+        { esParaTodos: true },
+        ['ug-1', 'pers-ug-1'],
+        '2026-11-28T12:00:00.000Z',
+        false
+      );
+      assert.deepEqual(Object.keys(globalPayload), ['leidoPor']);
+
+      // 3. Simetría exacta de ambos checksums para compensacionesImaginarias undefined vs []
+      const baseSnap: any = {
+        tipoServicio: 'US',
+        cuadrantes: [],
+        serviciosPorCuadrante: {},
+        personas: [],
+        ausenciasIncidencias: [],
+        solicitudesCambio: [],
+      };
+      const emptyArrSnap: any = { ...baseSnap, compensacionesImaginarias: [] };
+      assert.equal(
+        calcularChecksumSnapshot(baseSnap),
+        calcularChecksumSnapshot(emptyArrSnap),
+        'Checksum síncrono debe ser idéntico para undefined y []'
+      );
+      assert.equal(
+        await calcularChecksumSnapshotSha256(baseSnap),
+        await calcularChecksumSnapshotSha256(emptyArrSnap),
+        'Checksum SHA-256 debe ser simétrico e idéntico para undefined y []'
+      );
+
+      // 4. GET /api/auth/me minimiza persona sin filtrar teléfono, email personal, DNI ni nombre histórico
+      const rMe = await httpJson(baseUrl, 'GET', '/api/auth/me', {
+        headers: { Authorization: `Bearer ${ug1Token}` },
+      });
+      assert.equal(rMe.status, 200);
+      assert.equal(rMe.json.persona.id, 'pers-ug-1');
+      assert.equal(rMe.json.persona.telefono, undefined, '/api/auth/me no debe exponer teléfono en persona');
+      assert.equal(rMe.json.persona.email, undefined, '/api/auth/me no debe exponer email personal en persona');
+      assert.equal(rMe.json.persona.dni, undefined, '/api/auth/me no debe exponer DNI en persona');
+
+      const rMeUs = await httpJson(baseUrl, 'GET', '/api/auth/me', {
+        headers: { Authorization: `Bearer ${us1Token}` },
+      });
+      assert.equal(rMeUs.status, 200);
+      assert.equal(rMeUs.json.persona.id, 'pers-us-1');
+      assert.equal(rMeUs.json.persona.alias, 'AlfaUS');
+      assert.equal(rMeUs.json.persona.telefono, undefined);
+
+      // 4b. POST /api/auth/invitaciones/completar también proyecta persona minimizada
+      const inviteStore = createInMemoryServerStore({
+        personas: [
+          {
+            id: 'pers-inv-1',
+            nombre: 'NOMBRE SENSIBLE INVITADO',
+            empleo: 'Guardia',
+            grupo: 'U.G.',
+            activo: true,
+            telefono: '699111222',
+            email: 'personal-privado@example.invalid',
+            dni: '99999999Z',
+          } as any,
+        ],
+      });
+      const rawInviteToken = 'inv-1.secret-prueba-minimizacion-0123456789';
+      await inviteStore.saveInvitation({
+        tokenId: 'inv-1',
+        tokenHash: hashInvitationToken(rawInviteToken),
+        grupo: 'U.G.',
+        tipoServicio: 'GUARDIA',
+        personaId: 'pers-inv-1',
+        personaNombreSugerido: 'Personal Operativo',
+        creadoPorUid: 'admin-1',
+        creadoPorNombre: 'Admin',
+        fechaCreacion: new Date().toISOString(),
+        fechaExpiracion: new Date(Date.now() + 86400000).toISOString(),
+        usado: false,
+      });
+      const { app: inviteApp } = await createServerApp({
+        store: inviteStore,
+        enableFrontendMiddleware: false,
+        disableRateLimit: true,
+      });
+      const inviteSrv = await new Promise<http.Server>((resolve) => {
+        const s = inviteApp.listen(0, '127.0.0.1', () => resolve(s));
+      });
+      try {
+        const inviteUrl = `http://127.0.0.1:${(inviteSrv.address() as any).port}`;
+        const rInv = await httpJson(inviteUrl, 'POST', '/api/auth/invitaciones/completar', {
+          body: {
+            token: rawInviteToken,
+            username: 'nuevo_ug_min',
+            email: 'nuevo-ug@example.invalid',
+            password: 'ClaveSegura#2026!',
+            alias: 'BravoMin01',
+          },
+        });
+        assert.equal(rInv.status, 201);
+        assert.equal(rInv.json.persona.id, 'pers-inv-1');
+        assert.equal(rInv.json.persona.telefono, undefined, '/api/auth/invitaciones/completar no debe exponer teléfono');
+        assert.equal(rInv.json.persona.dni, undefined, '/api/auth/invitaciones/completar no debe exponer DNI');
+        assert.equal(rInv.json.persona.email, undefined, '/api/auth/invitaciones/completar no debe exponer email de persona');
+      } finally {
+        await new Promise<void>((resolve) => inviteSrv.close(() => resolve()));
+      }
+
+      // 5. package.json no duplica vite en dependencies
+      const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+      assert.equal(pkg.dependencies.vite, undefined, 'vite no debe duplicarse en dependencies');
+      assert.ok(pkg.devDependencies.vite, 'vite debe permanecer en devDependencies');
+    });
+
+    // -----------------------------------------------------------------------
+    // M-03, M-05 y 3.F: Constatación de Aviso v4 intacto y protección estricta en ausenciasUSService
+    // -----------------------------------------------------------------------
+    await test('M-03 + M-05 + 3.F: Aviso de Privacidad v4 intacto; reconstruirAusenciasUSDesdeCuadrantes restringe auditLogs y setDoc a ADMIN explícito', () => {
       assert.equal(PROTECCION_DATOS_AVISO_VERSION, '2026-11-27-v4');
       assert.equal(PROTECCION_DATOS_TEXTO_ID, 'aviso-proteccion-datos-ug-us-2026-11-27-v4');
       assert.match(avisoHashSha256, /^[a-f0-9]{64}$/);
 
       const ausSrc = fs.readFileSync(path.join(repoRoot, 'src/services/ausenciasUSService.ts'), 'utf8');
       assert.ok(
-        ausSrc.includes("if (options?.isAdmin !== false)"),
-        'M-05: La lectura de auditLogs en reconstruirAusenciasUSDesdeCuadrantes debe estar condicionada a ADMIN'
+        ausSrc.includes('if (options?.isAdmin === true)'),
+        'M-05: La lectura de auditLogs en reconstruirAusenciasUSDesdeCuadrantes debe requerir isAdmin === true'
+      );
+      assert.ok(
+        ausSrc.includes('if (options?.isAdmin === true && !isImpersonating())'),
+        '3.F: Las escrituras setDoc de reconstrucción masiva deben estar estrictamente reservadas a isAdmin === true'
       );
       const portalSrc = fs.readFileSync(path.join(repoRoot, 'src/pages/UserPortalPage.tsx'), 'utf8');
       assert.ok(
         portalSrc.includes('isAdmin: false'),
         'UserPortalPage debe pasar isAdmin: false al cargar/suscribir ausencias U.S.'
+      );
+      const notifModalSrc = fs.readFileSync(
+        path.join(repoRoot, 'src/components/notificaciones/NotificacionesModal.tsx'),
+        'utf8'
+      );
+      assert.ok(
+        notifModalSrc.includes('marcarTodasNotificacionesLeidas(personaId, uid, isAdmin, tipoServicio)'),
+        '3.B: NotificacionesModal debe propagar tipoServicio en marcarTodasNotificacionesLeidas'
       );
     });
   } finally {
